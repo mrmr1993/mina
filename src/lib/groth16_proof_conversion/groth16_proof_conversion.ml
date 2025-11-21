@@ -68,6 +68,8 @@ module type Inputs = sig
       type t
 
       val sparse_mul : t -> t -> t
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
   end
 
@@ -183,14 +185,16 @@ module Make (Inputs : Inputs) = struct
                     Fp12.Circuit.sparse_mul g
                       (G2Line.Circuit.psi gamma_line pi_cache)
                   in
-
-                  ignore (g : _) ;
+                  let g = ref g in
 
                   t :=
                     G2Affine.Circuit.double_from_line !t
                       (G2Line.Circuit.lambda b_line) ;
 
-                  ()
+                  lines_hashes.(!idx) <-
+                    Random_oracle.Checked.hash
+                      (Random_oracle.Checked.pack_input
+                         (Fp12.Circuit.to_input !g) )
                 done ;
 
                 let public_output =
