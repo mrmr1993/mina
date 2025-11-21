@@ -120,17 +120,7 @@ struct
 
   let gamma_lines = LineParser.parse begin_ end_ VK.gamma_lines
 
-  let ate_loop (acc, lines_hashes, all_b_lines) =
-    let a_cache =
-      AffineCache.Circuit.create (Accumulator.Circuit.Proof.negA !acc)
-    in
-    let c_cache =
-      AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
-    in
-    let pi_cache =
-      AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
-    in
-
+  let ate_loop (acc, lines_hashes, all_b_lines) (a_cache, c_cache, pi_cache) =
     let t =
       if begin_ = 1 then
         let b = Accumulator.Circuit.Proof.b !acc in
@@ -242,7 +232,20 @@ struct
                   (Accumulator.Circuit.g_digest !acc)
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
 
-                Ate_loop.ate_loop (acc, lines_hashes, all_b_lines) ;
+                let a_cache =
+                  AffineCache.Circuit.create
+                    (Accumulator.Circuit.Proof.negA !acc)
+                in
+                let c_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
+                in
+                let pi_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
+                in
+
+                Ate_loop.ate_loop
+                  (acc, lines_hashes, all_b_lines)
+                  (a_cache, c_cache, pi_cache) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
@@ -385,7 +388,20 @@ module Make_zkp6 (Inputs : Inputs) = struct
                   (Accumulator.Circuit.g_digest !acc)
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
 
-                Ate_loop.ate_loop (acc, lines_hashes, all_b_lines) ;
+                let a_cache =
+                  AffineCache.Circuit.create
+                    (Accumulator.Circuit.Proof.negA !acc)
+                in
+                let c_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
+                in
+                let pi_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
+                in
+
+                Ate_loop.ate_loop
+                  (acc, lines_hashes, all_b_lines)
+                  (a_cache, c_cache, pi_cache) ;
 
                 (* frobenius part: *)
                 let frob_line_cnt = ref 0 in
