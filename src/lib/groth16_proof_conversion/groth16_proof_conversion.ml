@@ -1,6 +1,14 @@
 open Pickles.Impls.Step
 
 module type Inputs = sig
+  module Accumulator : sig
+    type t
+
+    type circuit
+
+    val typ : (circuit, t) Typ.t
+  end
+
   module ATE_LOOP_COUNT : sig
     val length : int
   end
@@ -9,6 +17,14 @@ module type Inputs = sig
     val delta_lines : 'a
 
     val gamma_lines : 'a
+  end
+
+  module G2Line : sig
+    type t
+
+    type circuit
+
+    val typ : (t, circuit) Typ.t
   end
 
   module LineParser : sig
@@ -30,7 +46,10 @@ module Make (Inputs : Inputs) = struct
   let tags, cache, proof, provers =
     Pickles.compile
       ~public_input:(Input_and_output (Typ.unit, Typ.unit))
-      ~auxiliary_typ:Typ.unit
+      ~auxiliary_typ:
+        (Typ.tuple3 Accumulator.typ
+           (Typ.array ~length:ATE_LOOP_COUNT.length Field.typ)
+           (Typ.array ~length:91 G2Line.typ) )
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:"groth16_conversion_0"
       ~choices:(fun ~self:_ -> [])
