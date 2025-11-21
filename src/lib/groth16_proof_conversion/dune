@@ -2,5 +2,6 @@
  (public_name groth16_proof_conversion)
  (name groth16_proof_conversion)
  (libraries
+  random_oracle
   pickles)
 )

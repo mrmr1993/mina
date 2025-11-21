@@ -4,9 +4,13 @@ module type Inputs = sig
   module Accumulator : sig
     type t
 
-    type circuit
+    module Circuit : sig
+      type t
 
-    val typ : (circuit, t) Typ.t
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
   end
 
   module ATE_LOOP_COUNT : sig
@@ -58,10 +62,26 @@ module Make (Inputs : Inputs) = struct
         [ { identifier = "groth16_conversion_0"
           ; prevs = []
           ; main =
-              (fun { public_input } ->
-                ignore (public_input : Field.t) ;
+              (fun { public_input = input } ->
+                let acc, lines_hashes, all_b_lines =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+                (* Accomodate rampant mutability in o1js *)
+                let acc = ref acc in
+                ignore (lines_hashes : Field.t array) ;
+                ignore (all_b_lines : G2Line.circuit array) ;
+                Field.Assert.equal input
+                  (Random_oracle.Checked.hash
+                     (Random_oracle.Checked.pack_input
+                        (Accumulator.Circuit.to_input !acc) ) ) ;
+                let public_output =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (Accumulator.Circuit.to_input !acc) )
+                in
                 { previous_proof_statements = []
-                ; public_output = Field.zero (* TODO *)
+                ; public_output
                 ; auxiliary_output = ()
                 } )
           ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
