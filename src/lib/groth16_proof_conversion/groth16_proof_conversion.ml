@@ -521,6 +521,23 @@ struct
   open Range
   open Inputs
 
+  let update_f acc g_chunk =
+    let f = ref (Accumulator.Circuit.f !acc) in
+
+    let idx = ref 0 in
+
+    for i = 1 + prefix to prefix + iterations do
+      f := Fp12.Circuit.mul (Fp12.Circuit.square !f) g_chunk.(!idx) ;
+      if ate_loop_count.(i) = 1 then
+        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_inv !acc)
+      else if ate_loop_count.(i) = -1 then
+        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c !acc)
+      else () ;
+      idx := !idx + 1
+    done ;
+
+    acc := Accumulator.Circuit.set_f !acc !f
+
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
       (Typ.tuple3
@@ -559,22 +576,7 @@ struct
                 in
                 Field.Assert.equal (Accumulator.Circuit.g_digest !acc) opening ;
 
-                let f = ref (Accumulator.Circuit.f !acc) in
-
-                let idx = ref 0 in
-
-                for i = 1 + prefix to prefix + iterations do
-                  f := Fp12.Circuit.mul (Fp12.Circuit.square !f) g_chunk.(!idx) ;
-                  if ate_loop_count.(i) = 1 then
-                    f :=
-                      Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_inv !acc)
-                  else if ate_loop_count.(i) = -1 then
-                    f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c !acc)
-                  else () ;
-                  idx := !idx + 1
-                done ;
-
-                acc := Accumulator.Circuit.set_f !acc !f ;
+                update_f acc g_chunk ;
 
                 let public_output =
                   Random_oracle.Checked.hash
