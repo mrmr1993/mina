@@ -1,6 +1,28 @@
 open Pickles.Impls.Step
 
 module type Inputs = sig
+  module Fp12 : sig
+    type t
+
+    module Circuit : sig
+      type t
+
+      val sparse_mul : t -> t -> t
+
+      val one : unit -> t
+
+      val square : t -> t
+
+      val mul : t -> t -> t
+
+      val assert_equal : t -> t -> unit
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
   module G2Affine : sig
     module Circuit : sig
       type t
@@ -37,6 +59,10 @@ module type Inputs = sig
 
       val set_t : t -> G2Affine.Circuit.t -> t
 
+      val f : t -> Fp12.Circuit.t
+
+      val set_f : t -> Fp12.Circuit.t -> t
+
       module Proof : sig
         val negA : t -> 'a
 
@@ -60,6 +86,9 @@ module type Inputs = sig
   module ArrayListHasher : sig
     module Circuit : sig
       val hash : Field.t array -> Field.t
+
+      val open_ :
+        Field.t array -> Fp12.Circuit.t array -> Field.t array -> Field.t
     end
   end
 
@@ -75,22 +104,6 @@ module type Inputs = sig
     val delta_lines : 'a
 
     val gamma_lines : 'a
-  end
-
-  module Fp12 : sig
-    module Circuit : sig
-      type t
-
-      val sparse_mul : t -> t -> t
-
-      val one : unit -> t
-
-      val mul : t -> t -> t
-
-      val assert_equal : t -> t -> unit
-
-      val to_input : t -> Field.t Random_oracle_input.Chunked.t
-    end
   end
 
   module G2Line : sig
@@ -480,6 +493,76 @@ module Make_zkp6 (Inputs : Inputs) = struct
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
                 acc := Accumulator.Circuit.set_t !acc !t ;
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
+
+                let public_output =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (Accumulator.Circuit.to_input !acc) )
+                in
+                { previous_proof_statements = []
+                ; public_output
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
+      ()
+end
+
+module Make_zkp7 (Inputs : Inputs) = struct
+  open Inputs
+
+  let zkp_id = 7
+
+  let auxiliary_input_typ =
+    Typ.tuple3 Accumulator.typ
+      (Typ.array ~length:9 Fp12.typ)
+      (Typ.array ~length:(Array.length ate_loop_count - 9) Field.typ)
+
+  let tags, cache, proof, provers =
+    Pickles.compile
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
+      ~auxiliary_typ:Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(Format.sprintf "zkp%i" zkp_id)
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "main"
+          ; prevs = []
+          ; main =
+              (fun { public_input = input } ->
+                let acc, g_chunk, rhs_lines_hashes =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+                (* Accomodate rampant mutability in o1js *)
+                let acc = ref acc in
+
+                Field.Assert.equal input
+                  (Random_oracle.Checked.hash
+                     (Random_oracle.Checked.pack_input
+                        (Accumulator.Circuit.to_input !acc) ) ) ;
+
+                let opening =
+                  ArrayListHasher.Circuit.open_ [||] g_chunk rhs_lines_hashes
+                in
+                Field.Assert.equal (Accumulator.Circuit.g_digest !acc) opening ;
+
+                let f = ref (Accumulator.Circuit.f !acc) in
+
+                let idx = ref 0 in
+
+                for i = 1 to 10 - 1 do
+                  f := Fp12.Circuit.mul (Fp12.Circuit.square !f) g_chunk.(!idx) ;
+                  if ate_loop_count.(i) = 1 then
+                    f :=
+                      Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_inv !acc)
+                  else if ate_loop_count.(i) = -1 then
+                    f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c !acc)
+                  else () ;
+                  idx := !idx + 1
+                done ;
+
+                acc := Accumulator.Circuit.set_f !acc !f ;
 
                 let public_output =
                   Random_oracle.Checked.hash
