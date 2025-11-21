@@ -1,6 +1,20 @@
 open Pickles.Impls.Step
 
 module type Inputs = sig
+  module G2Affine : sig
+    module Circuit : sig
+      type t
+
+      val create : 'a -> 'a -> t
+
+      val x : t -> 'a
+
+      val y : t -> 'a
+
+      val neg : t -> t
+    end
+  end
+
   module Accumulator : sig
     type t
 
@@ -15,6 +29,8 @@ module type Inputs = sig
         val c : t -> 'a
 
         val pi : t -> 'a
+
+        val b : t -> G2Affine.Circuit.t
       end
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
@@ -115,6 +131,17 @@ module Make (Inputs : Inputs) = struct
                 in
 
                 ignore ((a_cache, c_cache, pi_cache) : _ * _ * _) ;
+
+                let t =
+                  let b = Accumulator.Circuit.Proof.b !acc in
+                  G2Affine.Circuit.create (G2Affine.Circuit.x b)
+                    (G2Affine.Circuit.y b)
+                in
+                let negB =
+                  G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc)
+                in
+
+                ignore ((t, negB) : _ * _) ;
 
                 let public_output =
                   Random_oracle.Checked.hash
