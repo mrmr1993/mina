@@ -509,14 +509,17 @@ module Make_zkp6 (Inputs : Inputs) = struct
       ()
 end
 
-module Make_zkp7 (Inputs : Inputs) = struct
+module Make_zkp7_to_12 (Range : sig
+  val zkp_id : int
+
+  val prefix : int
+
+  val iterations : int
+end)
+(Inputs : Inputs) =
+struct
+  open Range
   open Inputs
-
-  let zkp_id = 7
-
-  let prefix = 0
-
-  let iterations = 9
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
@@ -587,3 +590,14 @@ module Make_zkp7 (Inputs : Inputs) = struct
         ] )
       ()
 end
+
+module Make_zkp7 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 7
+
+      let prefix = 0
+
+      let iterations = 9
+    end)
+    (Inputs)
