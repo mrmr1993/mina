@@ -43,13 +43,15 @@ module Make (Inputs : Inputs) = struct
 
   let gamma_lines = LineParser.parse begin_ end_ VK.gamma_lines
 
+  let auxiliary_input_typ =
+    Typ.tuple3 Accumulator.typ
+      (Typ.array ~length:ATE_LOOP_COUNT.length Field.typ)
+      (Typ.array ~length:91 G2Line.typ)
+
   let tags, cache, proof, provers =
     Pickles.compile
       ~public_input:(Input_and_output (Field.typ, Field.typ))
-      ~auxiliary_typ:
-        (Typ.tuple3 Accumulator.typ
-           (Typ.array ~length:ATE_LOOP_COUNT.length Field.typ)
-           (Typ.array ~length:91 G2Line.typ) )
+      ~auxiliary_typ:Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:"groth16_conversion_0"
       ~choices:(fun ~self:_ -> [])
