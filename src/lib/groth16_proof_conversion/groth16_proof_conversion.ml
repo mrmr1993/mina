@@ -27,6 +27,10 @@ module type Inputs = sig
 
       val g_digest : t -> Field.t
 
+      val set_g_digest : t -> Field.t -> t
+
+      val set_t : t -> G2Affine.Circuit.t -> t
+
       module Proof : sig
         val negA : t -> 'a
 
@@ -228,6 +232,10 @@ module Make (Inputs : Inputs) = struct
                       (Random_oracle.Checked.pack_input
                          (Fp12.Circuit.to_input !g) )
                 done ;
+
+                let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
+                acc := Accumulator.Circuit.set_t !acc !t ;
+                acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
 
                 let public_output =
                   Random_oracle.Checked.hash
