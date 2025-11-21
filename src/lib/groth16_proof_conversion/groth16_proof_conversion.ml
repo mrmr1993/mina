@@ -172,8 +172,6 @@ module Make (Inputs : Inputs) = struct
                   let gamma_line = gamma_lines.(!line_cnt) in
                   line_cnt := !line_cnt + 1 ;
 
-                  ignore ((delta_line, gamma_line) : _ * _) ;
-
                   G2Line.Circuit.assert_is_tangent b_line !t ;
 
                   let g = G2Line.Circuit.psi b_line a_cache in
