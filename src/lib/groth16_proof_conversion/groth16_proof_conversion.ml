@@ -24,7 +24,7 @@ module type Inputs = sig
 
     type circuit
 
-    val typ : (t, circuit) Typ.t
+    val typ : (circuit, t) Typ.t
   end
 
   module LineParser : sig
