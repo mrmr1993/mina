@@ -7,6 +7,8 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
+      val g_digest : t -> Field.t
+
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
@@ -15,6 +17,12 @@ module type Inputs = sig
 
   module ATE_LOOP_COUNT : sig
     val length : int
+  end
+
+  module ArrayListHasher : sig
+    module Circuit : sig
+      val hash : Field.t array -> Field.t
+    end
   end
 
   module VK : sig
@@ -69,12 +77,16 @@ module Make (Inputs : Inputs) = struct
                 in
                 (* Accomodate rampant mutability in o1js *)
                 let acc = ref acc in
-                ignore (lines_hashes : Field.t array) ;
                 ignore (all_b_lines : G2Line.circuit array) ;
+
                 Field.Assert.equal input
                   (Random_oracle.Checked.hash
                      (Random_oracle.Checked.pack_input
                         (Accumulator.Circuit.to_input !acc) ) ) ;
+                Field.Assert.equal
+                  (Accumulator.Circuit.g_digest !acc)
+                  (ArrayListHasher.Circuit.hash lines_hashes) ;
+
                 let public_output =
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input
