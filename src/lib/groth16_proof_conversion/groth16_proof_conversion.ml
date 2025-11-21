@@ -601,3 +601,58 @@ module Make_zkp7 (Inputs : Inputs) =
       let iterations = 9
     end)
     (Inputs)
+
+module Make_zkp8 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 8
+
+      let prefix = 9
+
+      let iterations = 11
+    end)
+    (Inputs)
+
+module Make_zkp9 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 9
+
+      let prefix = 9 + 11
+
+      let iterations = 11
+    end)
+    (Inputs)
+
+module Make_zkp10 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 10
+
+      let prefix = 9 + 11 + 11
+
+      let iterations = 11
+    end)
+    (Inputs)
+
+module Make_zkp11 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 11
+
+      let prefix = 9 + 11 + 11 + 11
+
+      let iterations = 11
+    end)
+    (Inputs)
+
+module Make_zkp12 (Inputs : Inputs) =
+  Make_zkp7_to_12
+    (struct
+      let zkp_id = 12
+
+      let prefix = 9 + 11 + 11 + 11 + 11
+
+      let iterations = 11
+    end)
+    (Inputs)
