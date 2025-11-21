@@ -54,6 +54,18 @@ module Make (Inputs : Inputs) = struct
       ~auxiliary_typ:Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:"groth16_conversion_0"
-      ~choices:(fun ~self:_ -> [])
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "groth16_conversion_0"
+          ; prevs = []
+          ; main =
+              (fun { public_input } ->
+                ignore (public_input : Field.t) ;
+                { previous_proof_statements = []
+                ; public_output = Field.zero (* TODO *)
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
       ()
 end
