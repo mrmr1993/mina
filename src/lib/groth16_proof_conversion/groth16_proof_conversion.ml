@@ -337,3 +337,68 @@ module Make_zkp5 (Inputs : Inputs) =
       let end_ = Array.length ate_loop_count - 6
     end)
     (Inputs)
+
+module Make_zkp6 (Inputs : Inputs) = struct
+  open Inputs
+
+  module Range = struct
+    let zkp_id = 6
+
+    let begin_ = Array.length ate_loop_count - 6
+
+    let end_ = Array.length ate_loop_count
+  end
+
+  open Range
+  module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
+
+  let auxiliary_input_typ =
+    Typ.tuple3 Accumulator.typ
+      (Typ.array ~length:(Array.length ate_loop_count) Field.typ)
+      (Typ.array ~length:91 G2Line.typ)
+
+  let tags, cache, proof, provers =
+    Pickles.compile
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
+      ~auxiliary_typ:Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(Format.sprintf "zkp%i" zkp_id)
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "main"
+          ; prevs = []
+          ; main =
+              (fun { public_input = input } ->
+                let acc, lines_hashes, all_b_lines =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+                (* Accomodate rampant mutability in o1js *)
+                let acc = ref acc in
+
+                Field.Assert.equal input
+                  (Random_oracle.Checked.hash
+                     (Random_oracle.Checked.pack_input
+                        (Accumulator.Circuit.to_input !acc) ) ) ;
+                Field.Assert.equal
+                  (Accumulator.Circuit.g_digest !acc)
+                  (ArrayListHasher.Circuit.hash lines_hashes) ;
+
+                Ate_loop.ate_loop (acc, lines_hashes, all_b_lines) ;
+
+                let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
+                acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
+
+                let public_output =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (Accumulator.Circuit.to_input !acc) )
+                in
+                { previous_proof_statements = []
+                ; public_output
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
+      ()
+end
