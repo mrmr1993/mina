@@ -102,12 +102,17 @@ module type Inputs = sig
   end
 end
 
-module Make (Inputs : Inputs) = struct
+module Make_zkp0_to_5 (Range : sig
+  val zkp_id : int
+
+  val begin_ : int
+
+  val end_ : int
+end)
+(Inputs : Inputs) =
+struct
+  open Range
   open Inputs
-
-  let begin_ = 1
-
-  let end_ = Array.length ate_loop_count - 55
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
 
@@ -123,9 +128,9 @@ module Make (Inputs : Inputs) = struct
       ~public_input:(Input_and_output (Field.typ, Field.typ))
       ~auxiliary_typ:Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:"groth16_conversion_0"
+      ~name:(Format.sprintf "zkp%i" zkp_id)
       ~choices:(fun ~self:_ ->
-        [ { identifier = "groth16_conversion_0"
+        [ { identifier = "main"
           ; prevs = []
           ; main =
               (fun { public_input = input } ->
@@ -251,3 +256,16 @@ module Make (Inputs : Inputs) = struct
         ] )
       ()
 end
+
+module Make_zkp0 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 0
+
+      let begin_ = 1
+
+      let end_ = Array.length ate_loop_count - 55
+    end)
+    (Inputs)
