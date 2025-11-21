@@ -12,6 +12,8 @@ module type Inputs = sig
       val y : t -> 'a
 
       val neg : t -> t
+
+      val double_from_line : t -> 'a -> t
     end
   end
 
@@ -78,6 +80,8 @@ module type Inputs = sig
       val assert_is_tangent : t -> G2Affine.Circuit.t -> unit
 
       val psi : t -> AffineCache.Circuit.t -> Fp12.Circuit.t
+
+      val lambda : t -> 'a
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -146,6 +150,7 @@ module Make (Inputs : Inputs) = struct
                   G2Affine.Circuit.create (G2Affine.Circuit.x b)
                     (G2Affine.Circuit.y b)
                 in
+                let t = ref t in
                 let negB =
                   G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc)
                 in
@@ -167,7 +172,7 @@ module Make (Inputs : Inputs) = struct
 
                   ignore ((delta_line, gamma_line) : _ * _) ;
 
-                  G2Line.Circuit.assert_is_tangent b_line t ;
+                  G2Line.Circuit.assert_is_tangent b_line !t ;
 
                   let g = G2Line.Circuit.psi b_line a_cache in
                   let g =
@@ -180,6 +185,10 @@ module Make (Inputs : Inputs) = struct
                   in
 
                   ignore (g : _) ;
+
+                  t :=
+                    G2Affine.Circuit.double_from_line !t
+                      (G2Line.Circuit.lambda b_line) ;
 
                   ()
                 done ;
