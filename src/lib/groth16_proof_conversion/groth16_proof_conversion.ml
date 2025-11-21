@@ -509,9 +509,7 @@ module Make_zkp6 (Inputs : Inputs) = struct
       ()
 end
 
-module Make_zkp7_to_12 (Range : sig
-  val zkp_id : int
-
+module Make_zkp7_to_12_update_f (Range : sig
   val prefix : int
 
   val iterations : int
@@ -537,6 +535,20 @@ struct
     done ;
 
     acc := Accumulator.Circuit.set_f !acc !f
+end
+
+module Make_zkp7_to_12 (Range : sig
+  val zkp_id : int
+
+  val prefix : int
+
+  val iterations : int
+end)
+(Inputs : Inputs) =
+struct
+  open Range
+  open Inputs
+  module Update_f = Make_zkp7_to_12_update_f (Range) (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
@@ -576,7 +588,7 @@ struct
                 in
                 Field.Assert.equal (Accumulator.Circuit.g_digest !acc) opening ;
 
-                update_f acc g_chunk ;
+                Update_f.update_f acc g_chunk ;
 
                 let public_output =
                   Random_oracle.Checked.hash
