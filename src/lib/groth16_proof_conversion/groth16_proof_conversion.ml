@@ -9,6 +9,14 @@ module type Inputs = sig
 
       val g_digest : t -> Field.t
 
+      module Proof : sig
+        val negA : t -> 'a
+
+        val c : t -> 'a
+
+        val pi : t -> 'a
+      end
+
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
@@ -22,6 +30,14 @@ module type Inputs = sig
   module ArrayListHasher : sig
     module Circuit : sig
       val hash : Field.t array -> Field.t
+    end
+  end
+
+  module AffineCache : sig
+    module Circuit : sig
+      type t
+
+      val create : 'a -> t
     end
   end
 
@@ -86,6 +102,19 @@ module Make (Inputs : Inputs) = struct
                 Field.Assert.equal
                   (Accumulator.Circuit.g_digest !acc)
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
+
+                let a_cache =
+                  AffineCache.Circuit.create
+                    (Accumulator.Circuit.Proof.negA !acc)
+                in
+                let c_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
+                in
+                let pi_cache =
+                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
+                in
+
+                ignore ((a_cache, c_cache, pi_cache) : _ * _ * _) ;
 
                 let public_output =
                   Random_oracle.Checked.hash
