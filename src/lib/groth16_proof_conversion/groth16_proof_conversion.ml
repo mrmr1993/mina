@@ -514,12 +514,18 @@ module Make_zkp7 (Inputs : Inputs) = struct
 
   let zkp_id = 7
 
+  let prefix = 0
+
+  let iterations = 9
+
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
       (Typ.tuple3
-         (Typ.array ~length:0 Field.typ)
-         (Typ.array ~length:9 Fp12.typ)
-         (Typ.array ~length:(Array.length ate_loop_count - 9) Field.typ) )
+         (Typ.array ~length:prefix Field.typ)
+         (Typ.array ~length:iterations Fp12.typ)
+         (Typ.array
+            ~length:(Array.length ate_loop_count - prefix - iterations)
+            Field.typ ) )
 
   let tags, cache, proof, provers =
     Pickles.compile
@@ -554,7 +560,7 @@ module Make_zkp7 (Inputs : Inputs) = struct
 
                 let idx = ref 0 in
 
-                for i = 1 to 10 - 1 do
+                for i = 1 + prefix to prefix + iterations do
                   f := Fp12.Circuit.mul (Fp12.Circuit.square !f) g_chunk.(!idx) ;
                   if ate_loop_count.(i) = 1 then
                     f :=
