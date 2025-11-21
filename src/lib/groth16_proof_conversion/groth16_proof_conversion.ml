@@ -1,13 +1,23 @@
 open Pickles.Impls.Step
 
 module type Inputs = sig
+  val switch_ : Boolean.var list -> ('a, _) Typ.t -> 'a list -> 'a
+
   module Fp12 : sig
     type t
 
     module Circuit : sig
       type t
 
+      val if_ : Boolean.var -> then_:(unit -> t) -> else_:(unit -> t) -> t
+
       val sparse_mul : t -> t -> t
+
+      val frobenius_pow_p : t -> t
+
+      val frobenius_pow_p_squared : t -> t
+
+      val frobenius_pow_p_cubed : t -> t
 
       val one : unit -> t
 
@@ -21,6 +31,14 @@ module type Inputs = sig
     end
 
     val typ : (Circuit.t, t) Typ.t
+  end
+
+  module G1Affine : sig
+    module Circuit : sig
+      type t
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+    end
   end
 
   module G2Affine : sig
@@ -73,6 +91,8 @@ module type Inputs = sig
         val pi : t -> 'a
 
         val b : t -> G2Affine.Circuit.t
+
+        val shift_power : t -> Field.t
       end
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
@@ -104,6 +124,12 @@ module type Inputs = sig
     val delta_lines : 'a
 
     val gamma_lines : 'a
+
+    val alpha_beta : Fp12.Circuit.t
+
+    val w27 : Fp12.Circuit.t
+
+    val w27_square : Fp12.Circuit.t
   end
 
   module G2Line : sig
@@ -509,7 +535,7 @@ module Make_zkp6 (Inputs : Inputs) = struct
       ()
 end
 
-module Make_zkp7_to_12_update_f (Range : sig
+module Make_zkp7_to_13_update_f (Range : sig
   val prefix : int
 
   val iterations : int
@@ -548,7 +574,7 @@ end)
 struct
   open Range
   open Inputs
-  module Update_f = Make_zkp7_to_12_update_f (Range) (Inputs)
+  module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
@@ -670,3 +696,112 @@ module Make_zkp12 (Inputs : Inputs) =
       let iterations = 11
     end)
     (Inputs)
+
+module Make_zkp13 (Inputs : Inputs) = struct
+  module Range = struct
+    let zkp_id = 13
+
+    let prefix = 64
+
+    let iterations = 1
+  end
+
+  open Range
+  open Inputs
+  module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
+
+  let auxiliary_input_typ =
+    Typ.tuple2 Accumulator.typ
+      (Typ.tuple3
+         (Typ.array ~length:prefix Field.typ)
+         (Typ.array ~length:iterations Fp12.typ)
+         (Typ.array
+            ~length:(Array.length ate_loop_count - prefix - iterations)
+            Field.typ ) )
+
+  let tags, cache, proof, provers =
+    Pickles.compile
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
+      ~auxiliary_typ:Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(Format.sprintf "zkp%i" zkp_id)
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "main"
+          ; prevs = []
+          ; main =
+              (fun { public_input = input } ->
+                let acc, (lhs_lines_hashes, g_chunk, rhs_lines_hashes) =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+                (* Accomodate rampant mutability in o1js *)
+                let acc = ref acc in
+
+                Field.Assert.equal input
+                  (Random_oracle.Checked.hash
+                     (Random_oracle.Checked.pack_input
+                        (Accumulator.Circuit.to_input !acc) ) ) ;
+
+                let opening =
+                  ArrayListHasher.Circuit.open_ lhs_lines_hashes g_chunk
+                    rhs_lines_hashes
+                in
+                Field.Assert.equal (Accumulator.Circuit.g_digest !acc) opening ;
+
+                Update_f.update_f acc g_chunk ;
+
+                let f = ref (Accumulator.Circuit.f !acc) in
+
+                (f :=
+                   !f
+                   |> (fun x ->
+                        Fp12.Circuit.mul x
+                          (Fp12.Circuit.frobenius_pow_p
+                             (Accumulator.Circuit.Proof.c_inv !acc) ) )
+                   |> (fun x ->
+                        Fp12.Circuit.mul x
+                          (Fp12.Circuit.frobenius_pow_p_squared
+                             (Accumulator.Circuit.Proof.c !acc) ) )
+                   |> (fun x ->
+                        Fp12.Circuit.mul x
+                          (Fp12.Circuit.frobenius_pow_p_cubed
+                             (Accumulator.Circuit.Proof.c_inv !acc) ) )
+                   |> fun x -> Fp12.Circuit.mul x VK.alpha_beta ) ;
+
+                let shift =
+                  let shift_power =
+                    Accumulator.Circuit.Proof.shift_power !acc
+                  in
+                  switch_
+                    [ Field.equal shift_power
+                        (Field.constant (Field.Constant.of_int 0))
+                    ; Field.equal shift_power
+                        (Field.constant (Field.Constant.of_int 1))
+                    ; Field.equal shift_power
+                        (Field.constant (Field.Constant.of_int 2))
+                    ]
+                    Fp12.typ
+                    [ Fp12.Circuit.one (); VK.w27; VK.w27_square ]
+                in
+
+                f := Fp12.Circuit.mul !f shift ;
+
+                Fp12.Circuit.assert_equal !f (Fp12.Circuit.one ()) ;
+
+                acc := Accumulator.Circuit.set_f !acc !f ;
+
+                let public_output =
+                  let pi = Accumulator.Circuit.Proof.pi !acc in
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (G1Affine.Circuit.to_input pi) )
+                in
+                { previous_proof_statements = []
+                ; public_output
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
+      ()
+end
