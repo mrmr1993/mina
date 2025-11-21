@@ -101,6 +101,8 @@ module type Inputs = sig
 
   module LineParser : sig
     val parse : int -> int -> G2Line.Circuit.t array -> G2Line.Circuit.t array
+
+    val frobenius_lines : G2Line.Circuit.t array -> 'a array
   end
 end
 
@@ -384,6 +386,24 @@ module Make_zkp6 (Inputs : Inputs) = struct
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
 
                 Ate_loop.ate_loop (acc, lines_hashes, all_b_lines) ;
+
+                (* frobenius part: *)
+                let frob_line_cnt = ref 0 in
+
+                let frob_b_lines = LineParser.frobenius_lines all_b_lines in
+                let frob_delta_lines =
+                  LineParser.frobenius_lines VK.delta_lines
+                in
+                let frob_gamma_lines =
+                  LineParser.frobenius_lines VK.gamma_lines
+                in
+
+                let b_line = frob_b_lines.(!frob_line_cnt) in
+                let delta_line = frob_delta_lines.(!frob_line_cnt) in
+                let gamma_line = frob_gamma_lines.(!frob_line_cnt) in
+                frob_line_cnt := !frob_line_cnt + 1 ;
+
+                ignore ((b_line, delta_line, gamma_line) : _ * _ * _) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
