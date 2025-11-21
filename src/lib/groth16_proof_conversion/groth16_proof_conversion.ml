@@ -39,9 +39,7 @@ module type Inputs = sig
     val typ : (Circuit.t, t) Typ.t
   end
 
-  module ATE_LOOP_COUNT : sig
-    val length : int
-  end
+  val ate_loop_count : int array
 
   module ArrayListHasher : sig
     module Circuit : sig
@@ -95,7 +93,7 @@ module Make (Inputs : Inputs) = struct
 
   let begin_ = 1
 
-  let end_ = ATE_LOOP_COUNT.length - 55
+  let end_ = Array.length ate_loop_count - 55
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
 
@@ -103,7 +101,7 @@ module Make (Inputs : Inputs) = struct
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
-      (Typ.array ~length:ATE_LOOP_COUNT.length Field.typ)
+      (Typ.array ~length:(Array.length ate_loop_count) Field.typ)
       (Typ.array ~length:91 G2Line.typ)
 
   let tags, cache, proof, provers =
