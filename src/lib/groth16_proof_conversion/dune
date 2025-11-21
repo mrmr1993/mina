@@ -1,0 +1,6 @@
+(library
+ (public_name groth16_proof_conversion)
+ (name groth16_proof_conversion)
+ (libraries
+  pickles)
+)
