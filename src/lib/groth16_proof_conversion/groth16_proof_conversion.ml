@@ -174,8 +174,6 @@ struct
                   G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc)
                 in
 
-                ignore (negB : _) ;
-
                 let b_lines = LineParser.parse begin_ end_ all_b_lines in
 
                 let idx = ref 0 in
