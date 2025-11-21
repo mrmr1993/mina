@@ -104,9 +104,7 @@ module type Inputs = sig
   end
 end
 
-module Make_zkp0_to_5 (Range : sig
-  val zkp_id : int
-
+module Make_zkp0_to_6_ate_loop (Range : sig
   val begin_ : int
 
   val end_ : int
@@ -196,6 +194,20 @@ struct
           (Random_oracle.Checked.pack_input (Fp12.Circuit.to_input !g))
     done ;
     acc := Accumulator.Circuit.set_t !acc !t
+end
+
+module Make_zkp0_to_5 (Range : sig
+  val zkp_id : int
+
+  val begin_ : int
+
+  val end_ : int
+end)
+(Inputs : Inputs) =
+struct
+  open Range
+  open Inputs
+  module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
@@ -228,7 +240,7 @@ struct
                   (Accumulator.Circuit.g_digest !acc)
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
 
-                ate_loop (acc, lines_hashes, all_b_lines) ;
+                Ate_loop.ate_loop (acc, lines_hashes, all_b_lines) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
