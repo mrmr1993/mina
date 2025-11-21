@@ -29,6 +29,8 @@ module type Inputs = sig
 
       val set_g_digest : t -> Field.t -> t
 
+      val t : t -> G2Affine.Circuit.t
+
       val set_t : t -> G2Affine.Circuit.t -> t
 
       module Proof : sig
@@ -161,9 +163,11 @@ struct
                 in
 
                 let t =
-                  let b = Accumulator.Circuit.Proof.b !acc in
-                  G2Affine.Circuit.create (G2Affine.Circuit.x b)
-                    (G2Affine.Circuit.y b)
+                  if begin_ = 1 then
+                    let b = Accumulator.Circuit.Proof.b !acc in
+                    G2Affine.Circuit.create (G2Affine.Circuit.x b)
+                      (G2Affine.Circuit.y b)
+                  else Accumulator.Circuit.t !acc
                 in
                 let t = ref t in
                 let negB =
@@ -267,5 +271,70 @@ module Make_zkp0 (Inputs : Inputs) =
       let begin_ = 1
 
       let end_ = Array.length ate_loop_count - 55
+    end)
+    (Inputs)
+
+module Make_zkp1 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 1
+
+      let begin_ = Array.length ate_loop_count - 55
+
+      let end_ = Array.length ate_loop_count - 45
+    end)
+    (Inputs)
+
+module Make_zkp2 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 2
+
+      let begin_ = Array.length ate_loop_count - 45
+
+      let end_ = Array.length ate_loop_count - 35
+    end)
+    (Inputs)
+
+module Make_zkp3 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 3
+
+      let begin_ = Array.length ate_loop_count - 35
+
+      let end_ = Array.length ate_loop_count - 25
+    end)
+    (Inputs)
+
+module Make_zkp4 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 4
+
+      let begin_ = Array.length ate_loop_count - 25
+
+      let end_ = Array.length ate_loop_count - 15
+    end)
+    (Inputs)
+
+module Make_zkp5 (Inputs : Inputs) =
+  Make_zkp0_to_5
+    (struct
+      open Inputs
+
+      let zkp_id = 5
+
+      let begin_ = Array.length ate_loop_count - 15
+
+      let end_ = Array.length ate_loop_count - 6
     end)
     (Inputs)
