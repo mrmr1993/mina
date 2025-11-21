@@ -63,6 +63,14 @@ module type Inputs = sig
     val gamma_lines : 'a
   end
 
+  module Fp12 : sig
+    module Circuit : sig
+      type t
+
+      val sparse_mul : t -> t -> t
+    end
+  end
+
   module G2Line : sig
     type t
 
@@ -70,6 +78,8 @@ module type Inputs = sig
       type t
 
       val assert_is_tangent : t -> G2Affine.Circuit.t -> unit
+
+      val psi : t -> AffineCache.Circuit.t -> Fp12.Circuit.t
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -133,8 +143,6 @@ module Make (Inputs : Inputs) = struct
                   AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
                 in
 
-                ignore ((a_cache, c_cache, pi_cache) : _ * _ * _) ;
-
                 let t =
                   let b = Accumulator.Circuit.Proof.b !acc in
                   G2Affine.Circuit.create (G2Affine.Circuit.x b)
@@ -162,6 +170,19 @@ module Make (Inputs : Inputs) = struct
                   ignore ((delta_line, gamma_line) : _ * _) ;
 
                   G2Line.Circuit.assert_is_tangent b_line t ;
+
+                  let g = G2Line.Circuit.psi b_line a_cache in
+                  let g =
+                    Fp12.Circuit.sparse_mul g
+                      (G2Line.Circuit.psi delta_line c_cache)
+                  in
+                  let g =
+                    Fp12.Circuit.sparse_mul g
+                      (G2Line.Circuit.psi gamma_line pi_cache)
+                  in
+
+                  ignore (g : _) ;
+
                   ()
                 done ;
 
