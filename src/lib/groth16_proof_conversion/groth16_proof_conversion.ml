@@ -16,6 +16,10 @@ module type Inputs = sig
       val add_from_line : t -> 'a -> t -> t
 
       val double_from_line : t -> 'a -> t
+
+      val frobenius : t -> t
+
+      val negative_frobenius : t -> t
     end
   end
 
@@ -403,6 +407,8 @@ module Make_zkp6 (Inputs : Inputs) = struct
                   (acc, lines_hashes, all_b_lines)
                   (a_cache, c_cache, pi_cache) ;
 
+                let t = ref (Accumulator.Circuit.t !acc) in
+
                 (* frobenius part: *)
                 let frob_line_cnt = ref 0 in
 
@@ -419,9 +425,45 @@ module Make_zkp6 (Inputs : Inputs) = struct
                 let gamma_line = frob_gamma_lines.(!frob_line_cnt) in
                 frob_line_cnt := !frob_line_cnt + 1 ;
 
-                ignore ((b_line, delta_line, gamma_line) : _ * _ * _) ;
+                let g = ref (G2Line.Circuit.psi b_line a_cache) in
+                g :=
+                  Fp12.Circuit.sparse_mul !g
+                    (G2Line.Circuit.psi delta_line c_cache) ;
+                g :=
+                  Fp12.Circuit.sparse_mul !g
+                    (G2Line.Circuit.psi gamma_line pi_cache) ;
+
+                let piB =
+                  G2Affine.Circuit.frobenius (Accumulator.Circuit.Proof.b !acc)
+                in
+                G2Line.Circuit.assert_is_line b_line !t piB ;
+                t :=
+                  G2Affine.Circuit.add_from_line !t
+                    (G2Line.Circuit.lambda b_line)
+                    piB ;
+
+                let b_line = frob_b_lines.(!frob_line_cnt) in
+                let delta_line = frob_delta_lines.(!frob_line_cnt) in
+                let gamma_line = frob_gamma_lines.(!frob_line_cnt) in
+
+                let pi_2_B = G2Affine.Circuit.negative_frobenius piB in
+                G2Line.Circuit.assert_is_line b_line !t pi_2_B ;
+
+                g :=
+                  Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi b_line a_cache) ;
+                g :=
+                  Fp12.Circuit.sparse_mul !g
+                    (G2Line.Circuit.psi delta_line c_cache) ;
+                g :=
+                  Fp12.Circuit.sparse_mul !g
+                    (G2Line.Circuit.psi gamma_line pi_cache) ;
+
+                lines_hashes.(Array.length ate_loop_count - 1) <-
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input (Fp12.Circuit.to_input !g)) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
+                acc := Accumulator.Circuit.set_t !acc !t ;
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
 
                 let public_output =
