@@ -120,6 +120,83 @@ struct
 
   let gamma_lines = LineParser.parse begin_ end_ VK.gamma_lines
 
+  let ate_loop (acc, lines_hashes, all_b_lines) =
+    let a_cache =
+      AffineCache.Circuit.create (Accumulator.Circuit.Proof.negA !acc)
+    in
+    let c_cache =
+      AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
+    in
+    let pi_cache =
+      AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
+    in
+
+    let t =
+      if begin_ = 1 then
+        let b = Accumulator.Circuit.Proof.b !acc in
+        G2Affine.Circuit.create (G2Affine.Circuit.x b) (G2Affine.Circuit.y b)
+      else Accumulator.Circuit.t !acc
+    in
+    let t = ref t in
+    let negB = G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc) in
+
+    let b_lines = LineParser.parse begin_ end_ all_b_lines in
+
+    let idx = ref 0 in
+    let line_cnt = ref 0 in
+
+    for i = begin_ to end_ - 1 do
+      idx := i - 1 ;
+
+      let b_line = b_lines.(!line_cnt) in
+      let delta_line = delta_lines.(!line_cnt) in
+      let gamma_line = gamma_lines.(!line_cnt) in
+      line_cnt := !line_cnt + 1 ;
+
+      G2Line.Circuit.assert_is_tangent b_line !t ;
+
+      let g = ref (G2Line.Circuit.psi b_line a_cache) in
+      g := Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi delta_line c_cache) ;
+      g := Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi gamma_line pi_cache) ;
+
+      t := G2Affine.Circuit.double_from_line !t (G2Line.Circuit.lambda b_line) ;
+
+      let () =
+        if ate_loop_count.(i) = 1 || ate_loop_count.(i) = -1 then (
+          let b_line = b_lines.(!line_cnt) in
+          let delta_line = delta_lines.(!line_cnt) in
+          let gamma_line = gamma_lines.(!line_cnt) in
+          line_cnt := !line_cnt + 1 ;
+
+          if ate_loop_count.(i) = 1 then (
+            G2Line.Circuit.assert_is_line b_line !t
+              (Accumulator.Circuit.Proof.b !acc) ;
+            t :=
+              G2Affine.Circuit.add_from_line !t
+                (G2Line.Circuit.lambda b_line)
+                (Accumulator.Circuit.Proof.b !acc) )
+          else (
+            G2Line.Circuit.assert_is_line b_line !t negB ;
+            t :=
+              G2Affine.Circuit.add_from_line !t
+                (G2Line.Circuit.lambda b_line)
+                negB ) ;
+
+          g := Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi b_line a_cache) ;
+          g :=
+            Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi delta_line c_cache) ;
+          g :=
+            Fp12.Circuit.sparse_mul !g (G2Line.Circuit.psi gamma_line pi_cache)
+          )
+        else ()
+      in
+
+      lines_hashes.(!idx) <-
+        Random_oracle.Checked.hash
+          (Random_oracle.Checked.pack_input (Fp12.Circuit.to_input !g))
+    done ;
+    acc := Accumulator.Circuit.set_t !acc !t
+
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
       (Typ.array ~length:(Array.length ate_loop_count) Field.typ)
@@ -151,97 +228,9 @@ struct
                   (Accumulator.Circuit.g_digest !acc)
                   (ArrayListHasher.Circuit.hash lines_hashes) ;
 
-                let a_cache =
-                  AffineCache.Circuit.create
-                    (Accumulator.Circuit.Proof.negA !acc)
-                in
-                let c_cache =
-                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.c !acc)
-                in
-                let pi_cache =
-                  AffineCache.Circuit.create (Accumulator.Circuit.Proof.pi !acc)
-                in
-
-                let t =
-                  if begin_ = 1 then
-                    let b = Accumulator.Circuit.Proof.b !acc in
-                    G2Affine.Circuit.create (G2Affine.Circuit.x b)
-                      (G2Affine.Circuit.y b)
-                  else Accumulator.Circuit.t !acc
-                in
-                let t = ref t in
-                let negB =
-                  G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc)
-                in
-
-                let b_lines = LineParser.parse begin_ end_ all_b_lines in
-
-                let idx = ref 0 in
-                let line_cnt = ref 0 in
-
-                for i = begin_ to end_ - 1 do
-                  idx := i - 1 ;
-
-                  let b_line = b_lines.(!line_cnt) in
-                  let delta_line = delta_lines.(!line_cnt) in
-                  let gamma_line = gamma_lines.(!line_cnt) in
-                  line_cnt := !line_cnt + 1 ;
-
-                  G2Line.Circuit.assert_is_tangent b_line !t ;
-
-                  let g = ref (G2Line.Circuit.psi b_line a_cache) in
-                  g :=
-                    Fp12.Circuit.sparse_mul !g
-                      (G2Line.Circuit.psi delta_line c_cache) ;
-                  g :=
-                    Fp12.Circuit.sparse_mul !g
-                      (G2Line.Circuit.psi gamma_line pi_cache) ;
-
-                  t :=
-                    G2Affine.Circuit.double_from_line !t
-                      (G2Line.Circuit.lambda b_line) ;
-
-                  let () =
-                    if ate_loop_count.(i) = 1 || ate_loop_count.(i) = -1 then (
-                      let b_line = b_lines.(!line_cnt) in
-                      let delta_line = delta_lines.(!line_cnt) in
-                      let gamma_line = gamma_lines.(!line_cnt) in
-                      line_cnt := !line_cnt + 1 ;
-
-                      if ate_loop_count.(i) = 1 then (
-                        G2Line.Circuit.assert_is_line b_line !t
-                          (Accumulator.Circuit.Proof.b !acc) ;
-                        t :=
-                          G2Affine.Circuit.add_from_line !t
-                            (G2Line.Circuit.lambda b_line)
-                            (Accumulator.Circuit.Proof.b !acc) )
-                      else (
-                        G2Line.Circuit.assert_is_line b_line !t negB ;
-                        t :=
-                          G2Affine.Circuit.add_from_line !t
-                            (G2Line.Circuit.lambda b_line)
-                            negB ) ;
-
-                      g :=
-                        Fp12.Circuit.sparse_mul !g
-                          (G2Line.Circuit.psi b_line a_cache) ;
-                      g :=
-                        Fp12.Circuit.sparse_mul !g
-                          (G2Line.Circuit.psi delta_line c_cache) ;
-                      g :=
-                        Fp12.Circuit.sparse_mul !g
-                          (G2Line.Circuit.psi gamma_line pi_cache) )
-                    else ()
-                  in
-
-                  lines_hashes.(!idx) <-
-                    Random_oracle.Checked.hash
-                      (Random_oracle.Checked.pack_input
-                         (Fp12.Circuit.to_input !g) )
-                done ;
+                ate_loop (acc, lines_hashes, all_b_lines) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
-                acc := Accumulator.Circuit.set_t !acc !t ;
                 acc := Accumulator.Circuit.set_g_digest !acc new_g_digest ;
 
                 let public_output =
