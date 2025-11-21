@@ -515,9 +515,11 @@ module Make_zkp7 (Inputs : Inputs) = struct
   let zkp_id = 7
 
   let auxiliary_input_typ =
-    Typ.tuple3 Accumulator.typ
-      (Typ.array ~length:9 Fp12.typ)
-      (Typ.array ~length:(Array.length ate_loop_count - 9) Field.typ)
+    Typ.tuple2 Accumulator.typ
+      (Typ.tuple3
+         (Typ.array ~length:0 Field.typ)
+         (Typ.array ~length:9 Fp12.typ)
+         (Typ.array ~length:(Array.length ate_loop_count - 9) Field.typ) )
 
   let tags, cache, proof, provers =
     Pickles.compile
@@ -530,7 +532,7 @@ module Make_zkp7 (Inputs : Inputs) = struct
           ; prevs = []
           ; main =
               (fun { public_input = input } ->
-                let acc, g_chunk, rhs_lines_hashes =
+                let acc, (lhs_lines_hashes, g_chunk, rhs_lines_hashes) =
                   exists auxiliary_input_typ ~compute:(fun () ->
                       failwith "TODO" )
                 in
@@ -543,7 +545,8 @@ module Make_zkp7 (Inputs : Inputs) = struct
                         (Accumulator.Circuit.to_input !acc) ) ) ;
 
                 let opening =
-                  ArrayListHasher.Circuit.open_ [||] g_chunk rhs_lines_hashes
+                  ArrayListHasher.Circuit.open_ lhs_lines_hashes g_chunk
+                    rhs_lines_hashes
                 in
                 Field.Assert.equal (Accumulator.Circuit.g_digest !acc) opening ;
 
