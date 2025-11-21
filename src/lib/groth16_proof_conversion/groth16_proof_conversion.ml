@@ -66,13 +66,17 @@ module type Inputs = sig
   module G2Line : sig
     type t
 
-    type circuit
+    module Circuit : sig
+      type t
 
-    val typ : (circuit, t) Typ.t
+      val assert_is_tangent : t -> G2Affine.Circuit.t -> unit
+    end
+
+    val typ : (Circuit.t, t) Typ.t
   end
 
   module LineParser : sig
-    val parse : int -> int -> 'a -> 'b
+    val parse : int -> int -> G2Line.Circuit.t array -> G2Line.Circuit.t array
   end
 end
 
@@ -109,7 +113,6 @@ module Make (Inputs : Inputs) = struct
                 in
                 (* Accomodate rampant mutability in o1js *)
                 let acc = ref acc in
-                ignore (all_b_lines : G2Line.circuit array) ;
 
                 Field.Assert.equal input
                   (Random_oracle.Checked.hash
@@ -141,11 +144,26 @@ module Make (Inputs : Inputs) = struct
                   G2Affine.Circuit.neg (Accumulator.Circuit.Proof.b !acc)
                 in
 
-                ignore ((t, negB) : _ * _) ;
+                ignore (negB : _) ;
 
                 let b_lines = LineParser.parse begin_ end_ all_b_lines in
 
-                ignore (b_lines : _) ;
+                let idx = ref 0 in
+                let line_cnt = ref 0 in
+
+                for i = begin_ to end_ - 1 do
+                  idx := i - 1 ;
+
+                  let b_line = b_lines.(!line_cnt) in
+                  let delta_line = delta_lines.(!line_cnt) in
+                  let gamma_line = gamma_lines.(!line_cnt) in
+                  line_cnt := !line_cnt + 1 ;
+
+                  ignore ((delta_line, gamma_line) : _ * _) ;
+
+                  G2Line.Circuit.assert_is_tangent b_line t ;
+                  ()
+                done ;
 
                 let public_output =
                   Random_oracle.Checked.hash
