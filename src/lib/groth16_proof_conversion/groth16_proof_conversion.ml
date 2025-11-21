@@ -143,6 +143,10 @@ module Make (Inputs : Inputs) = struct
 
                 ignore ((t, negB) : _ * _) ;
 
+                let b_lines = LineParser.parse begin_ end_ all_b_lines in
+
+                ignore (b_lines : _) ;
+
                 let public_output =
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input
