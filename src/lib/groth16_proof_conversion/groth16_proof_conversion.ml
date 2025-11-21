@@ -42,6 +42,8 @@ module type Inputs = sig
 
         val c : t -> 'a
 
+        val c_inv : t -> 'a
+
         val pi : t -> 'a
 
         val b : t -> G2Affine.Circuit.t
@@ -80,6 +82,12 @@ module type Inputs = sig
       type t
 
       val sparse_mul : t -> t -> t
+
+      val one : unit -> t
+
+      val mul : t -> t -> t
+
+      val assert_equal : t -> t -> unit
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
@@ -461,6 +469,13 @@ module Make_zkp6 (Inputs : Inputs) = struct
                 lines_hashes.(Array.length ate_loop_count - 1) <-
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input (Fp12.Circuit.to_input !g)) ;
+
+                (* Assert that witnessed inverse is correct *)
+                Fp12.Circuit.assert_equal
+                  (Fp12.Circuit.mul
+                     (Accumulator.Circuit.Proof.c_inv !acc)
+                     (Accumulator.Circuit.Proof.c !acc) )
+                  (Fp12.Circuit.one ()) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
                 acc := Accumulator.Circuit.set_t !acc !t ;
