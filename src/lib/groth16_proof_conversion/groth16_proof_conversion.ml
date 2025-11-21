@@ -45,7 +45,7 @@ module Make (Inputs : Inputs) = struct
 
   let tags, cache, proof, provers =
     Pickles.compile
-      ~public_input:(Input_and_output (Typ.unit, Typ.unit))
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
       ~auxiliary_typ:
         (Typ.tuple3 Accumulator.typ
            (Typ.array ~length:ATE_LOOP_COUNT.length Field.typ)
