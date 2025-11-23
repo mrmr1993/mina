@@ -116,6 +116,8 @@ module type Inputs = sig
 
       val mul_by_v : t -> t
 
+      val mul_by_fp : t -> FpC.Circuit.t -> t
+
       val mul_by_fp2 : t -> Fp2.Circuit.t -> t
 
       val mul_by_sparse_fp6 : t -> t -> t
@@ -292,13 +294,13 @@ module Make_Fp12 (Inputs : Inputs) = struct
 
     val sparse_mul : t -> t -> t
 
+    val square : t -> t
+
     val frobenius_pow_p : t -> t
 
     val frobenius_pow_p_squared : t -> t
 
     val frobenius_pow_p_cubed : t -> t
-
-    val square : t -> t
 
     val to_input : t -> Field.t Random_oracle_input.Chunked.t *)
   module Circuit = struct
@@ -344,6 +346,19 @@ module Make_Fp12 (Inputs : Inputs) = struct
         Fp6.Circuit.mul_by_sparse_fp6 (Fp6.Circuit.add self.c0 self.c1) t2
       in
       let c1 = Fp6.Circuit.sub (Fp6.Circuit.sub c1 t0) t1 in
+      { c0; c1 }
+
+    let square self =
+      let c0 = Fp6.Circuit.sub self.c0 self.c1 in
+      let c3 = Fp6.Circuit.sub self.c0 (Fp6.Circuit.mul_by_v self.c1) in
+      let c2 = Fp6.Circuit.mul self.c0 self.c1 in
+
+      let c0 = Fp6.Circuit.add (Fp6.Circuit.mul c0 c3) c2 in
+      let c1 = Fp6.Circuit.mul_by_fp c2 (FpC.Circuit.of_int 2) in
+
+      let c2 = Fp6.Circuit.mul_by_v c2 in
+      let c0 = Fp6.Circuit.add c0 c2 in
+
       { c0; c1 }
   end
 end
