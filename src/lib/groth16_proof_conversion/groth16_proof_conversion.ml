@@ -11,10 +11,16 @@ module type Inputs = sig
   module rec FpA : sig
     type t
 
+    val assertCanonical : t -> FpC.t
+
     module Circuit : sig
       type t
 
+      val assert_equal : t -> t -> unit
+
       val assertCanonical : t -> FpC.Circuit.t
+
+      val of_int : int -> t
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -23,12 +29,20 @@ module type Inputs = sig
   and FpC : sig
     type t
 
+    val inv : t -> FpA.t
+
     module Circuit : sig
       type t
 
       val assert_equal : t -> t -> unit
 
       val to_FpA : t -> FpA.Circuit.t
+
+      val neg : t -> FpA.Circuit.t
+
+      val mul : t -> t -> FpA.Circuit.t
+
+      val inv : t -> FpA.Circuit.t
 
       val of_int : int -> t
 
@@ -215,13 +229,11 @@ module type Inputs = sig
 
   module AffineCache : sig
     module Circuit : sig
-      type t
-
-      val create : G1Affine.Circuit.t -> t
-
-      val xp_prime : t -> FpC.Circuit.t
-
-      val yp_prime : t -> FpC.Circuit.t
+      type t =
+        { xp_neg : FpC.Circuit.t
+        ; yp_prime : FpC.Circuit.t
+        ; xp_prime : FpC.Circuit.t
+        }
     end
   end
 
@@ -256,8 +268,46 @@ module type Inputs = sig
   end
 end
 
+module Make_AffineCache (Inputs : Inputs) = struct
+  open Inputs
+
+  module Circuit = struct
+    type t = AffineCache.Circuit.t =
+      { xp_neg : FpC.Circuit.t
+      ; yp_prime : FpC.Circuit.t
+      ; xp_prime : FpC.Circuit.t
+      }
+
+    let create (p : G1Affine.Circuit.t) =
+      let xp_neg =
+        FpA.Circuit.assertCanonical (FpC.Circuit.neg (G1Affine.Circuit.x p))
+      in
+      (* This is immediately erased.. *)
+      let _yp_prime =
+        FpA.Circuit.assertCanonical (FpC.Circuit.inv (G1Affine.Circuit.y p))
+      in
+      (* ..and this isn't canonical. High-quality stuff. *)
+      let yp_prime =
+        exists FpC.typ ~compute:(fun () ->
+            let y = As_prover.read FpC.typ (G1Affine.Circuit.y p) in
+            FpC.inv y |> FpA.assertCanonical )
+      in
+      FpC.Circuit.mul yp_prime (G1Affine.Circuit.y p)
+      |> FpA.Circuit.assert_equal (FpA.Circuit.of_int 1) ;
+      let xp_prime =
+        FpA.Circuit.assertCanonical (FpC.Circuit.mul xp_neg yp_prime)
+      in
+      { xp_neg; yp_prime; xp_prime }
+
+    let xp_prime { xp_prime; _ } = xp_prime
+
+    let yp_prime { yp_prime; _ } = yp_prime
+  end
+end
+
 module Make_G2Line (Inputs : Inputs) = struct
   open Inputs
+  module AffineCache = Make_AffineCache (Inputs)
 
   type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
@@ -351,6 +401,7 @@ struct
   open Range
   open Inputs
   module G2Line = Make_G2Line (Inputs)
+  module AffineCache = G2Line.AffineCache
   module LineParser = Line_parser (Inputs)
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
