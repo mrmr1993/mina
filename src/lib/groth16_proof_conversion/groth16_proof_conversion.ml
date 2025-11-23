@@ -101,6 +101,8 @@ module type Inputs = sig
   end
 
   module Fp6 : sig
+    type t
+
     module Circuit : sig
       type t = { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
 
@@ -125,7 +127,11 @@ module type Inputs = sig
       val mul_by_sparse_fp6 : t -> t -> t
 
       val assert_equal : t -> t -> unit
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
+
+    val typ : (Circuit.t, t) Typ.t
   end
 
   val gamma_1s : Fp2.Circuit.t array
@@ -290,27 +296,8 @@ end
 module Make_Fp12 (Inputs : Inputs) = struct
   open Inputs
 
-  (*type t
+  type t = { c0 : Fp6.t; c1 : Fp6.t }
 
-    val create : Fp6.Circuit.t -> Fp6.Circuit.t -> t
-
-    val one : unit -> t
-
-    val assert_equal : t -> t -> unit
-
-    val mul : t -> t -> t
-
-    val sparse_mul : t -> t -> t
-
-    val square : t -> t
-
-    val frobenius_pow_p : t -> t
-
-    val frobenius_pow_p_squared : t -> t
-
-    val frobenius_pow_p_cubed : t -> t
-
-    val to_input : t -> Field.t Random_oracle_input.Chunked.t *)
   module Circuit = struct
     type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
 
@@ -419,7 +406,18 @@ module Make_Fp12 (Inputs : Inputs) = struct
       let c1 : Fp6.Circuit.t = { c0 = t2; c1 = t4; c2 = t6 } in
 
       { c0; c1 }
+
+    let to_input { c0; c1 } =
+      Random_oracle_input.Chunked.append (Fp6.Circuit.to_input c0)
+        (Fp6.Circuit.to_input c1)
   end
+
+  let typ =
+    Typ.of_hlistable [ Fp6.typ; Fp6.typ ]
+      ~var_to_hlist:(fun ({ c0; c1 } : Circuit.t) -> [ c0; c1 ])
+      ~var_of_hlist:(fun [ c0; c1 ] -> { c0; c1 })
+      ~value_to_hlist:(fun ({ c0; c1 } : t) -> [ c0; c1 ])
+      ~value_of_hlist:(fun [ c0; c1 ] -> { c0; c1 })
 end
 
 module ArrayListHasher (Inputs : Inputs) = struct
