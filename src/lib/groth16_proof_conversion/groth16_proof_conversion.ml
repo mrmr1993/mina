@@ -56,6 +56,12 @@ module type Inputs = sig
     val typ : (Circuit.t, t) Typ.t
   end
 
+  module Fp2 : sig
+    module Circuit : sig
+      type t
+    end
+  end
+
   module Fp12 : sig
     type t
 
@@ -108,17 +114,17 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : 'a -> 'a -> t
+      val create : Fp2.Circuit.t -> Fp2.Circuit.t -> t
 
-      val x : t -> 'a
+      val x : t -> Fp2.Circuit.t
 
-      val y : t -> 'a
+      val y : t -> Fp2.Circuit.t
 
       val neg : t -> t
 
-      val add_from_line : t -> 'a -> t -> t
+      val add_from_line : t -> Fp2.Circuit.t -> t -> t
 
-      val double_from_line : t -> 'a -> t
+      val double_from_line : t -> Fp2.Circuit.t -> t
 
       val frobenius : t -> t
 
