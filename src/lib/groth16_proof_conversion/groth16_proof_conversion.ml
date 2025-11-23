@@ -26,6 +26,10 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
+      val assert_equal : t -> t -> unit
+
+      val to_FrA : t -> FrA.Circuit.t
+
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
@@ -83,13 +87,21 @@ module type Inputs = sig
   end
 
   module G1Affine : sig
+    type t
+
     module Circuit : sig
       type t
 
       val create : FrC.Circuit.t -> FrC.Circuit.t -> t
 
+      val x : t -> FrC.Circuit.t
+
+      val y : t -> FrC.Circuit.t
+
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
+
+    val typ : (Circuit.t, t) Typ.t
   end
 
   module G2Affine : sig
@@ -931,6 +943,83 @@ module Make_zkp14 (Inputs : Inputs) = struct
                 in
                 { previous_proof_statements = []
                 ; public_output
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
+      ()
+end
+
+module Make_zkp15 (Inputs : Inputs) = struct
+  module Range = struct
+    let zkp_id = 15
+  end
+
+  open Range
+  open Inputs
+
+  let auxiliary_input_typ =
+    Typ.tuple3 G1Affine.typ G1Affine.typ (Typ.array ~length:5 FrC.typ)
+
+  let tags, cache, proof, provers =
+    Pickles.compile
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
+      ~auxiliary_typ:Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(Format.sprintf "zkp%i" zkp_id)
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "main"
+          ; prevs = []
+          ; main =
+              (fun { public_input = input } ->
+                let pi, acc, pis =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+
+                let pi_hash =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (G1Affine.Circuit.to_input pi) )
+                in
+                let pis_hash =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (array_to_input FrC.Circuit.to_input pis) )
+                in
+                let acc_hash =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (G1Affine.Circuit.to_input acc) )
+                in
+                Field.Assert.equal input
+                  (Random_oracle.Checked.hash
+                     (Random_oracle.Checked.pack_input
+                        (array_to_input Random_oracle_input.Chunked.field
+                           [| pi_hash; pis_hash; acc_hash |] ) ) ) ;
+
+                let accBn =
+                  Bn254.Circuit.create
+                    (FrC.Circuit.to_FrA (G1Affine.Circuit.x acc))
+                    (FrC.Circuit.to_FrA (G1Affine.Circuit.y acc))
+                in
+                let accBn =
+                  Bn254.Circuit.add accBn (Bn254.Circuit.scale VK.ic4 pis.(3))
+                in
+                let accBn =
+                  Bn254.Circuit.add accBn (Bn254.Circuit.scale VK.ic5 pis.(4))
+                in
+
+                FrC.Circuit.assert_equal
+                  (FrA.Circuit.assertCanonical (Bn254.Circuit.x accBn))
+                  (G1Affine.Circuit.x pi) ;
+                FrC.Circuit.assert_equal
+                  (FrA.Circuit.assertCanonical (Bn254.Circuit.y accBn))
+                  (G1Affine.Circuit.y pi) ;
+
+                { previous_proof_statements = []
+                ; public_output = pis_hash
                 ; auxiliary_output = ()
                 } )
           ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
