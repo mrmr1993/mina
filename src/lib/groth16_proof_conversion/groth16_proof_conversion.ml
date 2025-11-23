@@ -30,6 +30,8 @@ module type Inputs = sig
 
       val to_FrA : t -> FrA.Circuit.t
 
+      val of_int : int -> t
+
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
@@ -57,8 +59,36 @@ module type Inputs = sig
   end
 
   module Fp2 : sig
+    type t
+
     module Circuit : sig
       type t
+
+      val create : FrC.Circuit.t -> FrC.Circuit.t -> t
+
+      val zero : unit -> t
+
+      val add : t -> t -> t
+
+      val neg : t -> t
+
+      val mul : t -> t -> t
+
+      val square : t -> t
+
+      val mul_by_fp : t -> FrC.Circuit.t -> t
+
+      val assert_equals : t -> t -> unit
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
+  module Fp6 : sig
+    module Circuit : sig
+      type t
+
+      val create : Fp2.Circuit.t -> Fp2.Circuit.t -> Fp2.Circuit.t -> t
     end
   end
 
@@ -67,6 +97,8 @@ module type Inputs = sig
 
     module Circuit : sig
       type t
+
+      val create : Fp6.Circuit.t -> Fp6.Circuit.t -> t
 
       val if_ : Boolean.var -> then_:(unit -> t) -> else_:(unit -> t) -> t
 
@@ -186,6 +218,10 @@ module type Inputs = sig
       type t
 
       val create : 'a -> t
+
+      val xp_prime : t -> FrC.Circuit.t
+
+      val yp_prime : t -> FrC.Circuit.t
     end
   end
 
@@ -212,24 +248,71 @@ module type Inputs = sig
 
     val ic5 : Bn254.Circuit.t
   end
+end
 
-  module G2Line : sig
-    type t
+module G2Line (Inputs : Inputs) = struct
+  open Inputs
 
-    module Circuit : sig
-      type t
+  type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
-      val assert_is_tangent : t -> G2Affine.Circuit.t -> unit
+  module Circuit = struct
+    type t = { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
 
-      val assert_is_line : t -> G2Affine.Circuit.t -> G2Affine.Circuit.t -> unit
+    let psi self (cache : AffineCache.Circuit.t) =
+      let g0 =
+        Fp2.Circuit.create (FrC.Circuit.of_int 1) (FrC.Circuit.of_int 0)
+      in
+      let h0 =
+        Fp2.Circuit.mul_by_fp self.lambda (AffineCache.Circuit.xp_prime cache)
+      in
+      let g1 = Fp2.Circuit.zero () in
+      let h1 =
+        Fp2.Circuit.mul_by_fp self.neg_mu (AffineCache.Circuit.yp_prime cache)
+      in
+      let g2 = Fp2.Circuit.zero () in
+      let h2 = Fp2.Circuit.zero () in
 
-      val psi : t -> AffineCache.Circuit.t -> Fp12.Circuit.t
+      let c0 = Fp6.Circuit.create g0 g1 g2 in
+      let c1 = Fp6.Circuit.create h0 h1 h2 in
 
-      val lambda : t -> Fp2.Circuit.t
-    end
+      Fp12.Circuit.create c0 c1
 
-    val typ : (Circuit.t, t) Typ.t
+    let evaluate self (p : G2Affine.Circuit.t) : Fp2.Circuit.t =
+      let t = Fp2.Circuit.mul self.lambda (G2Affine.Circuit.x p) in
+      let t = Fp2.Circuit.neg t in
+      let t = Fp2.Circuit.add t self.neg_mu in
+      Fp2.Circuit.add t (G2Affine.Circuit.y p)
+
+    let assert_is_line self (t : G2Affine.Circuit.t) (q : G2Affine.Circuit.t) =
+      let e1 = evaluate self t in
+      let e2 = evaluate self q in
+
+      Fp2.Circuit.assert_equals e1 (Fp2.Circuit.zero ()) ;
+      Fp2.Circuit.assert_equals e2 (Fp2.Circuit.zero ())
+
+    let assert_is_tangent self (p : G2Affine.Circuit.t) =
+      let e = evaluate self p in
+      Fp2.Circuit.assert_equals e (Fp2.Circuit.zero ()) ;
+
+      let dbl_lambda_y =
+        Fp2.Circuit.mul
+          (Fp2.Circuit.add self.lambda self.lambda)
+          (G2Affine.Circuit.y p)
+      in
+      let x_square = Fp2.Circuit.square (G2Affine.Circuit.x p) in
+      Fp2.Circuit.assert_equals dbl_lambda_y
+        (Fp2.Circuit.mul_by_fp x_square (FrC.Circuit.of_int 3))
+
+    let lambda { lambda; _ } = lambda
   end
+
+  (* TODO: Correct order? *)
+  let typ =
+    Typ.of_hlistable [ Fp2.typ; Fp2.typ ]
+      ~var_to_hlist:(fun ({ lambda; neg_mu } : Circuit.t) -> [ lambda; neg_mu ])
+      ~var_of_hlist:(fun [ lambda; neg_mu ] -> { lambda; neg_mu })
+      ~value_to_hlist:(fun ({ lambda; neg_mu } : t) -> [ lambda; neg_mu ])
+      ~value_of_hlist:(fun [ lambda; neg_mu ] -> { lambda; neg_mu })
 end
 
 module Line_parser (Inputs : Inputs) = struct
@@ -260,6 +343,7 @@ end)
 struct
   open Range
   open Inputs
+  module G2Line = G2Line (Inputs)
   module LineParser = Line_parser (Inputs)
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
@@ -346,6 +430,7 @@ struct
   open Range
   open Inputs
   module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
+  open Ate_loop
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
@@ -502,7 +587,7 @@ module Make_zkp6 (Inputs : Inputs) = struct
 
   open Range
   module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
-  module LineParser = Line_parser (Inputs)
+  open Ate_loop
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
