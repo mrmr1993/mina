@@ -114,8 +114,6 @@ module type Inputs = sig
 
       val create : Fp6.Circuit.t -> Fp6.Circuit.t -> t
 
-      val if_ : Boolean.var -> then_:(unit -> t) -> else_:(unit -> t) -> t
-
       val sparse_mul : t -> t -> t
 
       val frobenius_pow_p : t -> t
