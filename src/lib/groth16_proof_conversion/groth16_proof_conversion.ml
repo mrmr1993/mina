@@ -225,7 +225,7 @@ module type Inputs = sig
 
       val psi : t -> AffineCache.Circuit.t -> Fp12.Circuit.t
 
-      val lambda : t -> 'a
+      val lambda : t -> Fp2.Circuit.t
     end
 
     val typ : (Circuit.t, t) Typ.t
