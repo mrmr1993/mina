@@ -218,15 +218,6 @@ module type Inputs = sig
 
   val ate_loop_count : int array
 
-  module ArrayListHasher : sig
-    module Circuit : sig
-      val hash : Field.t array -> Field.t
-
-      val open_ :
-        Field.t array -> Fp12.Circuit.t array -> Field.t array -> Field.t
-    end
-  end
-
   module AffineCache : sig
     module Circuit : sig
       type t =
@@ -265,6 +256,33 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module ArrayListHasher (Inputs : Inputs) = struct
+  open Inputs
+
+  let n = Array.length ate_loop_count
+
+  module Circuit = struct
+    let hash arr =
+      Random_oracle.Checked.hash
+        (Random_oracle.Checked.pack_input
+           (array_to_input Random_oracle_input.Chunked.field arr) )
+
+    let open_ lhs opening rhs =
+      let opening_hashes =
+        Array.map
+          (fun x ->
+            Random_oracle.Checked.hash
+              (Random_oracle.Checked.pack_input (Fp12.Circuit.to_input x)) )
+          opening
+      in
+      let arr = Array.concat [ lhs; opening_hashes; rhs ] in
+
+      Random_oracle.Checked.hash
+        (Random_oracle.Checked.pack_input
+           (array_to_input Random_oracle_input.Chunked.field arr) )
   end
 end
 
@@ -489,6 +507,7 @@ struct
   open Inputs
   module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
   open Ate_loop
+  module ArrayListHasher = ArrayListHasher (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
@@ -646,6 +665,7 @@ module Make_zkp6 (Inputs : Inputs) = struct
   open Range
   module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
   open Ate_loop
+  module ArrayListHasher = ArrayListHasher (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
@@ -814,6 +834,7 @@ struct
   open Range
   open Inputs
   module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
+  module ArrayListHasher = ArrayListHasher (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
@@ -948,6 +969,7 @@ module Make_zkp13 (Inputs : Inputs) = struct
   open Range
   open Inputs
   module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
+  module ArrayListHasher = ArrayListHasher (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
