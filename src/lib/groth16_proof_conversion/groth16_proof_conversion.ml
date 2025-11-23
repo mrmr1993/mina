@@ -3,6 +3,55 @@ open Pickles.Impls.Step
 module type Inputs = sig
   val switch_ : Boolean.var list -> ('a, _) Typ.t -> 'a list -> 'a
 
+  val array_to_input :
+       ('a -> Field.t Random_oracle_input.Chunked.t)
+    -> 'a array
+    -> Field.t Random_oracle_input.Chunked.t
+
+  module rec FrA : sig
+    type t
+
+    module Circuit : sig
+      type t
+
+      val assertCanonical : t -> FrC.Circuit.t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
+  and FrC : sig
+    type t
+
+    module Circuit : sig
+      type t
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
+  module Bn254 : sig
+    type t
+
+    module Circuit : sig
+      type t
+
+      val create : FrA.Circuit.t -> FrA.Circuit.t -> t
+
+      val x : t -> FrA.Circuit.t
+
+      val y : t -> FrA.Circuit.t
+
+      val add : t -> t -> t
+
+      val scale : t -> FrC.Circuit.t -> t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
   module Fp12 : sig
     type t
 
@@ -36,6 +85,8 @@ module type Inputs = sig
   module G1Affine : sig
     module Circuit : sig
       type t
+
+      val create : FrC.Circuit.t -> FrC.Circuit.t -> t
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
@@ -130,6 +181,18 @@ module type Inputs = sig
     val w27 : Fp12.Circuit.t
 
     val w27_square : Fp12.Circuit.t
+
+    val ic0 : Bn254.Circuit.t
+
+    val ic1 : Bn254.Circuit.t
+
+    val ic2 : Bn254.Circuit.t
+
+    val ic3 : Bn254.Circuit.t
+
+    val ic4 : Bn254.Circuit.t
+
+    val ic5 : Bn254.Circuit.t
   end
 
   module G2Line : sig
@@ -795,6 +858,76 @@ module Make_zkp13 (Inputs : Inputs) = struct
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input
                        (G1Affine.Circuit.to_input pi) )
+                in
+                { previous_proof_statements = []
+                ; public_output
+                ; auxiliary_output = ()
+                } )
+          ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+          }
+        ] )
+      ()
+end
+
+module Make_zkp14 (Inputs : Inputs) = struct
+  module Range = struct
+    let zkp_id = 14
+  end
+
+  open Range
+  open Inputs
+
+  let auxiliary_input_typ = Typ.array ~length:5 FrC.typ
+
+  let tags, cache, proof, provers =
+    Pickles.compile
+      ~public_input:(Input_and_output (Field.typ, Field.typ))
+      ~auxiliary_typ:Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(Format.sprintf "zkp%i" zkp_id)
+      ~choices:(fun ~self:_ ->
+        [ { identifier = "main"
+          ; prevs = []
+          ; main =
+              (fun { public_input = input } ->
+                let pis =
+                  exists auxiliary_input_typ ~compute:(fun () ->
+                      failwith "TODO" )
+                in
+
+                let pis_hash =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (array_to_input FrC.Circuit.to_input pis) )
+                in
+
+                let acc = Bn254.Circuit.(create (x VK.ic0) (y VK.ic0)) in
+                let acc =
+                  Bn254.Circuit.add acc (Bn254.Circuit.scale VK.ic1 pis.(0))
+                in
+                let acc =
+                  Bn254.Circuit.add acc (Bn254.Circuit.scale VK.ic2 pis.(1))
+                in
+                let acc =
+                  Bn254.Circuit.add acc (Bn254.Circuit.scale VK.ic3 pis.(2))
+                in
+
+                let acc_aff =
+                  G1Affine.Circuit.create
+                    (FrA.Circuit.assertCanonical (Bn254.Circuit.x acc))
+                    (FrA.Circuit.assertCanonical (Bn254.Circuit.y acc))
+                in
+                let acc_hash =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (G1Affine.Circuit.to_input acc_aff) )
+                in
+
+                let public_output =
+                  Random_oracle.Checked.hash
+                    (Random_oracle.Checked.pack_input
+                       (array_to_input Random_oracle_input.Chunked.field
+                          [| input; pis_hash; acc_hash |] ) )
                 in
                 { previous_proof_statements = []
                 ; public_output
