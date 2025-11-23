@@ -100,7 +100,7 @@ module type Inputs = sig
 
   module Fp6 : sig
     module Circuit : sig
-      type t
+      type t = { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
 
       val create : Fp2.Circuit.t -> Fp2.Circuit.t -> Fp2.Circuit.t -> t
 
@@ -115,6 +115,10 @@ module type Inputs = sig
       val mul : t -> t -> t
 
       val mul_by_v : t -> t
+
+      val mul_by_fp2 : t -> Fp2.Circuit.t -> t
+
+      val mul_by_sparse_fp6 : t -> t -> t
 
       val assert_equal : t -> t -> unit
     end
@@ -322,6 +326,25 @@ module Make_Fp12 (Inputs : Inputs) = struct
       in
 
       create c0 c1
+
+    let sparse_mul self rhs =
+      let t0 = Fp6.Circuit.mul_by_fp2 self.c0 rhs.c0.c0 in
+      let t1 = Fp6.Circuit.mul_by_sparse_fp6 self.c1 rhs.c1 in
+
+      let c0 = Fp6.Circuit.add t0 (Fp6.Circuit.mul_by_v t1) in
+
+      let t2 : Fp6.Circuit.t =
+        { c0 = Fp2.Circuit.add rhs.c0.c0 rhs.c1.c0
+        ; c1 = rhs.c1.c1
+        ; c2 = Fp2.Circuit.zero ()
+        }
+      in
+
+      let c1 =
+        Fp6.Circuit.mul_by_sparse_fp6 (Fp6.Circuit.add self.c0 self.c1) t2
+      in
+      let c1 = Fp6.Circuit.sub (Fp6.Circuit.sub c1 t0) t1 in
+      { c0; c1 }
   end
 end
 
