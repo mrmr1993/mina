@@ -225,10 +225,16 @@ module type Inputs = sig
     end
   end
 
-  module VK : sig
-    val delta_lines : 'a
+  module G2Line : sig
+    module Circuit : sig
+      type t = { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
+    end
+  end
 
-    val gamma_lines : 'a
+  module VK : sig
+    val delta_lines : G2Line.Circuit.t array
+
+    val gamma_lines : G2Line.Circuit.t array
 
     val alpha_beta : Fp12.Circuit.t
 
@@ -250,13 +256,14 @@ module type Inputs = sig
   end
 end
 
-module G2Line (Inputs : Inputs) = struct
+module Make_G2Line (Inputs : Inputs) = struct
   open Inputs
 
   type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
   module Circuit = struct
-    type t = { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
+    type t = G2Line.Circuit.t =
+      { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
 
     let psi self (cache : AffineCache.Circuit.t) =
       let g0 =
@@ -343,7 +350,7 @@ end)
 struct
   open Range
   open Inputs
-  module G2Line = G2Line (Inputs)
+  module G2Line = Make_G2Line (Inputs)
   module LineParser = Line_parser (Inputs)
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
