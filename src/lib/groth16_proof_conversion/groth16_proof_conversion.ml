@@ -103,6 +103,20 @@ module type Inputs = sig
       type t
 
       val create : Fp2.Circuit.t -> Fp2.Circuit.t -> Fp2.Circuit.t -> t
+
+      val zero : unit -> t
+
+      val one : unit -> t
+
+      val add : t -> t -> t
+
+      val sub : t -> t -> t
+
+      val mul : t -> t -> t
+
+      val mul_by_v : t -> t
+
+      val assert_equal : t -> t -> unit
     end
   end
 
@@ -256,6 +270,58 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module Make_Fp12 (Inputs : Inputs) = struct
+  open Inputs
+
+  (*type t
+
+    val create : Fp6.Circuit.t -> Fp6.Circuit.t -> t
+
+    val one : unit -> t
+
+    val assert_equal : t -> t -> unit
+
+    val mul : t -> t -> t
+
+    val sparse_mul : t -> t -> t
+
+    val frobenius_pow_p : t -> t
+
+    val frobenius_pow_p_squared : t -> t
+
+    val frobenius_pow_p_cubed : t -> t
+
+    val square : t -> t
+
+    val to_input : t -> Field.t Random_oracle_input.Chunked.t *)
+  module Circuit = struct
+    type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
+
+    let create c0 c1 = { c0; c1 }
+
+    let one () = create (Fp6.Circuit.one ()) (Fp6.Circuit.zero ())
+
+    let assert_equal self rhs =
+      Fp6.Circuit.assert_equal self.c0 rhs.c0 ;
+      Fp6.Circuit.assert_equal self.c1 rhs.c1
+
+    let mul self rhs =
+      let t0 = Fp6.Circuit.mul self.c0 rhs.c0 in
+      let t1 = Fp6.Circuit.mul self.c1 rhs.c1 in
+
+      let c0 = Fp6.Circuit.add (Fp6.Circuit.mul_by_v t1) t0 in
+
+      let a0_a1 = Fp6.Circuit.add self.c0 self.c1 in
+      let b0_b1 = Fp6.Circuit.add rhs.c0 rhs.c1 in
+
+      let c1 =
+        Fp6.Circuit.sub (Fp6.Circuit.sub (Fp6.Circuit.mul a0_a1 b0_b1) t0) t1
+      in
+
+      create c0 c1
   end
 end
 
