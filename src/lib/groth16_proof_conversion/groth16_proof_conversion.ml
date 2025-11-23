@@ -92,6 +92,8 @@ module type Inputs = sig
 
       val mul_by_fp : t -> FpC.Circuit.t -> t
 
+      val conjugate : t -> t
+
       val assert_equals : t -> t -> unit
     end
 
@@ -125,6 +127,12 @@ module type Inputs = sig
       val assert_equal : t -> t -> unit
     end
   end
+
+  val gamma_1s : Fp2.Circuit.t array
+
+  val gamma_2s : Fp2.Circuit.t array
+
+  val gamma_3s : Fp2.Circuit.t array
 
   module Fp12 : sig
     type t
@@ -358,6 +366,57 @@ module Make_Fp12 (Inputs : Inputs) = struct
 
       let c2 = Fp6.Circuit.mul_by_v c2 in
       let c0 = Fp6.Circuit.add c0 c2 in
+
+      { c0; c1 }
+
+    let frobenius_pow_p self =
+      let t1 = Fp2.Circuit.conjugate self.c0.c0 in
+      let t2 = Fp2.Circuit.conjugate self.c1.c0 in
+      let t3 = Fp2.Circuit.conjugate self.c0.c1 in
+      let t4 = Fp2.Circuit.conjugate self.c1.c1 in
+      let t5 = Fp2.Circuit.conjugate self.c0.c2 in
+      let t6 = Fp2.Circuit.conjugate self.c1.c2 in
+
+      let t2 = Fp2.Circuit.mul t2 gamma_1s.(0) in
+      let t3 = Fp2.Circuit.mul t3 gamma_1s.(1) in
+      let t4 = Fp2.Circuit.mul t4 gamma_1s.(2) in
+      let t5 = Fp2.Circuit.mul t5 gamma_1s.(3) in
+      let t6 = Fp2.Circuit.mul t6 gamma_1s.(4) in
+
+      let c0 : Fp6.Circuit.t = { c0 = t1; c1 = t3; c2 = t5 } in
+      let c1 : Fp6.Circuit.t = { c0 = t2; c1 = t4; c2 = t6 } in
+
+      { c0; c1 }
+
+    let frobenius_pow_p_squared self =
+      let t1 = self.c0.c0 in
+      let t2 = Fp2.Circuit.mul self.c1.c0 gamma_2s.(0) in
+      let t3 = Fp2.Circuit.mul self.c0.c1 gamma_2s.(1) in
+      let t4 = Fp2.Circuit.mul self.c1.c1 gamma_2s.(2) in
+      let t5 = Fp2.Circuit.mul self.c0.c2 gamma_2s.(3) in
+      let t6 = Fp2.Circuit.mul self.c1.c2 gamma_2s.(4) in
+
+      let c0 : Fp6.Circuit.t = { c0 = t1; c1 = t3; c2 = t5 } in
+      let c1 : Fp6.Circuit.t = { c0 = t2; c1 = t4; c2 = t6 } in
+
+      { c0; c1 }
+
+    let frobenius_pow_p_cubed self =
+      let t1 = Fp2.Circuit.conjugate self.c0.c0 in
+      let t2 = Fp2.Circuit.conjugate self.c1.c0 in
+      let t3 = Fp2.Circuit.conjugate self.c0.c1 in
+      let t4 = Fp2.Circuit.conjugate self.c1.c1 in
+      let t5 = Fp2.Circuit.conjugate self.c0.c2 in
+      let t6 = Fp2.Circuit.conjugate self.c1.c2 in
+
+      let t2 = Fp2.Circuit.mul t2 gamma_3s.(0) in
+      let t3 = Fp2.Circuit.mul t3 gamma_3s.(1) in
+      let t4 = Fp2.Circuit.mul t4 gamma_3s.(2) in
+      let t5 = Fp2.Circuit.mul t5 gamma_3s.(3) in
+      let t6 = Fp2.Circuit.mul t6 gamma_3s.(4) in
+
+      let c0 : Fp6.Circuit.t = { c0 = t1; c1 = t3; c2 = t5 } in
+      let c1 : Fp6.Circuit.t = { c0 = t2; c1 = t4; c2 = t6 } in
 
       { c0; c1 }
   end
