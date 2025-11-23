@@ -8,19 +8,19 @@ module type Inputs = sig
     -> 'a array
     -> Field.t Random_oracle_input.Chunked.t
 
-  module rec FrA : sig
+  module rec FpA : sig
     type t
 
     module Circuit : sig
       type t
 
-      val assertCanonical : t -> FrC.Circuit.t
+      val assertCanonical : t -> FpC.Circuit.t
     end
 
     val typ : (Circuit.t, t) Typ.t
   end
 
-  and FrC : sig
+  and FpC : sig
     type t
 
     module Circuit : sig
@@ -28,7 +28,7 @@ module type Inputs = sig
 
       val assert_equal : t -> t -> unit
 
-      val to_FrA : t -> FrA.Circuit.t
+      val to_FpA : t -> FpA.Circuit.t
 
       val of_int : int -> t
 
@@ -44,15 +44,15 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : FrA.Circuit.t -> FrA.Circuit.t -> t
+      val create : FpA.Circuit.t -> FpA.Circuit.t -> t
 
-      val x : t -> FrA.Circuit.t
+      val x : t -> FpA.Circuit.t
 
-      val y : t -> FrA.Circuit.t
+      val y : t -> FpA.Circuit.t
 
       val add : t -> t -> t
 
-      val scale : t -> FrC.Circuit.t -> t
+      val scale : t -> FpC.Circuit.t -> t
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -64,7 +64,7 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : FrC.Circuit.t -> FrC.Circuit.t -> t
+      val create : FpC.Circuit.t -> FpC.Circuit.t -> t
 
       val zero : unit -> t
 
@@ -76,7 +76,7 @@ module type Inputs = sig
 
       val square : t -> t
 
-      val mul_by_fp : t -> FrC.Circuit.t -> t
+      val mul_by_fp : t -> FpC.Circuit.t -> t
 
       val assert_equals : t -> t -> unit
     end
@@ -130,11 +130,11 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : FrC.Circuit.t -> FrC.Circuit.t -> t
+      val create : FpC.Circuit.t -> FpC.Circuit.t -> t
 
-      val x : t -> FrC.Circuit.t
+      val x : t -> FpC.Circuit.t
 
-      val y : t -> FrC.Circuit.t
+      val y : t -> FpC.Circuit.t
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
@@ -219,9 +219,9 @@ module type Inputs = sig
 
       val create : G1Affine.Circuit.t -> t
 
-      val xp_prime : t -> FrC.Circuit.t
+      val xp_prime : t -> FpC.Circuit.t
 
-      val yp_prime : t -> FrC.Circuit.t
+      val yp_prime : t -> FpC.Circuit.t
     end
   end
 
@@ -267,7 +267,7 @@ module Make_G2Line (Inputs : Inputs) = struct
 
     let psi self (cache : AffineCache.Circuit.t) =
       let g0 =
-        Fp2.Circuit.create (FrC.Circuit.of_int 1) (FrC.Circuit.of_int 0)
+        Fp2.Circuit.create (FpC.Circuit.of_int 1) (FpC.Circuit.of_int 0)
       in
       let h0 =
         Fp2.Circuit.mul_by_fp self.lambda (AffineCache.Circuit.xp_prime cache)
@@ -308,7 +308,7 @@ module Make_G2Line (Inputs : Inputs) = struct
       in
       let x_square = Fp2.Circuit.square (G2Affine.Circuit.x p) in
       Fp2.Circuit.assert_equals dbl_lambda_y
-        (Fp2.Circuit.mul_by_fp x_square (FrC.Circuit.of_int 3))
+        (Fp2.Circuit.mul_by_fp x_square (FpC.Circuit.of_int 3))
 
     let lambda { lambda; _ } = lambda
   end
@@ -1002,7 +1002,7 @@ module Make_zkp14 (Inputs : Inputs) = struct
   open Range
   open Inputs
 
-  let auxiliary_input_typ = Typ.array ~length:5 FrC.typ
+  let auxiliary_input_typ = Typ.array ~length:5 FpC.typ
 
   let tags, cache, proof, provers =
     Pickles.compile
@@ -1023,7 +1023,7 @@ module Make_zkp14 (Inputs : Inputs) = struct
                 let pis_hash =
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input
-                       (array_to_input FrC.Circuit.to_input pis) )
+                       (array_to_input FpC.Circuit.to_input pis) )
                 in
 
                 let acc = Bn254.Circuit.(create (x VK.ic0) (y VK.ic0)) in
@@ -1039,8 +1039,8 @@ module Make_zkp14 (Inputs : Inputs) = struct
 
                 let acc_aff =
                   G1Affine.Circuit.create
-                    (FrA.Circuit.assertCanonical (Bn254.Circuit.x acc))
-                    (FrA.Circuit.assertCanonical (Bn254.Circuit.y acc))
+                    (FpA.Circuit.assertCanonical (Bn254.Circuit.x acc))
+                    (FpA.Circuit.assertCanonical (Bn254.Circuit.y acc))
                 in
                 let acc_hash =
                   Random_oracle.Checked.hash
@@ -1073,7 +1073,7 @@ module Make_zkp15 (Inputs : Inputs) = struct
   open Inputs
 
   let auxiliary_input_typ =
-    Typ.tuple3 G1Affine.typ G1Affine.typ (Typ.array ~length:5 FrC.typ)
+    Typ.tuple3 G1Affine.typ G1Affine.typ (Typ.array ~length:5 FpC.typ)
 
   let tags, cache, proof, provers =
     Pickles.compile
@@ -1099,7 +1099,7 @@ module Make_zkp15 (Inputs : Inputs) = struct
                 let pis_hash =
                   Random_oracle.Checked.hash
                     (Random_oracle.Checked.pack_input
-                       (array_to_input FrC.Circuit.to_input pis) )
+                       (array_to_input FpC.Circuit.to_input pis) )
                 in
                 let acc_hash =
                   Random_oracle.Checked.hash
@@ -1114,8 +1114,8 @@ module Make_zkp15 (Inputs : Inputs) = struct
 
                 let accBn =
                   Bn254.Circuit.create
-                    (FrC.Circuit.to_FrA (G1Affine.Circuit.x acc))
-                    (FrC.Circuit.to_FrA (G1Affine.Circuit.y acc))
+                    (FpC.Circuit.to_FpA (G1Affine.Circuit.x acc))
+                    (FpC.Circuit.to_FpA (G1Affine.Circuit.y acc))
                 in
                 let accBn =
                   Bn254.Circuit.add accBn (Bn254.Circuit.scale VK.ic4 pis.(3))
@@ -1124,11 +1124,11 @@ module Make_zkp15 (Inputs : Inputs) = struct
                   Bn254.Circuit.add accBn (Bn254.Circuit.scale VK.ic5 pis.(4))
                 in
 
-                FrC.Circuit.assert_equal
-                  (FrA.Circuit.assertCanonical (Bn254.Circuit.x accBn))
+                FpC.Circuit.assert_equal
+                  (FpA.Circuit.assertCanonical (Bn254.Circuit.x accBn))
                   (G1Affine.Circuit.x pi) ;
-                FrC.Circuit.assert_equal
-                  (FrA.Circuit.assertCanonical (Bn254.Circuit.y accBn))
+                FpC.Circuit.assert_equal
+                  (FpA.Circuit.assertCanonical (Bn254.Circuit.y accBn))
                   (G1Affine.Circuit.y pi) ;
 
                 { previous_proof_statements = []
