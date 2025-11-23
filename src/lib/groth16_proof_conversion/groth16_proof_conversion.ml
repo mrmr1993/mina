@@ -197,15 +197,17 @@ module type Inputs = sig
       val set_f : t -> Fp12.Circuit.t -> t
 
       module Proof : sig
-        val negA : t -> 'a
-
-        val c : t -> 'a
-
-        val c_inv : t -> 'a
-
-        val pi : t -> 'a
+        val negA : t -> G1Affine.Circuit.t
 
         val b : t -> G2Affine.Circuit.t
+
+        val c : t -> G1Affine.Circuit.t
+
+        val pi : t -> G1Affine.Circuit.t
+
+        val c_fp : t -> Fp12.Circuit.t
+
+        val c_fp_inv : t -> Fp12.Circuit.t
 
         val shift_power : t -> Field.t
       end
@@ -771,8 +773,8 @@ module Make_zkp6 (Inputs : Inputs) = struct
                 (* Assert that witnessed inverse is correct *)
                 Fp12.Circuit.assert_equal
                   (Fp12.Circuit.mul
-                     (Accumulator.Circuit.Proof.c_inv !acc)
-                     (Accumulator.Circuit.Proof.c !acc) )
+                     (Accumulator.Circuit.Proof.c_fp_inv !acc)
+                     (Accumulator.Circuit.Proof.c_fp !acc) )
                   (Fp12.Circuit.one ()) ;
 
                 let new_g_digest = ArrayListHasher.Circuit.hash lines_hashes in
@@ -812,9 +814,9 @@ struct
     for i = 1 + prefix to prefix + iterations do
       f := Fp12.Circuit.mul (Fp12.Circuit.square !f) g_chunk.(!idx) ;
       if ate_loop_count.(i) = 1 then
-        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_inv !acc)
+        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_fp_inv !acc)
       else if ate_loop_count.(i) = -1 then
-        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c !acc)
+        f := Fp12.Circuit.mul !f (Accumulator.Circuit.Proof.c_fp !acc)
       else () ;
       idx := !idx + 1
     done ;
@@ -1018,15 +1020,15 @@ module Make_zkp13 (Inputs : Inputs) = struct
                    |> (fun x ->
                         Fp12.Circuit.mul x
                           (Fp12.Circuit.frobenius_pow_p
-                             (Accumulator.Circuit.Proof.c_inv !acc) ) )
+                             (Accumulator.Circuit.Proof.c_fp_inv !acc) ) )
                    |> (fun x ->
                         Fp12.Circuit.mul x
                           (Fp12.Circuit.frobenius_pow_p_squared
-                             (Accumulator.Circuit.Proof.c !acc) ) )
+                             (Accumulator.Circuit.Proof.c_fp !acc) ) )
                    |> (fun x ->
                         Fp12.Circuit.mul x
                           (Fp12.Circuit.frobenius_pow_p_cubed
-                             (Accumulator.Circuit.Proof.c_inv !acc) ) )
+                             (Accumulator.Circuit.Proof.c_fp_inv !acc) ) )
                    |> fun x -> Fp12.Circuit.mul x VK.alpha_beta ) ;
 
                 let shift =
