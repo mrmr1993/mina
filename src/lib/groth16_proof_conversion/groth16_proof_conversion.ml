@@ -224,12 +224,25 @@ module type Inputs = sig
 
     val typ : (Circuit.t, t) Typ.t
   end
+end
 
-  module LineParser : sig
-    val parse : int -> int -> G2Line.Circuit.t array -> G2Line.Circuit.t array
+module Line_parser (Inputs : Inputs) = struct
+  open Inputs
 
-    val frobenius_lines : G2Line.Circuit.t array -> 'a array
-  end
+  let ateCntSlice from to_ =
+    let line_cnt = ref 0 in
+    for i = from to to_ - 1 do
+      if ate_loop_count.(i) = 0 then line_cnt := !line_cnt + 1
+      else line_cnt := !line_cnt + 2
+    done ;
+    !line_cnt
+
+  let parse from to_ lines =
+    let start = ateCntSlice 1 from in
+    let toSlice = ateCntSlice from to_ in
+    Array.sub lines start toSlice
+
+  let frobenius_lines lines = Array.sub lines (Array.length lines - 2) 2
 end
 
 module Make_zkp0_to_6_ate_loop (Range : sig
@@ -241,6 +254,7 @@ end)
 struct
   open Range
   open Inputs
+  module LineParser = Line_parser (Inputs)
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
 
@@ -482,6 +496,7 @@ module Make_zkp6 (Inputs : Inputs) = struct
 
   open Range
   module Ate_loop = Make_zkp0_to_6_ate_loop (Range) (Inputs)
+  module LineParser = Line_parser (Inputs)
 
   let auxiliary_input_typ =
     Typ.tuple3 Accumulator.typ
