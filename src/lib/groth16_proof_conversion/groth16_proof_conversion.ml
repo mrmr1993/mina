@@ -144,30 +144,8 @@ module type Inputs = sig
     type t
 
     module Circuit : sig
-      type t
-
-      val create : Fp6.Circuit.t -> Fp6.Circuit.t -> t
-
-      val sparse_mul : t -> t -> t
-
-      val frobenius_pow_p : t -> t
-
-      val frobenius_pow_p_squared : t -> t
-
-      val frobenius_pow_p_cubed : t -> t
-
-      val one : unit -> t
-
-      val square : t -> t
-
-      val mul : t -> t -> t
-
-      val assert_equal : t -> t -> unit
-
-      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+      type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
     end
-
-    val typ : (Circuit.t, t) Typ.t
   end
 
   module G1Affine : sig
@@ -299,7 +277,7 @@ module Make_Fp12 (Inputs : Inputs) = struct
   type t = { c0 : Fp6.t; c1 : Fp6.t }
 
   module Circuit = struct
-    type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
+    type t = Fp12.Circuit.t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
 
     let create c0 c1 = { c0; c1 }
 
@@ -422,6 +400,7 @@ end
 
 module ArrayListHasher (Inputs : Inputs) = struct
   open Inputs
+  module Fp12 = Make_Fp12 (Inputs)
 
   let n = Array.length ate_loop_count
 
@@ -487,6 +466,7 @@ end
 module Make_G2Line (Inputs : Inputs) = struct
   open Inputs
   module AffineCache = Make_AffineCache (Inputs)
+  module Fp12 = Make_Fp12 (Inputs)
 
   type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
@@ -581,6 +561,7 @@ struct
   open Inputs
   module G2Line = Make_G2Line (Inputs)
   module AffineCache = G2Line.AffineCache
+  module Fp12 = G2Line.Fp12
   module LineParser = Line_parser (Inputs)
 
   let delta_lines = LineParser.parse begin_ end_ VK.delta_lines
@@ -964,6 +945,7 @@ end)
 struct
   open Range
   open Inputs
+  module Fp12 = Make_Fp12 (Inputs)
 
   let update_f acc g_chunk =
     let f = ref (Accumulator.Circuit.f !acc) in
@@ -996,6 +978,7 @@ struct
   open Inputs
   module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
   module ArrayListHasher = ArrayListHasher (Inputs)
+  module Fp12 = ArrayListHasher.Fp12
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
@@ -1131,6 +1114,7 @@ module Make_zkp13 (Inputs : Inputs) = struct
   open Inputs
   module Update_f = Make_zkp7_to_13_update_f (Range) (Inputs)
   module ArrayListHasher = ArrayListHasher (Inputs)
+  module Fp12 = ArrayListHasher.Fp12
 
   let auxiliary_input_typ =
     Typ.tuple2 Accumulator.typ
