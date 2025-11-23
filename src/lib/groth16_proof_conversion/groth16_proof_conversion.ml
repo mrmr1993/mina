@@ -217,7 +217,7 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : 'a -> t
+      val create : G1Affine.Circuit.t -> t
 
       val xp_prime : t -> FrC.Circuit.t
 
