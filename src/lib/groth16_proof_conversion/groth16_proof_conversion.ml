@@ -27,16 +27,14 @@ module type Inputs = sig
   end
 
   and FpC : sig
-    type t
+    type t = private FpA.t
 
     val inv : t -> FpA.t
 
     module Circuit : sig
-      type t
+      type t = private FpA.Circuit.t
 
       val assert_equal : t -> t -> unit
-
-      val to_FpA : t -> FpA.Circuit.t
 
       val neg : t -> FpA.Circuit.t
 
@@ -1445,8 +1443,8 @@ module Make_zkp15 (Inputs : Inputs) = struct
 
                 let accBn =
                   Bn254.Circuit.create
-                    (FpC.Circuit.to_FpA (G1Affine.Circuit.x acc))
-                    (FpC.Circuit.to_FpA (G1Affine.Circuit.y acc))
+                    (G1Affine.Circuit.x acc :> FpA.Circuit.t)
+                    (G1Affine.Circuit.y acc :> FpA.Circuit.t)
                 in
                 let accBn =
                   Bn254.Circuit.add accBn (Bn254.Circuit.scale VK.ic4 pis.(3))
