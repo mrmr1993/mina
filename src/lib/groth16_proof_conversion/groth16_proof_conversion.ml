@@ -8,17 +8,13 @@ module type Inputs = sig
     -> 'a array
     -> Field.t Random_oracle_input.Chunked.t
 
-  module rec FpA : sig
+  module FpA : sig
     type t
-
-    val assertCanonical : t -> FpC.t
 
     module Circuit : sig
       type t
 
       val assert_equal : t -> t -> unit
-
-      val assertCanonical : t -> FpC.Circuit.t
 
       val of_int : int -> t
     end
@@ -26,10 +22,12 @@ module type Inputs = sig
     val typ : (Circuit.t, t) Typ.t
   end
 
-  and FpC : sig
+  module FpC : sig
     type t = private FpA.t
 
     val inv : t -> FpA.t
+
+    val assertCanonical : FpA.t -> t
 
     module Circuit : sig
       type t = private FpA.Circuit.t
@@ -41,6 +39,8 @@ module type Inputs = sig
       val mul : t -> t -> FpA.Circuit.t
 
       val inv : t -> FpA.Circuit.t
+
+      val assertCanonical : FpA.Circuit.t -> t
 
       val of_int : int -> t
 
@@ -548,22 +548,22 @@ module Make_AffineCache (Inputs : Inputs) = struct
 
     let create (p : G1Affine.Circuit.t) =
       let xp_neg =
-        FpA.Circuit.assertCanonical (FpC.Circuit.neg (G1Affine.Circuit.x p))
+        FpC.Circuit.assertCanonical (FpC.Circuit.neg (G1Affine.Circuit.x p))
       in
       (* This is immediately erased.. *)
       let _yp_prime =
-        FpA.Circuit.assertCanonical (FpC.Circuit.inv (G1Affine.Circuit.y p))
+        FpC.Circuit.assertCanonical (FpC.Circuit.inv (G1Affine.Circuit.y p))
       in
       (* ..and this isn't canonical. High-quality stuff. *)
       let yp_prime =
         exists FpC.typ ~compute:(fun () ->
             let y = As_prover.read FpC.typ (G1Affine.Circuit.y p) in
-            FpC.inv y |> FpA.assertCanonical )
+            FpC.inv y |> FpC.assertCanonical )
       in
       FpC.Circuit.mul yp_prime (G1Affine.Circuit.y p)
       |> FpA.Circuit.assert_equal (FpA.Circuit.of_int 1) ;
       let xp_prime =
-        FpA.Circuit.assertCanonical (FpC.Circuit.mul xp_neg yp_prime)
+        FpC.Circuit.assertCanonical (FpC.Circuit.mul xp_neg yp_prime)
       in
       { xp_neg; yp_prime; xp_prime }
 
@@ -1368,8 +1368,8 @@ module Make_zkp14 (Inputs : Inputs) = struct
 
                 let acc_aff =
                   G1Affine.Circuit.create
-                    (FpA.Circuit.assertCanonical (Bn254.Circuit.x acc))
-                    (FpA.Circuit.assertCanonical (Bn254.Circuit.y acc))
+                    (FpC.Circuit.assertCanonical (Bn254.Circuit.x acc))
+                    (FpC.Circuit.assertCanonical (Bn254.Circuit.y acc))
                 in
                 let acc_hash =
                   Random_oracle.Checked.hash
@@ -1454,10 +1454,10 @@ module Make_zkp15 (Inputs : Inputs) = struct
                 in
 
                 FpC.Circuit.assert_equal
-                  (FpA.Circuit.assertCanonical (Bn254.Circuit.x accBn))
+                  (FpC.Circuit.assertCanonical (Bn254.Circuit.x accBn))
                   (G1Affine.Circuit.x pi) ;
                 FpC.Circuit.assert_equal
-                  (FpA.Circuit.assertCanonical (Bn254.Circuit.y accBn))
+                  (FpC.Circuit.assertCanonical (Bn254.Circuit.y accBn))
                   (G1Affine.Circuit.y pi) ;
 
                 { previous_proof_statements = []
