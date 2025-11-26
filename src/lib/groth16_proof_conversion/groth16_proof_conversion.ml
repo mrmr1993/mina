@@ -92,7 +92,7 @@ module type Inputs = sig
 
       val square : t -> t
 
-      val mul_by_fp : t -> FpC.Circuit.t -> t
+      val mul_by_fp : t -> FpA.Circuit.t -> t
 
       val conjugate : t -> t
 
@@ -437,7 +437,7 @@ module Make_Fp12 (Inputs : Inputs) = struct
       let c2 = Fp6.Circuit.mul self.c0 self.c1 in
 
       let c0 = Fp6.Circuit.add (Fp6.Circuit.mul c0 c3) c2 in
-      let c1 = Fp6.Circuit.mul_by_fp c2 (FpC.Circuit.of_int 2) in
+      let c1 = Fp6.Circuit.mul_by_fp c2 (FpA.Circuit.of_int 2) in
 
       let c2 = Fp6.Circuit.mul_by_v c2 in
       let c0 = Fp6.Circuit.add c0 c2 in
@@ -590,11 +590,13 @@ module Make_G2Line (Inputs : Inputs) = struct
         Fp2.Circuit.create (FpA.Circuit.of_int 1) (FpA.Circuit.of_int 0)
       in
       let h0 =
-        Fp2.Circuit.mul_by_fp self.lambda (AffineCache.Circuit.xp_prime cache)
+        Fp2.Circuit.mul_by_fp self.lambda
+          (AffineCache.Circuit.xp_prime cache :> FpA.Circuit.t)
       in
       let g1 = Fp2.Circuit.zero () in
       let h1 =
-        Fp2.Circuit.mul_by_fp self.neg_mu (AffineCache.Circuit.yp_prime cache)
+        Fp2.Circuit.mul_by_fp self.neg_mu
+          (AffineCache.Circuit.yp_prime cache :> FpA.Circuit.t)
       in
       let g2 = Fp2.Circuit.zero () in
       let h2 = Fp2.Circuit.zero () in
@@ -628,7 +630,7 @@ module Make_G2Line (Inputs : Inputs) = struct
       in
       let x_square = Fp2.Circuit.square (G2Affine.Circuit.x p) in
       Fp2.Circuit.assert_equals dbl_lambda_y
-        (Fp2.Circuit.mul_by_fp x_square (FpC.Circuit.of_int 3))
+        (Fp2.Circuit.mul_by_fp x_square (FpA.Circuit.of_int 3))
 
     let lambda { lambda; _ } = lambda
   end
