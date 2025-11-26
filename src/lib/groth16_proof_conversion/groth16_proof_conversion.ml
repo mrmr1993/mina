@@ -82,7 +82,11 @@ module type Inputs = sig
 
       val zero : unit -> t
 
+      val one : unit -> t
+
       val add : t -> t -> t
+
+      val sub : t -> t -> t
 
       val neg : t -> t
 
@@ -94,44 +98,22 @@ module type Inputs = sig
 
       val conjugate : t -> t
 
+      val sum : t array -> int array -> t
+
       val assert_equals : t -> t -> unit
-    end
-
-    val typ : (Circuit.t, t) Typ.t
-  end
-
-  module Fp6 : sig
-    type t
-
-    module Circuit : sig
-      type t = { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
-
-      val create : Fp2.Circuit.t -> Fp2.Circuit.t -> Fp2.Circuit.t -> t
-
-      val zero : unit -> t
-
-      val one : unit -> t
-
-      val add : t -> t -> t
-
-      val sub : t -> t -> t
-
-      val mul : t -> t -> t
-
-      val mul_by_v : t -> t
-
-      val mul_by_fp : t -> FpC.Circuit.t -> t
-
-      val mul_by_fp2 : t -> Fp2.Circuit.t -> t
-
-      val mul_by_sparse_fp6 : t -> t -> t
-
-      val assert_equal : t -> t -> unit
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
     val typ : (Circuit.t, t) Typ.t
+  end
+
+  val fp2_non_residue : Fp2.Circuit.t
+
+  module Fp6 : sig
+    module Circuit : sig
+      type t = { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
+    end
   end
 
   val gamma_1s : Fp2.Circuit.t array
@@ -141,8 +123,6 @@ module type Inputs = sig
   val gamma_3s : Fp2.Circuit.t array
 
   module Fp12 : sig
-    type t
-
     module Circuit : sig
       type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
     end
@@ -271,8 +251,140 @@ module type Inputs = sig
   end
 end
 
+module Make_Fp6 (Inputs : Inputs) = struct
+  open Inputs
+
+  type t = { c0 : Fp2.t; c1 : Fp2.t; c2 : Fp2.t }
+
+  module Circuit = struct
+    type t = Fp6.Circuit.t =
+      { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
+
+    let create c0 c1 c2 = { c0; c1; c2 }
+
+    let zero () =
+      { c0 = Fp2.Circuit.zero ()
+      ; c1 = Fp2.Circuit.zero ()
+      ; c2 = Fp2.Circuit.zero ()
+      }
+
+    let one () =
+      { c0 = Fp2.Circuit.one ()
+      ; c1 = Fp2.Circuit.zero ()
+      ; c2 = Fp2.Circuit.zero ()
+      }
+
+    let assert_equal self rhs =
+      Fp2.Circuit.assert_equals self.c0 rhs.c0 ;
+      Fp2.Circuit.assert_equals self.c1 rhs.c1 ;
+      Fp2.Circuit.assert_equals self.c2 rhs.c2
+
+    let add self rhs =
+      let c0 = Fp2.Circuit.add self.c0 rhs.c0 in
+      let c1 = Fp2.Circuit.add self.c1 rhs.c1 in
+      let c2 = Fp2.Circuit.add self.c2 rhs.c2 in
+
+      { c0; c1; c2 }
+
+    let sub self rhs =
+      let c0 = Fp2.Circuit.sub self.c0 rhs.c0 in
+      let c1 = Fp2.Circuit.sub self.c1 rhs.c1 in
+      let c2 = Fp2.Circuit.sub self.c2 rhs.c2 in
+
+      { c0; c1; c2 }
+
+    let mul_by_v self =
+      let c0 = Fp2.Circuit.mul self.c0 fp2_non_residue in
+      { c0; c1 = self.c0; c2 = self.c1 }
+
+    let mul_by_fp self rhs =
+      let c0 = Fp2.Circuit.mul_by_fp self.c0 rhs in
+      let c1 = Fp2.Circuit.mul_by_fp self.c1 rhs in
+      let c2 = Fp2.Circuit.mul_by_fp self.c2 rhs in
+
+      { c0; c1; c2 }
+
+    let mul self rhs =
+      let t0 = Fp2.Circuit.mul self.c0 rhs.c0 in
+      let t1 = Fp2.Circuit.mul self.c1 rhs.c1 in
+      let t2 = Fp2.Circuit.mul self.c2 rhs.c2 in
+
+      let a1_a2 = Fp2.Circuit.add self.c1 self.c2 in
+      let a0_a1 = Fp2.Circuit.add self.c0 self.c1 in
+      let a0_a2 = Fp2.Circuit.add self.c0 self.c2 in
+
+      let b1_b2 = Fp2.Circuit.add rhs.c1 rhs.c2 in
+      let b0_b1 = Fp2.Circuit.add rhs.c0 rhs.c1 in
+      let b0_b2 = Fp2.Circuit.add rhs.c0 rhs.c2 in
+
+      let c0 =
+        let c0 =
+          Fp2.Circuit.sum [| Fp2.Circuit.mul a1_a2 b1_b2; t1; t2 |] [| -1; 1 |]
+        in
+        let c0 = Fp2.Circuit.mul c0 fp2_non_residue in
+        Fp2.Circuit.add c0 t0
+      in
+      let c1 =
+        Fp2.Circuit.sum
+          [| Fp2.Circuit.mul a0_a1 b0_b1
+           ; t0
+           ; t1
+           ; Fp2.Circuit.mul t2 fp2_non_residue
+          |]
+          [| -1; -1; 1 |]
+      in
+      let c2 =
+        Fp2.Circuit.sum
+          [| Fp2.Circuit.mul a0_a2 b0_b2; t0; t2; t1 |]
+          [| -1; -1; 1 |]
+      in
+
+      { c0; c1; c2 }
+
+    let mul_by_fp2 self rhs =
+      let c0 = Fp2.Circuit.mul self.c0 rhs in
+      let c1 = Fp2.Circuit.mul self.c1 rhs in
+      let c2 = Fp2.Circuit.mul self.c2 rhs in
+
+      { c0; c1; c2 }
+
+    let mul_by_sparse_fp6 self rhs =
+      let t0 = Fp2.Circuit.mul self.c0 rhs.c0 in
+      let t1 = Fp2.Circuit.mul self.c1 rhs.c1 in
+
+      let c0 =
+        Fp2.Circuit.mul (Fp2.Circuit.mul self.c2 rhs.c1) fp2_non_residue
+      in
+      let c0 = Fp2.Circuit.add c0 t0 in
+
+      let a0_a1 = Fp2.Circuit.add self.c0 self.c1 in
+      let b0_b1 = Fp2.Circuit.add rhs.c0 rhs.c1 in
+      let c1 = Fp2.Circuit.mul a0_a1 b0_b1 in
+      let c1 = Fp2.Circuit.sub (Fp2.Circuit.sub c1 t0) t1 in
+
+      let c2 = Fp2.Circuit.add (Fp2.Circuit.mul self.c2 rhs.c0) t1 in
+
+      { c0; c1; c2 }
+
+    let to_input { c0; c1; c2 } =
+      Random_oracle_input.Chunked.append
+        (Random_oracle_input.Chunked.append (Fp2.Circuit.to_input c0)
+           (Fp2.Circuit.to_input c1) )
+        (Fp2.Circuit.to_input c2)
+  end
+
+  let typ =
+    Typ.of_hlistable
+      [ Fp2.typ; Fp2.typ; Fp2.typ ]
+      ~var_to_hlist:(fun ({ c0; c1; c2 } : Circuit.t) -> [ c0; c1; c2 ])
+      ~var_of_hlist:(fun [ c0; c1; c2 ] -> { c0; c1; c2 })
+      ~value_to_hlist:(fun ({ c0; c1; c2 } : t) -> [ c0; c1; c2 ])
+      ~value_of_hlist:(fun [ c0; c1; c2 ] -> { c0; c1; c2 })
+end
+
 module Make_Fp12 (Inputs : Inputs) = struct
   open Inputs
+  module Fp6 = Make_Fp6 (Inputs)
 
   type t = { c0 : Fp6.t; c1 : Fp6.t }
 
@@ -467,6 +579,7 @@ module Make_G2Line (Inputs : Inputs) = struct
   open Inputs
   module AffineCache = Make_AffineCache (Inputs)
   module Fp12 = Make_Fp12 (Inputs)
+  module Fp6 = Fp12.Fp6
 
   type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
