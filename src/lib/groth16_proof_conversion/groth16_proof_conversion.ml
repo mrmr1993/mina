@@ -8,6 +8,12 @@ module type Inputs = sig
     -> 'a array
     -> Field.t Random_oracle_input.Chunked.t
 
+  module FpU : sig
+    module Circuit : sig
+      type t
+    end
+  end
+
   module FpA : sig
     type t
 
@@ -15,6 +21,18 @@ module type Inputs = sig
       type t
 
       val assert_equal : t -> t -> unit
+
+      val assertAlmostReduced : FpU.Circuit.t -> FpU.Circuit.t -> t * t
+
+      val neg : t -> t
+
+      val add : t -> t -> FpU.Circuit.t
+
+      val sub : t -> t -> FpU.Circuit.t
+
+      val sum : t array -> int array -> FpU.Circuit.t
+
+      val mul : t -> t -> FpU.Circuit.t
 
       val of_int : int -> t
     end
@@ -246,6 +264,99 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module Make_Fp2 (Inputs : Inputs) = struct
+  open Inputs
+
+  (*module Fp2 : sig
+      type t
+
+      module Circuit : sig
+        type t
+
+        val create : FpA.Circuit.t -> FpA.Circuit.t -> t
+
+        val zero : unit -> t
+
+        val one : unit -> t
+
+        val assert_equals : t -> t -> unit
+
+        val neg : t -> t
+
+        val conjugate : t -> t
+
+        val add : t -> t -> t
+
+        val sub : t -> t -> t
+
+        val sum : t array -> int array -> t
+
+        val mul_by_fp : t -> FpA.Circuit.t -> t
+
+        val mul : t -> t -> t
+
+        val square : t -> t
+
+        val to_input : t -> Field.t Random_oracle_input.Chunked.t
+      end
+
+      val typ : (Circuit.t, t) Typ.t
+    end*)
+
+  type t = { c0 : FpA.t; c1 : FpA.t }
+
+  module Circuit = struct
+    type t = { c0 : FpA.Circuit.t; c1 : FpA.Circuit.t }
+
+    let create c0 c1 = { c0; c1 }
+
+    let zero = { c0 = FpA.Circuit.of_int 0; c1 = FpA.Circuit.of_int 0 }
+
+    let one = { c0 = FpA.Circuit.of_int 1; c1 = FpA.Circuit.of_int 0 }
+
+    let assert_equals self rhs =
+      FpA.Circuit.assert_equal self.c0 rhs.c0 ;
+      FpA.Circuit.assert_equal self.c1 rhs.c1
+
+    let fromUnreduced c0 c1 =
+      let c0A, c0B = FpA.Circuit.assertAlmostReduced c0 c1 in
+      { c0 = c0A; c1 = c0B }
+
+    let neg self =
+      { c0 = FpA.Circuit.neg self.c0; c1 = FpA.Circuit.neg self.c1 }
+
+    let conjugate self = { c0 = self.c0; c1 = FpA.Circuit.neg self.c1 }
+
+    let add self rhs =
+      let c0 = FpA.Circuit.add self.c0 rhs.c0 in
+      let c1 = FpA.Circuit.add self.c1 rhs.c1 in
+
+      fromUnreduced c0 c1
+
+    let sub self rhs =
+      let c0 = FpA.Circuit.sub self.c0 rhs.c0 in
+      let c1 = FpA.Circuit.sub self.c1 rhs.c1 in
+
+      fromUnreduced c0 c1
+
+    let sum inputs operators =
+      let c0 =
+        FpA.Circuit.sum (Array.map (fun { c0; _ } -> c0) inputs) operators
+      in
+      let c1 =
+        FpA.Circuit.sum (Array.map (fun { c1; _ } -> c1) inputs) operators
+      in
+
+      fromUnreduced c0 c1
+
+    let mul_by_fp self rhs =
+      let c0 = FpA.Circuit.mul self.c0 rhs in
+      let c1 = FpA.Circuit.mul self.c1 rhs in
+
+      fromUnreduced c0 c1
   end
 end
 
