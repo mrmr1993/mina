@@ -76,7 +76,7 @@ module type Inputs = sig
     module Circuit : sig
       type t
 
-      val create : FpC.Circuit.t -> FpC.Circuit.t -> t
+      val create : FpA.Circuit.t -> FpA.Circuit.t -> t
 
       val zero : unit -> t
 
@@ -587,7 +587,7 @@ module Make_G2Line (Inputs : Inputs) = struct
 
     let psi self (cache : AffineCache.Circuit.t) =
       let g0 =
-        Fp2.Circuit.create (FpC.Circuit.of_int 1) (FpC.Circuit.of_int 0)
+        Fp2.Circuit.create (FpA.Circuit.of_int 1) (FpA.Circuit.of_int 0)
       in
       let h0 =
         Fp2.Circuit.mul_by_fp self.lambda (AffineCache.Circuit.xp_prime cache)
