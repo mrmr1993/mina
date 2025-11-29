@@ -49,6 +49,8 @@ module type Inputs = sig
       val mul : t -> t -> FpU.Circuit.t
 
       val of_int : int -> t
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -312,42 +314,6 @@ end
 module Make_Fp2 (Inputs : Inputs) = struct
   open Inputs
 
-  (*module Fp2 : sig
-      type t
-
-      module Circuit : sig
-        type t
-
-        val create : FpA.Circuit.t -> FpA.Circuit.t -> t
-
-        val zero : unit -> t
-
-        val one : unit -> t
-
-        val assert_equals : t -> t -> unit
-
-        val neg : t -> t
-
-        val conjugate : t -> t
-
-        val add : t -> t -> t
-
-        val sub : t -> t -> t
-
-        val sum : t array -> int array -> t
-
-        val mul_by_fp : t -> FpA.Circuit.t -> t
-
-        val mul : t -> t -> t
-
-        val square : t -> t
-
-        val to_input : t -> Field.t Random_oracle_input.Chunked.t
-      end
-
-      val typ : (Circuit.t, t) Typ.t
-    end*)
-
   type t = { c0 : FpA.t; c1 : FpA.t }
 
   module Circuit = struct
@@ -464,7 +430,19 @@ module Make_Fp2 (Inputs : Inputs) = struct
       assertMul (`Sum sum_a0_a0) (`Field self.c1) (`Field c1) ;
 
       fromUnreduced c0 c1
+
+    let to_input { c0; c1 } =
+      Random_oracle_input.Chunked.append
+        (Random_oracle_input.Chunked.append (FpA.Circuit.to_input c0)
+           (FpA.Circuit.to_input c1) )
   end
+
+  let typ =
+    Typ.of_hlistable [ FpA.typ; FpA.typ ]
+      ~var_to_hlist:(fun ({ c0; c1 } : Circuit.t) -> [ c0; c1 ])
+      ~var_of_hlist:(fun [ c0; c1 ] -> { c0; c1 })
+      ~value_to_hlist:(fun ({ c0; c1 } : t) -> [ c0; c1 ])
+      ~value_of_hlist:(fun [ c0; c1 ] -> { c0; c1 })
 end
 
 module Make_Fp6 (Inputs : Inputs) = struct
