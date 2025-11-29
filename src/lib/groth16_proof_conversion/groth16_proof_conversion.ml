@@ -9,16 +9,30 @@ module type Inputs = sig
     -> Field.t Random_oracle_input.Chunked.t
 
   module FpU : sig
+    type t
+
+    val add : t -> t -> t
+
+    val sub : t -> t -> t
+
+    val mul : t -> t -> t
+
+    val of_int : int -> t
+
     module Circuit : sig
       type t
+
+      val sub : t -> t -> t
     end
+
+    val typ : (Circuit.t, t) Typ.t
   end
 
   module FpA : sig
-    type t
+    type t = FpU.t
 
     module Circuit : sig
-      type t
+      type t = private FpU.Circuit.t
 
       val assert_equal : t -> t -> unit
 
@@ -87,6 +101,34 @@ module type Inputs = sig
 
     val typ : (Circuit.t, t) Typ.t
   end
+
+  module UnreducedSum : sig
+    module Circuit : sig
+      type t
+
+      val create : FpU.Circuit.t -> t
+
+      val add : t -> FpU.Circuit.t -> t
+    end
+  end
+
+  module AlmostReducedSum : sig
+    module Circuit : sig
+      type t
+
+      val create : FpA.Circuit.t -> t
+
+      val add : t -> FpA.Circuit.t -> t
+
+      val sub : t -> FpA.Circuit.t -> t
+    end
+  end
+
+  val assertMul :
+       [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
+    -> [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
+    -> [ `Sum of UnreducedSum.Circuit.t | `Field of FpU.Circuit.t ]
+    -> unit
 
   module Fp2 : sig
     type t
@@ -355,6 +397,71 @@ module Make_Fp2 (Inputs : Inputs) = struct
     let mul_by_fp self rhs =
       let c0 = FpA.Circuit.mul self.c0 rhs in
       let c1 = FpA.Circuit.mul self.c1 rhs in
+
+      fromUnreduced c0 c1
+
+    let mul self rhs =
+      let a0b0 = FpA.Circuit.mul self.c0 rhs.c0 in
+      let a1b1 = FpA.Circuit.mul self.c1 rhs.c1 in
+      let c0 = FpU.Circuit.sub a0b0 a1b1 in
+
+      let c1 =
+        exists FpU.typ ~compute:(fun () ->
+            let a0 = As_prover.read FpA.typ self.c0 in
+            let a1 = As_prover.read FpA.typ self.c1 in
+            let b0 = As_prover.read FpA.typ rhs.c0 in
+            let b1 = As_prover.read FpA.typ rhs.c1 in
+            FpU.add (FpU.mul a0 b1) (FpU.mul a1 b0) )
+      in
+
+      let sum_a0_a1 =
+        AlmostReducedSum.Circuit.add
+          (AlmostReducedSum.Circuit.create self.c0)
+          self.c1
+      in
+      let sum_b0_b1 =
+        AlmostReducedSum.Circuit.add
+          (AlmostReducedSum.Circuit.create rhs.c0)
+          rhs.c1
+      in
+      let sum_c1_a0b0_a1b1 =
+        UnreducedSum.Circuit.add
+          (UnreducedSum.Circuit.add
+             (UnreducedSum.Circuit.create c1)
+             (a0b0 :> FpU.Circuit.t) )
+          (a1b1 :> FpU.Circuit.t)
+      in
+      assertMul (`Sum sum_a0_a1) (`Sum sum_b0_b1) (`Sum sum_c1_a0b0_a1b1) ;
+
+      fromUnreduced c0 c1
+
+    let square self =
+      let c0, c1 =
+        exists (Typ.tuple2 FpU.typ FpU.typ) ~compute:(fun () ->
+            let a0 = As_prover.read FpA.typ self.c0 in
+            let a1 = As_prover.read FpA.typ self.c1 in
+            ( FpU.sub (FpU.mul a0 a0) (FpU.mul a1 a1)
+            , FpU.mul (FpU.mul (FpU.of_int 2) a0) a1 ) )
+      in
+
+      let sum_a0_a1 =
+        AlmostReducedSum.Circuit.add
+          (AlmostReducedSum.Circuit.create self.c0)
+          self.c1
+      in
+      let diff_a0_a1 =
+        AlmostReducedSum.Circuit.sub
+          (AlmostReducedSum.Circuit.create self.c0)
+          self.c1
+      in
+      assertMul (`Sum sum_a0_a1) (`Sum diff_a0_a1) (`Field c0) ;
+
+      let sum_a0_a0 =
+        AlmostReducedSum.Circuit.add
+          (AlmostReducedSum.Circuit.create self.c0)
+          self.c0
+      in
+      assertMul (`Sum sum_a0_a0) (`Field self.c1) (`Field c1) ;
 
       fromUnreduced c0 c1
   end
