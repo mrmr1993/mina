@@ -133,39 +133,9 @@ module type Inputs = sig
     -> unit
 
   module Fp2 : sig
-    type t
-
     module Circuit : sig
-      type t
-
-      val create : FpA.Circuit.t -> FpA.Circuit.t -> t
-
-      val zero : unit -> t
-
-      val one : unit -> t
-
-      val add : t -> t -> t
-
-      val sub : t -> t -> t
-
-      val neg : t -> t
-
-      val mul : t -> t -> t
-
-      val square : t -> t
-
-      val mul_by_fp : t -> FpA.Circuit.t -> t
-
-      val conjugate : t -> t
-
-      val sum : t array -> int array -> t
-
-      val assert_equals : t -> t -> unit
-
-      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+      type t = { c0 : FpA.Circuit.t; c1 : FpA.Circuit.t }
     end
-
-    val typ : (Circuit.t, t) Typ.t
   end
 
   val fp2_non_residue : Fp2.Circuit.t
@@ -317,7 +287,7 @@ module Make_Fp2 (Inputs : Inputs) = struct
   type t = { c0 : FpA.t; c1 : FpA.t }
 
   module Circuit = struct
-    type t = { c0 : FpA.Circuit.t; c1 : FpA.Circuit.t }
+    type t = Fp2.Circuit.t = { c0 : FpA.Circuit.t; c1 : FpA.Circuit.t }
 
     let create c0 c1 = { c0; c1 }
 
@@ -446,6 +416,7 @@ end
 
 module Make_Fp6 (Inputs : Inputs) = struct
   open Inputs
+  module Fp2 = Make_Fp2 (Inputs)
 
   type t = { c0 : Fp2.t; c1 : Fp2.t; c2 : Fp2.t }
 
@@ -578,6 +549,7 @@ end
 module Make_Fp12 (Inputs : Inputs) = struct
   open Inputs
   module Fp6 = Make_Fp6 (Inputs)
+  module Fp2 = Fp6.Fp2
 
   type t = { c0 : Fp6.t; c1 : Fp6.t }
 
@@ -773,6 +745,7 @@ module Make_G2Line (Inputs : Inputs) = struct
   module AffineCache = Make_AffineCache (Inputs)
   module Fp12 = Make_Fp12 (Inputs)
   module Fp6 = Fp12.Fp6
+  module Fp2 = Fp6.Fp2
 
   type t = { lambda : Fp2.t; neg_mu : Fp2.t }
 
