@@ -321,9 +321,9 @@ module Make_Fp2 (Inputs : Inputs) = struct
 
     let create c0 c1 = { c0; c1 }
 
-    let zero = { c0 = FpA.Circuit.of_int 0; c1 = FpA.Circuit.of_int 0 }
+    let zero () = { c0 = FpA.Circuit.of_int 0; c1 = FpA.Circuit.of_int 0 }
 
-    let one = { c0 = FpA.Circuit.of_int 1; c1 = FpA.Circuit.of_int 0 }
+    let one () = { c0 = FpA.Circuit.of_int 1; c1 = FpA.Circuit.of_int 0 }
 
     let assert_equals self rhs =
       FpA.Circuit.assert_equal self.c0 rhs.c0 ;
@@ -432,9 +432,8 @@ module Make_Fp2 (Inputs : Inputs) = struct
       fromUnreduced c0 c1
 
     let to_input { c0; c1 } =
-      Random_oracle_input.Chunked.append
-        (Random_oracle_input.Chunked.append (FpA.Circuit.to_input c0)
-           (FpA.Circuit.to_input c1) )
+      Random_oracle_input.Chunked.append (FpA.Circuit.to_input c0)
+        (FpA.Circuit.to_input c1)
   end
 
   let typ =
