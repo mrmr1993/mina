@@ -1,6 +1,6 @@
 open Pickles.Impls.Step
 
-module type Inputs = sig
+module type Circuit_inputs = sig
   val switch_ : Boolean.var list -> ('a, _) Typ.t -> 'a list -> 'a
 
   val array_to_input :
@@ -44,6 +44,10 @@ module type Inputs = sig
         -> unit
     end
   end
+end
+
+module type Foreign_field_inputs = sig
+  include Circuit_inputs
 
   module FpU : sig
     type t
@@ -126,6 +130,10 @@ module type Inputs = sig
 
     val typ : (Circuit.t, t) Typ.t
   end
+end
+
+module type Inputs = sig
+  include Foreign_field_inputs
 
   module Bn254 : sig
     type t
