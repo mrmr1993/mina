@@ -147,36 +147,6 @@ module type Inputs = sig
     val typ : (Circuit.t, t) Typ.t
   end
 
-  module UnreducedSum : sig
-    module Circuit : sig
-      type t
-
-      val create : FpU.Circuit.t -> t
-
-      val add : t -> FpU.Circuit.t -> t
-
-      val sub : t -> FpU.Circuit.t -> t
-    end
-  end
-
-  module AlmostReducedSum : sig
-    module Circuit : sig
-      type t
-
-      val create : FpA.Circuit.t -> t
-
-      val add : t -> FpA.Circuit.t -> t
-
-      val sub : t -> FpA.Circuit.t -> t
-    end
-  end
-
-  val assertMul :
-       [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
-    -> [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
-    -> [ `Sum of UnreducedSum.Circuit.t | `Field of FpU.Circuit.t ]
-    -> unit
-
   module Fp2 : sig
     module Circuit : sig
       type t = { c0 : FpA.Circuit.t; c1 : FpA.Circuit.t }
@@ -443,6 +413,8 @@ end
 
 module Make_Fp2 (Inputs : Inputs) = struct
   open Inputs
+  module Assert_mul = Make_assert_mul (Inputs)
+  open Assert_mul
 
   type t = { c0 : FpA.t; c1 : FpA.t }
 
