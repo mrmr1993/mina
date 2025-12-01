@@ -8,6 +8,24 @@ module type Inputs = sig
     -> 'a array
     -> Field.t Random_oracle_input.Chunked.t
 
+  module Gadgets : sig
+    module ForeignField : sig
+      module Sum : sig
+        type t
+
+        val create : Field.t * Field.t * Field.t -> t
+
+        val add : t -> Field.t * Field.t * Field.t -> t
+
+        val sub : t -> Field.t * Field.t * Field.t -> t
+      end
+    end
+  end
+
+  module Bigint : sig
+    type t
+  end
+
   module FpU : sig
     type t
 
@@ -23,6 +41,10 @@ module type Inputs = sig
       type t
 
       val sub : t -> t -> t
+
+      val value : t -> Field.t * Field.t * Field.t
+
+      val modulus : t -> Bigint.t
     end
 
     val typ : (Circuit.t, t) Typ.t
@@ -111,6 +133,8 @@ module type Inputs = sig
       val create : FpU.Circuit.t -> t
 
       val add : t -> FpU.Circuit.t -> t
+
+      val sub : t -> FpU.Circuit.t -> t
     end
   end
 
@@ -278,6 +302,56 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module Make_assert_mul (Inputs : Inputs) = struct
+  open Inputs
+
+  module UnreducedSum = struct
+    module Circuit = struct
+      type t = { value : Gadgets.ForeignField.Sum.t; modulus : Bigint.t }
+
+      let create input =
+        { value = Gadgets.ForeignField.Sum.create (FpU.Circuit.value input)
+        ; modulus = FpU.Circuit.modulus input
+        }
+
+      let add self input =
+        let value =
+          Gadgets.ForeignField.Sum.add self.value (FpU.Circuit.value input)
+        in
+        { self with value }
+
+      let sub self input =
+        let value =
+          Gadgets.ForeignField.Sum.sub self.value (FpU.Circuit.value input)
+        in
+        { self with value }
+    end
+  end
+
+  module AlmostReducedSum = struct
+    module Circuit : sig
+      type t
+
+      val create : FpA.Circuit.t -> t
+
+      val add : t -> FpA.Circuit.t -> t
+
+      val sub : t -> FpA.Circuit.t -> t
+    end = struct
+      type t = UnreducedSum.Circuit.t
+
+      let create (input : FpA.Circuit.t) =
+        UnreducedSum.Circuit.create (input :> FpU.Circuit.t)
+
+      let add self (input : FpA.Circuit.t) =
+        UnreducedSum.Circuit.add self (input :> FpU.Circuit.t)
+
+      let sub self (input : FpA.Circuit.t) =
+        UnreducedSum.Circuit.sub self (input :> FpU.Circuit.t)
+    end
   end
 end
 
