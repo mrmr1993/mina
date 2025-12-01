@@ -43,6 +43,68 @@ module type Circuit_inputs = sig
         -> Bigint.t
         -> unit
     end
+
+    val multiRangeCheck : Field.t * Field.t * Field.t -> unit
+  end
+end
+
+module type Foreign_field_base_inputs = sig
+  include Circuit_inputs
+
+  module Fp : sig
+    type t
+
+    val add : t -> t -> t
+
+    val sub : t -> t -> t
+
+    val of_int : int -> t
+
+    val assertCanonical : t -> t
+
+    module Circuit : sig
+      type t
+
+      val value : t -> Field.t * Field.t * Field.t
+
+      val assert_equal : t -> t -> unit
+
+      val neg : t -> t
+
+      val add : t -> t -> t
+
+      val sub : t -> t -> t
+
+      val sum : t array -> int array -> t
+
+      val assertCanonical : t -> t
+
+      val assertAlmostReduced : t array -> t array
+
+      val of_int : int -> t
+
+      val modulus : t -> Bigint.t
+
+      val to_input : t -> Field.t Random_oracle_input.Chunked.t
+    end
+
+    val typ : (Circuit.t, t) Typ.t
+  end
+
+  module FpWithMul : sig
+    type t = Fp.t
+
+    val mul : t -> t -> t
+
+    val inv : t -> t
+
+    module Circuit : sig
+      type t = Fp.Circuit.t
+
+      val mul : t -> t -> t
+
+      val inv : t -> t
+    end
   end
 end
 
@@ -301,6 +363,124 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module Make_foreign_field
+    (Foreign_field_base_inputs : Foreign_field_base_inputs) :
+  Foreign_field_inputs = struct
+  include Foreign_field_base_inputs
+
+  module FpU = struct
+    type t = Fp.t
+
+    let add = Fp.add
+
+    let sub = Fp.sub
+
+    let mul = FpWithMul.mul
+
+    let of_int = Fp.of_int
+
+    module Circuit = struct
+      type t = Fp.Circuit.t
+
+      let sub = Fp.Circuit.sub
+
+      let value = Fp.Circuit.value
+
+      let modulus = Fp.Circuit.modulus
+    end
+
+    let typ : (Circuit.t, t) Typ.t =
+      let (Typ typ) = Fp.typ in
+      Typ
+        { typ with
+          check =
+            (fun x ->
+              Pickles.Impls.Step.make_checked (fun () ->
+                  Gadgets.multiRangeCheck (Fp.Circuit.value x) ) )
+        }
+  end
+
+  module FpA = struct
+    type t = Fp.t
+
+    module Circuit = struct
+      type t = Fp.Circuit.t
+
+      let assert_equal = Fp.Circuit.assert_equal
+
+      let assertAlmostReduced a b =
+        let res = Fp.Circuit.assertAlmostReduced [| a; b |] in
+        (res.(0), res.(1))
+
+      let neg = Fp.Circuit.neg
+
+      let add = Fp.Circuit.add
+
+      let sub = Fp.Circuit.sub
+
+      let sum = Fp.Circuit.sum
+
+      let mul = FpWithMul.Circuit.mul
+
+      let of_int = Fp.Circuit.of_int
+
+      let modulus = Fp.Circuit.modulus
+
+      let to_input = Fp.Circuit.to_input
+    end
+
+    let typ : (Circuit.t, t) Typ.t =
+      let (Typ typ) = Fp.typ in
+      Typ
+        { typ with
+          check =
+            (fun x ->
+              Pickles.Impls.Step.make_checked (fun () ->
+                  Gadgets.multiRangeCheck (Fp.Circuit.value x) ;
+                  ignore
+                    (Fp.Circuit.assertAlmostReduced [| x |] : Circuit.t array) )
+              )
+        }
+  end
+
+  module FpC = struct
+    type t = Fp.t
+
+    let inv = FpWithMul.inv
+
+    let assertCanonical = Fp.assertCanonical
+
+    module Circuit = struct
+      type t = Fp.Circuit.t
+
+      let assert_equal = Fp.Circuit.assert_equal
+
+      let neg = Fp.Circuit.neg
+
+      let mul = FpWithMul.Circuit.mul
+
+      let inv = FpWithMul.Circuit.inv
+
+      let assertCanonical = Fp.Circuit.assertCanonical
+
+      let of_int = Fp.Circuit.of_int
+
+      let to_input = Fp.Circuit.to_input
+    end
+
+    let typ : (Circuit.t, t) Typ.t =
+      let (Typ typ) = Fp.typ in
+      Typ
+        { typ with
+          check =
+            (fun x ->
+              Pickles.Impls.Step.make_checked (fun () ->
+                  Gadgets.multiRangeCheck (Fp.Circuit.value x) ;
+                  ignore (Fp.Circuit.assertCanonical x : Circuit.t) ) )
+        }
   end
 end
 
