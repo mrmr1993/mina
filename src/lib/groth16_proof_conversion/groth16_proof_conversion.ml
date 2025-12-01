@@ -8,7 +8,17 @@ module type Inputs = sig
     -> 'a array
     -> Field.t Random_oracle_input.Chunked.t
 
+  module Bigint : sig
+    type t
+
+    val equal : t -> t -> bool
+  end
+
   module Gadgets : sig
+    module Field3 : sig
+      val isConstant : Field.t * Field.t * Field.t -> bool
+    end
+
     module ForeignField : sig
       module Sum : sig
         type t
@@ -18,12 +28,21 @@ module type Inputs = sig
         val add : t -> Field.t * Field.t * Field.t -> t
 
         val sub : t -> Field.t * Field.t * Field.t -> t
-      end
-    end
-  end
 
-  module Bigint : sig
-    type t
+        val finishForMulInput : t -> Field.t * Field.t * Field.t
+
+        val finish : t -> Field.t * Field.t * Field.t
+
+        val isConstant : t -> bool
+      end
+
+      val assertMul :
+           Sum.t
+        -> Field.t * Field.t * Field.t
+        -> Field.t * Field.t * Field.t
+        -> Bigint.t
+        -> unit
+    end
   end
 
   module FpU : sig
@@ -71,6 +90,8 @@ module type Inputs = sig
       val mul : t -> t -> FpU.Circuit.t
 
       val of_int : int -> t
+
+      val modulus : t -> Bigint.t
 
       val to_input : t -> Field.t Random_oracle_input.Chunked.t
     end
@@ -317,6 +338,10 @@ module Make_assert_mul (Inputs : Inputs) = struct
         ; modulus = FpU.Circuit.modulus input
         }
 
+      let value { value; _ } = value
+
+      let modulus { modulus; _ } = modulus
+
       let add self input =
         let value =
           Gadgets.ForeignField.Sum.add self.value (FpU.Circuit.value input)
@@ -335,6 +360,10 @@ module Make_assert_mul (Inputs : Inputs) = struct
     module Circuit : sig
       type t
 
+      val value : t -> Gadgets.ForeignField.Sum.t
+
+      val modulus : t -> Bigint.t
+
       val create : FpA.Circuit.t -> t
 
       val add : t -> FpA.Circuit.t -> t
@@ -342,6 +371,10 @@ module Make_assert_mul (Inputs : Inputs) = struct
       val sub : t -> FpA.Circuit.t -> t
     end = struct
       type t = UnreducedSum.Circuit.t
+
+      let value = UnreducedSum.Circuit.value
+
+      let modulus = UnreducedSum.Circuit.modulus
 
       let create (input : FpA.Circuit.t) =
         UnreducedSum.Circuit.create (input :> FpU.Circuit.t)
@@ -353,6 +386,59 @@ module Make_assert_mul (Inputs : Inputs) = struct
         UnreducedSum.Circuit.sub self (input :> FpU.Circuit.t)
     end
   end
+
+  let assertMul :
+         [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
+      -> [ `Sum of AlmostReducedSum.Circuit.t | `Field of FpA.Circuit.t ]
+      -> [ `Sum of UnreducedSum.Circuit.t | `Field of FpU.Circuit.t ]
+      -> unit =
+   fun a b c ->
+    let map map_sum map_field = function
+      | `Sum x ->
+          map_sum x
+      | `Field x ->
+          map_field x
+    in
+    assert (
+      let modulus_ = map AlmostReducedSum.Circuit.modulus FpA.Circuit.modulus in
+      Bigint.equal (modulus_ a) (modulus_ b)
+      && Bigint.equal (modulus_ a)
+           (map UnreducedSum.Circuit.modulus FpU.Circuit.modulus c) ) ;
+    let a = map (fun x -> x) AlmostReducedSum.Circuit.create a in
+    let b = map (fun x -> x) AlmostReducedSum.Circuit.create b in
+    let c = map (fun x -> x) UnreducedSum.Circuit.create c in
+
+    let bF =
+      Gadgets.ForeignField.Sum.finishForMulInput
+        (AlmostReducedSum.Circuit.value b)
+    in
+    let cF = Gadgets.ForeignField.Sum.finish (UnreducedSum.Circuit.value c) in
+
+    let allConstant =
+      Gadgets.ForeignField.Sum.isConstant (AlmostReducedSum.Circuit.value a)
+      && Gadgets.Field3.isConstant bF
+      && Gadgets.Field3.isConstant cF
+    in
+
+    let bF, cF =
+      let toVariable x =
+        let xv =
+          exists Field.typ ~compute:(fun () -> As_prover.read Field.typ x)
+        in
+        Field.Assert.equal xv x ; xv
+      in
+      if allConstant then (bF, cF)
+      else
+        let b0, b1, b2 = bF in
+        let c0, c1, c2 = cF in
+        ( (toVariable b0, toVariable b1, toVariable b2)
+        , (toVariable c0, toVariable c1, toVariable c2) )
+    in
+
+    Gadgets.ForeignField.assertMul
+      (AlmostReducedSum.Circuit.value a)
+      bF cF
+      (AlmostReducedSum.Circuit.modulus a)
 end
 
 module Make_Fp2 (Inputs : Inputs) = struct
