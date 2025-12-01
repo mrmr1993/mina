@@ -58,6 +58,10 @@ module type Foreign_field_base_inputs = sig
 
     val sub : t -> t -> t
 
+    val mul : t -> t -> t
+
+    val inv : t -> t
+
     val of_int : int -> t
 
     val assertCanonical : t -> t
@@ -92,12 +96,6 @@ module type Foreign_field_base_inputs = sig
   end
 
   module FpWithMul : sig
-    type t = Fp.t
-
-    val mul : t -> t -> t
-
-    val inv : t -> t
-
     module Circuit : sig
       type t = Fp.Circuit.t
 
@@ -378,7 +376,7 @@ module Make_foreign_field
 
     let sub = Fp.sub
 
-    let mul = FpWithMul.mul
+    let mul = Fp.mul
 
     let of_int = Fp.of_int
 
@@ -449,7 +447,7 @@ module Make_foreign_field
   module FpC = struct
     type t = Fp.t
 
-    let inv = FpWithMul.inv
+    let inv = Fp.inv
 
     let assertCanonical = Fp.assertCanonical
 
