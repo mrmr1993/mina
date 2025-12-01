@@ -36,6 +36,15 @@ module type Circuit_inputs = sig
         val isConstant : t -> bool
       end
 
+      val mul :
+           Field.t * Field.t * Field.t
+        -> Field.t * Field.t * Field.t
+        -> Bigint.t
+        -> Field.t * Field.t * Field.t
+
+      val inv :
+        Field.t * Field.t * Field.t -> Bigint.t -> Field.t * Field.t * Field.t
+
       val assertMul :
            Sum.t
         -> Field.t * Field.t * Field.t
@@ -69,6 +78,8 @@ module type Foreign_field_base_inputs = sig
     module Circuit : sig
       type t
 
+      val create : Field.t * Field.t * Field.t -> t
+
       val value : t -> Field.t * Field.t * Field.t
 
       val assert_equal : t -> t -> unit
@@ -93,16 +104,6 @@ module type Foreign_field_base_inputs = sig
     end
 
     val typ : (Circuit.t, t) Typ.t
-  end
-
-  module FpWithMul : sig
-    module Circuit : sig
-      type t = Fp.Circuit.t
-
-      val mul : t -> t -> t
-
-      val inv : t -> t
-    end
   end
 end
 
@@ -368,6 +369,20 @@ module Make_foreign_field
     (Foreign_field_base_inputs : Foreign_field_base_inputs) :
   Foreign_field_inputs = struct
   include Foreign_field_base_inputs
+
+  module FpWithMul = struct
+    module Circuit = struct
+      let mul self y =
+        let p = Fp.Circuit.modulus self in
+        Fp.Circuit.create
+        @@ Gadgets.ForeignField.mul (Fp.Circuit.value self) (Fp.Circuit.value y)
+             p
+
+      let inv self =
+        let p = Fp.Circuit.modulus self in
+        Fp.Circuit.create @@ Gadgets.ForeignField.inv (Fp.Circuit.value self) p
+    end
+  end
 
   module FpU = struct
     type t = Fp.t
