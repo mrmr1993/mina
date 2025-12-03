@@ -36,20 +36,59 @@ module type Circuit_inputs = sig
         val isConstant : t -> bool
       end
 
+      val sum :
+           (Field.t * Field.t * Field.t) array
+        -> int array
+        -> Bigint.t
+        -> Field.t * Field.t * Field.t
+
+      val sum_const :
+           (Field.Constant.t * Field.Constant.t * Field.Constant.t) array
+        -> int array
+        -> Bigint.t
+        -> Field.Constant.t * Field.Constant.t * Field.Constant.t
+
       val mul :
            Field.t * Field.t * Field.t
         -> Field.t * Field.t * Field.t
         -> Bigint.t
         -> Field.t * Field.t * Field.t
 
+      val mul_const :
+           Field.Constant.t * Field.Constant.t * Field.Constant.t
+        -> Field.Constant.t * Field.Constant.t * Field.Constant.t
+        -> Bigint.t
+        -> Field.Constant.t * Field.Constant.t * Field.Constant.t
+
+      val neg :
+        Field.t * Field.t * Field.t -> Bigint.t -> Field.t * Field.t * Field.t
+
       val inv :
         Field.t * Field.t * Field.t -> Bigint.t -> Field.t * Field.t * Field.t
+
+      val inv_const :
+           Field.Constant.t * Field.Constant.t * Field.Constant.t
+        -> Bigint.t
+        -> Field.Constant.t * Field.Constant.t * Field.Constant.t
 
       val assertMul :
            Sum.t
         -> Field.t * Field.t * Field.t
         -> Field.t * Field.t * Field.t
         -> Bigint.t
+        -> unit
+
+      val assertLessThan : Field.t * Field.t * Field.t -> Bigint.t -> unit
+
+      val assertLessThan_const :
+           Field.Constant.t * Field.Constant.t * Field.Constant.t
+        -> Bigint.t
+        -> unit
+
+      val assertAlmostReduced :
+           (Field.t * Field.t * Field.t) array
+        -> Bigint.t
+        -> [ `Skip_mrc of bool ]
         -> unit
     end
 
@@ -362,6 +401,120 @@ module type Inputs = sig
     val ic4 : Bn254.Circuit.t
 
     val ic5 : Bn254.Circuit.t
+  end
+end
+
+module Make_foreign_field_base_inputs
+    (Inputs : Circuit_inputs) (Fixed_modulus : sig
+      val fixed_modulus : Inputs.Bigint.t
+    end) : Foreign_field_base_inputs = struct
+  include Inputs
+  open Fixed_modulus
+
+  module Fp = struct
+    type t =
+      { modulus : Bigint.t
+      ; value : Field.Constant.t * Field.Constant.t * Field.Constant.t
+      }
+
+    let sum xs ops =
+      let fields = Array.map (fun { value; modulus = _ } -> value) xs in
+      let z = Gadgets.ForeignField.sum_const fields ops fixed_modulus in
+      { modulus = fixed_modulus; value = z }
+
+    let add self y = sum [| self; y |] [| 1 |]
+
+    let sub self y = sum [| self; y |] [| -1 |]
+
+    let mul self y =
+      let p = self.modulus in
+      let z = Gadgets.ForeignField.mul_const self.value y.value p in
+      { modulus = p; value = z }
+
+    let inv self =
+      let p = self.modulus in
+      let z = Gadgets.ForeignField.inv_const self.value p in
+      { modulus = p; value = z }
+
+    let of_int i =
+      { modulus = fixed_modulus
+      ; value =
+          (Field.Constant.of_int i, Field.Constant.zero, Field.Constant.zero)
+      }
+
+    let assertCanonical self =
+      Gadgets.ForeignField.assertLessThan_const self.value self.modulus ;
+      self
+
+    module Circuit = struct
+      type t = { modulus : Bigint.t; value : Field.t * Field.t * Field.t }
+
+      let create value = { modulus = fixed_modulus; value }
+
+      let value { value; _ } = value
+
+      let modulus { modulus; _ } = modulus
+
+      let assert_equal { modulus = _; value = self0, self1, self2 }
+          { modulus = _; value = y0, y1, y2 } =
+        Field.Assert.equal self0 y0 ;
+        Field.Assert.equal self1 y1 ;
+        Field.Assert.equal self2 y2
+
+      let sum xs ops =
+        let fields = Array.map (fun { value; modulus = _ } -> value) xs in
+        let z = Gadgets.ForeignField.sum fields ops fixed_modulus in
+        { modulus = fixed_modulus; value = z }
+
+      let neg self =
+        let xNeg = Gadgets.ForeignField.neg self.value self.modulus in
+        { modulus = self.modulus; value = xNeg }
+
+      let add self y = sum [| self; y |] [| 1 |]
+
+      let sub self y = sum [| self; y |] [| -1 |]
+
+      let assertCanonical self =
+        Gadgets.ForeignField.assertLessThan self.value self.modulus ;
+        self
+
+      let assertAlmostReduced xs =
+        Gadgets.ForeignField.assertAlmostReduced
+          (Array.map (fun { value; modulus = _ } -> value) xs)
+          fixed_modulus (`Skip_mrc true) ;
+        xs
+
+      let of_int i =
+        { value = (Field.of_int i, Field.zero, Field.zero)
+        ; modulus = fixed_modulus
+        }
+
+      let to_input { value = a0, a1, a2; modulus = _ } =
+        array_to_input Random_oracle.Input.Chunked.field [| a0; a1; a2 |]
+    end
+
+    let typ =
+      let const_typ () : ('a, 'a) Typ.t =
+        Typ
+          { var_to_fields = (fun x -> ([||], x))
+          ; var_of_fields = (fun (_, x) -> x)
+          ; value_to_fields = (fun x -> ([||], x))
+          ; value_of_fields = (fun (_, x) -> x)
+          ; size_in_field_elements = 0
+          ; constraint_system_auxiliary = (fun () -> fixed_modulus)
+          ; check = (fun _ -> Internal_Basic.Checked.return ())
+          }
+      in
+      Typ.of_hlistable
+        [ Field.typ; Field.typ; Field.typ; const_typ () ]
+        ~var_to_hlist:(fun ({ value = c0, c1, c2; modulus } : Circuit.t) ->
+          [ c0; c1; c2; modulus ] )
+        ~var_of_hlist:(fun [ c0; c1; c2; modulus ] ->
+          { value = (c0, c1, c2); modulus } )
+        ~value_to_hlist:(fun ({ value = c0, c1, c2; modulus } : t) ->
+          [ c0; c1; c2; modulus ] )
+        ~value_of_hlist:(fun [ c0; c1; c2; modulus ] ->
+          { value = (c0, c1, c2); modulus } )
   end
 end
 
