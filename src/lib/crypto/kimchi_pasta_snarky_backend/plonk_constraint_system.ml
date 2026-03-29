@@ -1405,12 +1405,34 @@ end = struct
     let public_input_size = Set_once.get_exn sys.public_input_size [%here] in
     Gates.to_json public_input_size gates
 
+  (** When [DUMP_PCS_GATES] is set to a directory path, each circuit's gate
+      JSON is written to [<dir>/<n>.json] where [n] is an auto-incrementing
+      counter. This is useful for comparing gate sequences between native
+      OCaml and js_of_ocaml (o1js) compilation. *)
+  let dump_counter = ref 0
+
+  let maybe_dump_gates (sys : t) =
+    match Stdlib.Sys.getenv_opt "DUMP_PCS_GATES" with
+    | None ->
+        ()
+    | Some dir ->
+        let n = !dump_counter in
+        incr dump_counter ;
+        let num_gates = num_constraints sys in
+        let path =
+          Printf.sprintf "%s/cs_%d_%dgates.json" dir n num_gates
+        in
+        let json = to_json sys in
+        Core_kernel.Out_channel.write_all path ~data:json ;
+        Printf.eprintf "[PCS] Dumped %d gates to %s\n%!" num_gates path
+
   (* Returns a hash of the circuit. *)
   let rec digest (sys : t) =
     match sys.gates with
     | Unfinalized_rev _ ->
         finalize sys ; digest sys
     | Compiled (digest, _) ->
+        maybe_dump_gates sys ;
         digest
 
   (** Regroup terms that share the same variable.

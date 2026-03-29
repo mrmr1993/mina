@@ -39,7 +39,7 @@ module Simple = struct
     }
 end
 
-let compile_and_get_vk_hash ~name ~choices =
+let compile_and_get_vk ~name ~choices =
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:(Pickles.Inductive_rule.Input Step.Field.typ)
@@ -57,6 +57,7 @@ let compile_and_get_vk_hash ~name ~choices =
   let vk = Promise.block_on_async_exn (fun () -> vk_promise) in
   let hash = Mina_base.Zkapp_account.digest_vk vk in
   let data = Pickles.Side_loaded.Verification_key.to_base64 vk in
+  ignore (Proof.verification_key_promise : Pickles.Verification_key.t Promise.t Lazy.t) ;
   (hash, data)
 
 let () =
@@ -73,8 +74,8 @@ let () =
   (* --- Simple program --- *)
   printf "\n[simple-compat-test]\n" ;
   printf "  Compiling... %!" ;
-  let hash, _data =
-    compile_and_get_vk_hash ~name:"simple-compat-test"
+  let hash, data =
+    compile_and_get_vk ~name:"simple-compat-test"
       ~choices:(fun ~self:_ -> [ Simple.rule ])
   in
   let hash_str =
@@ -88,13 +89,16 @@ let () =
   else (
     printf "  FAIL - VK hashes differ\n" ;
     all_pass := false ;
+    (* Dump VK data for manual comparison *)
     ( match dump_gates_path with
     | Some path ->
-        printf "  Dumping step circuit gates to %s\n" path ;
-        (* TODO: extract and dump step circuit gate JSON *)
-        ignore path
+        let oc = Out_channel.create path in
+        Out_channel.output_string oc data ;
+        Out_channel.close oc ;
+        printf "  Wrote OCaml VK data to %s\n" path ;
+        printf "  Compare with o1js VK data to find divergence.\n"
     | None ->
-        printf "  (set DUMP_GATES=<path> for gate JSON dump)\n" ) ) ;
+        printf "  (set DUMP_GATES=<path> to write OCaml VK data for comparison)\n" ) ) ;
 
   if not !all_pass then (
     printf "\nFAILED\n" ;
