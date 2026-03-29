@@ -1,0 +1,10 @@
+(executable
+ (package proof_conversion)
+ (name main)
+ (public_name mina-proof-conversion)
+ (modes native)
+ (libraries core core_unix)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version)))

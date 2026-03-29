@@ -156,6 +156,7 @@
 (package (name promise))
 (package (name proof_cache_tag))
 (package (name proof_carrying_data))
+(package (name proof_conversion))
 (package (name protocol_version))
 (package (name prover))
 (package (name quickcheck_lib))
