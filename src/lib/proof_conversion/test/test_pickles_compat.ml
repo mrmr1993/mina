@@ -144,9 +144,7 @@ module Recursive = struct
             exists (Typ.prover_value ()) ~compute:(fun () ->
                 failwith "dummy" )
           in
-          let proof_must_verify =
-            exists Boolean.typ ~compute:(fun () -> true)
-          in
+          let proof_must_verify = Boolean.true_ in
           let prev_input = fst prev_statement in
           Field.Assert.equal pub_field
             (Field.add prev_input.(0) (Field.of_int 1)) ;
@@ -206,10 +204,10 @@ let check_vk ~name ~expected ~actual =
 
 let () =
   let expected_simple_vk_hash =
-    "7366579521807958688380708523943536275961244156544953379731585537782625645675"
+    "28164523456835703146609862384240602928554830215542611547995955594202748290944"
   in
   let expected_recursive_vk_hash =
-    "26830101830536040674050606391921961805931162454844917403253435144117511937528"
+    "3247524153122767581645069378962115724676436734987413176127638916743756576935"
   in
   let all_pass = ref true in
 
