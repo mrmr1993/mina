@@ -337,6 +337,7 @@ module Plonk_constraint = struct
           ; values : 'field_var array
           ; coeffs : 'fp array
           }
+      | Set_o1js_compatible_mode of bool
     [@@deriving sexp]
   end
 
@@ -680,6 +681,8 @@ module Plonk_constraint = struct
           AddRuntimeTableCfg { id; first_column }
       | Raw { kind; values; coeffs } ->
           Raw { kind; values = Array.map ~f values; coeffs }
+      | Set_o1js_compatible_mode b ->
+          Set_o1js_compatible_mode b
 
     let log_constraint (basic : t) get_value =
       match basic with
@@ -740,7 +743,8 @@ module Plonk_constraint = struct
       | Rot64 _
       | AddFixedLookupTable _
       | AddRuntimeTableCfg _
-      | Raw _ ->
+      | Raw _
+      | Set_o1js_compatible_mode _ ->
           (* Skip validation *)
           true
   end
@@ -855,6 +859,7 @@ type ('f, 'rust_gates) t =
            single equivalence class, so that the permutation argument enforces
            these desired equalities as well. *)
   ; union_finds : V.t Core_kernel.Union_find.t V.Table.t
+  ; mutable o1js_compatible_mode : bool
   }
 
 let get_public_input_size sys = sys.public_input_size
@@ -1198,6 +1203,7 @@ end = struct
     ; pending_generic_gate = None
     ; cached_constants = Hashtbl.create (module Fp)
     ; union_finds = V.Table.create ()
+    ; o1js_compatible_mode = false
     }
 
   (** Returns the number of auxiliary inputs. *)
@@ -1494,6 +1500,66 @@ end = struct
     in
     go terms
 
+  (** Like [reduce_lincom] but matches the evaluation order of o1js's
+      [reduceToScaledVar]. The key difference is that a zero constant is
+      dropped (o1js treats [Some 0] the same as [None]), which affects
+      half-generic gate pairing and therefore the resulting gate sequence. *)
+  let reduce_lincom_o1js sys (x : Fp.t Snarky_backendless.Cvar.t) =
+    let constant, terms =
+      Fp.(
+        Snarky_backendless.Cvar.to_constant_and_terms ~add ~mul ~zero ~equal
+          ~one)
+        x
+    in
+    let terms = accumulate_terms terms in
+    let terms_list =
+      Map.fold_right ~init:[] terms ~f:(fun ~key ~data acc ->
+          (data, key) :: acc )
+    in
+    match (constant, Map.is_empty terms) with
+    | Some c, true ->
+        (c, `Constant)
+    | None, true ->
+        (Fp.zero, `Constant)
+    | _ -> (
+        match terms_list with
+        | [] ->
+            assert false
+        | [ (ls, lx) ] -> (
+            match constant with
+            | None ->
+                (ls, `Var (V.External lx))
+            | Some c ->
+                let res =
+                  create_internal ~constant:c sys [ (ls, External lx) ]
+                in
+                add_generic_constraint ~l:(External lx) ~o:res
+                  [| ls; Fp.zero; Fp.(negate one); Fp.zero; c |]
+                  sys ;
+                (Fp.one, `Var res) )
+        | (ls, lx) :: tl ->
+            (* Drop zero constant to match o1js reduceToScaledVar. *)
+            let constant =
+              match constant with
+              | Some c when Fp.(equal c zero) ->
+                  None
+              | c ->
+                  c
+            in
+            let rs, rx = completely_reduce sys tl in
+            let res =
+              create_internal ?constant sys [ (ls, External lx); (rs, rx) ]
+            in
+            add_generic_constraint ~l:(External lx) ~r:rx ~o:res
+              [| ls
+               ; rs
+               ; Fp.(negate one)
+               ; Fp.zero
+               ; (match constant with Some x -> x | None -> Fp.zero)
+              |]
+              sys ;
+            (Fp.one, `Var res) )
+
   (** Converts a linear combination of variables into a set of constraints.
       It returns the output variable as (1, `Var res),
       unless the output is a constant, in which case it returns (c, `Constant).
@@ -1553,7 +1619,10 @@ end = struct
 
   (** Adds a constraint to the constraint system. *)
   let add_constraint sys (constr : Constraint.t) =
-    let red = reduce_lincom sys in
+    let red =
+      (if sys.o1js_compatible_mode then reduce_lincom_o1js else reduce_lincom)
+        sys
+    in
     (* reduce any [Cvar.t] to a single internal variable *)
     let reduce_to_v (x : Fp.t Snarky_backendless.Cvar.t) : V.t =
       match red x with
@@ -1580,7 +1649,15 @@ end = struct
     in
     match constr with
     | Square (v1, v2) -> (
-        match (red v1, red v2) with
+        (* In o1js compat mode, match jsoo's right-to-left tuple eval order *)
+        let rv1, rv2 =
+          if sys.o1js_compatible_mode then
+            let b = red v2 in
+            let a = red v1 in
+            (a, b)
+          else (red v1, red v2)
+        in
+        match (rv1, rv2) with
         | (sl, `Var xl), (so, `Var xo) ->
             (* (sl * xl)^2 = so * xo
                sl^2 * xl * xl - so * xo = 0
@@ -1601,7 +1678,16 @@ end = struct
         | (sl, `Constant), (so, `Constant) ->
             assert (Fp.(equal (square sl) so)) )
     | R1CS (v1, v2, v3) -> (
-        match (red v1, red v2, red v3) with
+        (* In o1js compat mode, match TS assertMul left-to-right reduction *)
+        let rv1, rv2, rv3 =
+          if sys.o1js_compatible_mode then
+            let a = red v1 in
+            let b = red v2 in
+            let c = red v3 in
+            (a, b, c)
+          else (red v1, red v2, red v3)
+        in
+        match (rv1, rv2, rv3) with
         | (s1, `Var x1), (s2, `Var x2), (s3, `Var x3) ->
             (* s1 x1 * s2 x2 = s3 x3
                - s1 s2 (x1 x2) + s3 x3 = 0
@@ -1648,7 +1734,14 @@ end = struct
         | `Constant ->
             assert (Fp.(equal s (s * s))) )
     | Equal (v1, v2) -> (
-        let (s1, x1), (s2, x2) = (red v1, red v2) in
+        (* In o1js compat mode, match o1js assertEqualCompatible eval order *)
+        let (s1, x1), (s2, x2) =
+          if sys.o1js_compatible_mode then
+            let a = red v1 in
+            let b = red v2 in
+            (a, b)
+          else (red v1, red v2)
+        in
         match (x1, x2) with
         | `Var x1, `Var x2 ->
             if Fp.equal s1 s2 then (
@@ -2048,22 +2141,55 @@ end = struct
         //! v vp0 vp1 vp2 vp3 vp4 vp5 vc0 vc1 vc2 vc3 vc4 vc5 vc6 vc7
         *)
         let vars =
-          [| Some (reduce_to_v v0)
-           ; Some (reduce_to_v v0p0) (* MSBs *)
-           ; Some (reduce_to_v v0p1)
-           ; Some (reduce_to_v v0p2)
-           ; Some (reduce_to_v v0p3)
-           ; Some (reduce_to_v v0p4)
-           ; Some (reduce_to_v v0p5)
-           ; Some (reduce_to_v v0c0)
-           ; Some (reduce_to_v v0c1)
-           ; Some (reduce_to_v v0c2)
-           ; Some (reduce_to_v v0c3)
-           ; Some (reduce_to_v v0c4)
-           ; Some (reduce_to_v v0c5)
-           ; Some (reduce_to_v v0c6)
-           ; Some (reduce_to_v v0c7) (* LSBs *)
-          |]
+          if sys.o1js_compatible_mode then
+            let rv0 = reduce_to_v v0 in
+            let rv1 = reduce_to_v v0p0 in
+            let rv2 = reduce_to_v v0p1 in
+            let rv3 = reduce_to_v v0p2 in
+            let rv4 = reduce_to_v v0p3 in
+            let rv5 = reduce_to_v v0p4 in
+            let rv6 = reduce_to_v v0p5 in
+            let rv7 = reduce_to_v v0c0 in
+            let rv8 = reduce_to_v v0c1 in
+            let rv9 = reduce_to_v v0c2 in
+            let rv10 = reduce_to_v v0c3 in
+            let rv11 = reduce_to_v v0c4 in
+            let rv12 = reduce_to_v v0c5 in
+            let rv13 = reduce_to_v v0c6 in
+            let rv14 = reduce_to_v v0c7 in
+            [| Some rv0
+             ; Some rv1
+             ; Some rv2
+             ; Some rv3
+             ; Some rv4
+             ; Some rv5
+             ; Some rv6
+             ; Some rv7
+             ; Some rv8
+             ; Some rv9
+             ; Some rv10
+             ; Some rv11
+             ; Some rv12
+             ; Some rv13
+             ; Some rv14
+            |]
+          else
+            [| Some (reduce_to_v v0)
+             ; Some (reduce_to_v v0p0)
+             ; Some (reduce_to_v v0p1)
+             ; Some (reduce_to_v v0p2)
+             ; Some (reduce_to_v v0p3)
+             ; Some (reduce_to_v v0p4)
+             ; Some (reduce_to_v v0p5)
+             ; Some (reduce_to_v v0c0)
+             ; Some (reduce_to_v v0c1)
+             ; Some (reduce_to_v v0c2)
+             ; Some (reduce_to_v v0c3)
+             ; Some (reduce_to_v v0c4)
+             ; Some (reduce_to_v v0c5)
+             ; Some (reduce_to_v v0c6)
+             ; Some (reduce_to_v v0c7)
+            |]
         in
         let coeff = if Fp.equal compact Fp.one then Fp.one else Fp.zero in
         add_row sys vars RangeCheck0 [| coeff |]
@@ -2105,40 +2231,106 @@ end = struct
         //! Next: v2c9 v2c10 v2c11 v0p0 v0p1 v1p0 v1p1 v2c12 v2c13 v2c14 v2c15 v2c16 v2c17 v2c18 v2c19
         *)
         let vars_curr =
-          [| (* Current row *) Some (reduce_to_v v2)
-           ; Some (reduce_to_v v12)
-           ; Some (reduce_to_v v2c0) (* MSBs *)
-           ; Some (reduce_to_v v2p0)
-           ; Some (reduce_to_v v2p1)
-           ; Some (reduce_to_v v2p2)
-           ; Some (reduce_to_v v2p3)
-           ; Some (reduce_to_v v2c1)
-           ; Some (reduce_to_v v2c2)
-           ; Some (reduce_to_v v2c3)
-           ; Some (reduce_to_v v2c4)
-           ; Some (reduce_to_v v2c5)
-           ; Some (reduce_to_v v2c6)
-           ; Some (reduce_to_v v2c7)
-           ; Some (reduce_to_v v2c8) (* LSBs *)
-          |]
+          if sys.o1js_compatible_mode then
+            let rv0 = reduce_to_v v2 in
+            let rv1 = reduce_to_v v12 in
+            let rv2 = reduce_to_v v2c0 in
+            let rv3 = reduce_to_v v2p0 in
+            let rv4 = reduce_to_v v2p1 in
+            let rv5 = reduce_to_v v2p2 in
+            let rv6 = reduce_to_v v2p3 in
+            let rv7 = reduce_to_v v2c1 in
+            let rv8 = reduce_to_v v2c2 in
+            let rv9 = reduce_to_v v2c3 in
+            let rv10 = reduce_to_v v2c4 in
+            let rv11 = reduce_to_v v2c5 in
+            let rv12 = reduce_to_v v2c6 in
+            let rv13 = reduce_to_v v2c7 in
+            let rv14 = reduce_to_v v2c8 in
+            [| Some rv0
+             ; Some rv1
+             ; Some rv2
+             ; Some rv3
+             ; Some rv4
+             ; Some rv5
+             ; Some rv6
+             ; Some rv7
+             ; Some rv8
+             ; Some rv9
+             ; Some rv10
+             ; Some rv11
+             ; Some rv12
+             ; Some rv13
+             ; Some rv14
+            |]
+          else
+            [| Some (reduce_to_v v2)
+             ; Some (reduce_to_v v12)
+             ; Some (reduce_to_v v2c0)
+             ; Some (reduce_to_v v2p0)
+             ; Some (reduce_to_v v2p1)
+             ; Some (reduce_to_v v2p2)
+             ; Some (reduce_to_v v2p3)
+             ; Some (reduce_to_v v2c1)
+             ; Some (reduce_to_v v2c2)
+             ; Some (reduce_to_v v2c3)
+             ; Some (reduce_to_v v2c4)
+             ; Some (reduce_to_v v2c5)
+             ; Some (reduce_to_v v2c6)
+             ; Some (reduce_to_v v2c7)
+             ; Some (reduce_to_v v2c8)
+            |]
         in
         let vars_next =
-          [| (* Next row *) Some (reduce_to_v v2c9)
-           ; Some (reduce_to_v v2c10)
-           ; Some (reduce_to_v v2c11)
-           ; Some (reduce_to_v v0p0)
-           ; Some (reduce_to_v v0p1)
-           ; Some (reduce_to_v v1p0)
-           ; Some (reduce_to_v v1p1)
-           ; Some (reduce_to_v v2c12)
-           ; Some (reduce_to_v v2c13)
-           ; Some (reduce_to_v v2c14)
-           ; Some (reduce_to_v v2c15)
-           ; Some (reduce_to_v v2c16)
-           ; Some (reduce_to_v v2c17)
-           ; Some (reduce_to_v v2c18)
-           ; Some (reduce_to_v v2c19)
-          |]
+          if sys.o1js_compatible_mode then
+            let rv0 = reduce_to_v v2c9 in
+            let rv1 = reduce_to_v v2c10 in
+            let rv2 = reduce_to_v v2c11 in
+            let rv3 = reduce_to_v v0p0 in
+            let rv4 = reduce_to_v v0p1 in
+            let rv5 = reduce_to_v v1p0 in
+            let rv6 = reduce_to_v v1p1 in
+            let rv7 = reduce_to_v v2c12 in
+            let rv8 = reduce_to_v v2c13 in
+            let rv9 = reduce_to_v v2c14 in
+            let rv10 = reduce_to_v v2c15 in
+            let rv11 = reduce_to_v v2c16 in
+            let rv12 = reduce_to_v v2c17 in
+            let rv13 = reduce_to_v v2c18 in
+            let rv14 = reduce_to_v v2c19 in
+            [| Some rv0
+             ; Some rv1
+             ; Some rv2
+             ; Some rv3
+             ; Some rv4
+             ; Some rv5
+             ; Some rv6
+             ; Some rv7
+             ; Some rv8
+             ; Some rv9
+             ; Some rv10
+             ; Some rv11
+             ; Some rv12
+             ; Some rv13
+             ; Some rv14
+            |]
+          else
+            [| Some (reduce_to_v v2c9)
+             ; Some (reduce_to_v v2c10)
+             ; Some (reduce_to_v v2c11)
+             ; Some (reduce_to_v v0p0)
+             ; Some (reduce_to_v v0p1)
+             ; Some (reduce_to_v v1p0)
+             ; Some (reduce_to_v v1p1)
+             ; Some (reduce_to_v v2c12)
+             ; Some (reduce_to_v v2c13)
+             ; Some (reduce_to_v v2c14)
+             ; Some (reduce_to_v v2c15)
+             ; Some (reduce_to_v v2c16)
+             ; Some (reduce_to_v v2c17)
+             ; Some (reduce_to_v v2c18)
+             ; Some (reduce_to_v v2c19)
+            |]
         in
         add_row sys vars_curr RangeCheck1 [||] ;
         add_row sys vars_next Zero [||]
@@ -2235,22 +2427,48 @@ end = struct
         //! |     14 |                          |                                |
         *)
         let vars =
-          [| (* Current row *) Some (reduce_to_v left_input_lo)
-           ; Some (reduce_to_v left_input_mi)
-           ; Some (reduce_to_v left_input_hi)
-           ; Some (reduce_to_v right_input_lo)
-           ; Some (reduce_to_v right_input_mi)
-           ; Some (reduce_to_v right_input_hi)
-           ; Some (reduce_to_v field_overflow)
-           ; Some (reduce_to_v carry)
-           ; None
-           ; None
-           ; None
-           ; None
-           ; None
-           ; None
-           ; None
-          |]
+          if sys.o1js_compatible_mode then
+            let v0 = reduce_to_v left_input_lo in
+            let v1 = reduce_to_v left_input_mi in
+            let v2 = reduce_to_v left_input_hi in
+            let v3 = reduce_to_v right_input_lo in
+            let v4 = reduce_to_v right_input_mi in
+            let v5 = reduce_to_v right_input_hi in
+            let v6 = reduce_to_v field_overflow in
+            let v7 = reduce_to_v carry in
+            [| Some v0
+             ; Some v1
+             ; Some v2
+             ; Some v3
+             ; Some v4
+             ; Some v5
+             ; Some v6
+             ; Some v7
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+            |]
+          else
+            [| Some (reduce_to_v left_input_lo)
+             ; Some (reduce_to_v left_input_mi)
+             ; Some (reduce_to_v left_input_hi)
+             ; Some (reduce_to_v right_input_lo)
+             ; Some (reduce_to_v right_input_mi)
+             ; Some (reduce_to_v right_input_hi)
+             ; Some (reduce_to_v field_overflow)
+             ; Some (reduce_to_v carry)
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+             ; None
+            |]
         in
         add_row sys vars ForeignFieldAdd
           [| foreign_field_modulus0
@@ -2312,41 +2530,106 @@ end = struct
         *)
         (* Current row *)
         let vars_curr =
-          [| Some (reduce_to_v left_input0)
-           ; Some (reduce_to_v left_input1)
-           ; Some (reduce_to_v left_input2)
-           ; Some (reduce_to_v right_input0)
-           ; Some (reduce_to_v right_input1)
-           ; Some (reduce_to_v right_input2)
-           ; Some (reduce_to_v product1_lo)
-           ; Some (reduce_to_v carry1_0)
-           ; Some (reduce_to_v carry1_12)
-           ; Some (reduce_to_v carry1_24)
-           ; Some (reduce_to_v carry1_36)
-           ; Some (reduce_to_v carry1_84)
-           ; Some (reduce_to_v carry1_86)
-           ; Some (reduce_to_v carry1_88)
-           ; Some (reduce_to_v carry1_90)
-          |]
+          if sys.o1js_compatible_mode then
+            (* Right-to-left matching jsoo array literal eval order *)
+            let v14 = reduce_to_v carry1_90 in
+            let v13 = reduce_to_v carry1_88 in
+            let v12 = reduce_to_v carry1_86 in
+            let v11 = reduce_to_v carry1_84 in
+            let v10 = reduce_to_v carry1_36 in
+            let v9 = reduce_to_v carry1_24 in
+            let v8 = reduce_to_v carry1_12 in
+            let v7 = reduce_to_v carry1_0 in
+            let v6 = reduce_to_v product1_lo in
+            let v5 = reduce_to_v right_input2 in
+            let v4 = reduce_to_v right_input1 in
+            let v3 = reduce_to_v right_input0 in
+            let v2 = reduce_to_v left_input2 in
+            let v1 = reduce_to_v left_input1 in
+            let v0 = reduce_to_v left_input0 in
+            [| Some v0
+             ; Some v1
+             ; Some v2
+             ; Some v3
+             ; Some v4
+             ; Some v5
+             ; Some v6
+             ; Some v7
+             ; Some v8
+             ; Some v9
+             ; Some v10
+             ; Some v11
+             ; Some v12
+             ; Some v13
+             ; Some v14
+            |]
+          else
+            [| Some (reduce_to_v left_input0)
+             ; Some (reduce_to_v left_input1)
+             ; Some (reduce_to_v left_input2)
+             ; Some (reduce_to_v right_input0)
+             ; Some (reduce_to_v right_input1)
+             ; Some (reduce_to_v right_input2)
+             ; Some (reduce_to_v product1_lo)
+             ; Some (reduce_to_v carry1_0)
+             ; Some (reduce_to_v carry1_12)
+             ; Some (reduce_to_v carry1_24)
+             ; Some (reduce_to_v carry1_36)
+             ; Some (reduce_to_v carry1_84)
+             ; Some (reduce_to_v carry1_86)
+             ; Some (reduce_to_v carry1_88)
+             ; Some (reduce_to_v carry1_90)
+            |]
         in
         (* Next row *)
         let vars_next =
-          [| Some (reduce_to_v remainder01)
-           ; Some (reduce_to_v remainder2)
-           ; Some (reduce_to_v quotient0)
-           ; Some (reduce_to_v quotient1)
-           ; Some (reduce_to_v quotient2)
-           ; Some (reduce_to_v quotient_hi_bound)
-           ; Some (reduce_to_v product1_hi_0)
-           ; Some (reduce_to_v product1_hi_1)
-           ; Some (reduce_to_v carry1_48)
-           ; Some (reduce_to_v carry1_60)
-           ; Some (reduce_to_v carry1_72)
-           ; Some (reduce_to_v carry0)
-           ; None
-           ; None
-           ; None
-          |]
+          if sys.o1js_compatible_mode then
+            (* Right-to-left matching jsoo array eval order *)
+            let v11 = reduce_to_v carry0 in
+            let v10 = reduce_to_v carry1_72 in
+            let v9 = reduce_to_v carry1_60 in
+            let v8 = reduce_to_v carry1_48 in
+            let v7 = reduce_to_v product1_hi_1 in
+            let v6 = reduce_to_v product1_hi_0 in
+            let v5 = reduce_to_v quotient_hi_bound in
+            let v4 = reduce_to_v quotient2 in
+            let v3 = reduce_to_v quotient1 in
+            let v2 = reduce_to_v quotient0 in
+            let v1 = reduce_to_v remainder2 in
+            let v0 = reduce_to_v remainder01 in
+            [| Some v0
+             ; Some v1
+             ; Some v2
+             ; Some v3
+             ; Some v4
+             ; Some v5
+             ; Some v6
+             ; Some v7
+             ; Some v8
+             ; Some v9
+             ; Some v10
+             ; Some v11
+             ; None
+             ; None
+             ; None
+            |]
+          else
+            [| Some (reduce_to_v remainder01)
+             ; Some (reduce_to_v remainder2)
+             ; Some (reduce_to_v quotient0)
+             ; Some (reduce_to_v quotient1)
+             ; Some (reduce_to_v quotient2)
+             ; Some (reduce_to_v quotient_hi_bound)
+             ; Some (reduce_to_v product1_hi_0)
+             ; Some (reduce_to_v product1_hi_1)
+             ; Some (reduce_to_v carry1_48)
+             ; Some (reduce_to_v carry1_60)
+             ; Some (reduce_to_v carry1_72)
+             ; Some (reduce_to_v carry0)
+             ; None
+             ; None
+             ; None
+            |]
         in
         add_row sys vars_curr ForeignFieldMul
           [| foreign_field_modulus2
@@ -2444,6 +2727,8 @@ end = struct
               Option.try_with (fun () -> reduce_to_v values.(i)) )
         in
         add_row sys values kind coeffs
+    | Set_o1js_compatible_mode b ->
+        sys.o1js_compatible_mode <- b
 
   (* ((Fp.t * V.t) list * Fp.t option) *)
   type concrete_table = ((Fp.t * V.t) list * Fp.t option) Internal_var.Table.t
