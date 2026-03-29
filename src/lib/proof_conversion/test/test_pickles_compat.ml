@@ -23,26 +23,31 @@ module Simple = struct
     ; main =
         (fun { public_input = pub } ->
           let open Step in
+          (* pub is Field.t array of length 1, matching o1js public_input_typ 1 *)
+          let pub_field = pub.(0) in
           let x =
-            exists Field.typ ~compute:(fun () ->
-                (* dummy witness for constraint system extraction *)
-                Field.Constant.zero )
+            exists Field.typ ~compute:(fun () -> Field.Constant.zero)
           in
           let x_sq = Field.mul x x in
-          Field.Assert.equal pub x_sq ;
+          Field.Assert.equal pub_field x_sq ;
           Promise.return
             { Pickles.Inductive_rule.previous_proof_statements = []
-            ; public_output = ()
+            ; public_output = [||]  (* Field.t array of length 0 *)
             ; auxiliary_output = ()
             } )
     ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
     }
 end
 
+(** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
+let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
+
 let compile_and_get_vk ~name ~choices =
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
-      ~public_input:(Pickles.Inductive_rule.Input Step.Field.typ)
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output
+           (public_input_typ 1, public_input_typ 0) )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name

@@ -1262,7 +1262,24 @@ end = struct
   let wire sys key row col = wire' sys key (Row.After_public_input row) col
 
   (** Adds a row/gate/constraint to a constraint system `sys`. *)
+  (** When [BREAK_AT_GATE] is set to an integer N, raise an exception with
+      backtrace when gate N is added to the constraint system. Useful for
+      identifying which code produces a specific gate. *)
+  let break_at_gate =
+    lazy
+      ( match Stdlib.Sys.getenv_opt "BREAK_AT_GATE" with
+      | Some s ->
+          Some (int_of_string s)
+      | None ->
+          None )
+
   let add_row sys (vars : V.t option array) kind coeffs =
+    ( match Lazy.force break_at_gate with
+    | Some n when sys.next_row = n ->
+        failwithf "BREAK_AT_GATE: gate %d is %s"
+          n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) ()
+    | _ ->
+        () ) ;
     match sys.gates with
     | Compiled _ ->
         failwith "add_row called on finalized constraint system"
