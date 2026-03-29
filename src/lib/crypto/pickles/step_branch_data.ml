@@ -88,8 +88,8 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
          , a_value
          , ret_var
          , ret_value )
-         Inductive_rule.public_input ) ~auxiliary_typ _var_to_field_elements
-      _value_to_field_elements ~(chain_to : unit Promise.t)
+         Inductive_rule.public_input ) ~auxiliary_typ ~o1js_compatible_mode
+      _var_to_field_elements _value_to_field_elements ~(chain_to : unit Promise.t)
       (rule : _ Inductive_rule.Promise.t) =
     Timer.clock __LOC__ ;
     let module HT = H4.T (Tag) in
@@ -205,7 +205,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
           }
         ~public_input ~auxiliary_typ ~self_branches:branches ~proofs_verified
         ~local_signature:widths ~local_signature_length ~local_branches_length
-        ~lte ~known_wrap_keys ~self
+        ~lte ~known_wrap_keys ~o1js_compatible_mode ~self
       |> unstage
     in
     Timer.clock __LOC__ ;

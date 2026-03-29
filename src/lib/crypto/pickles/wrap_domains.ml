@@ -41,7 +41,8 @@ struct
     Timer.clock __LOC__ ;
     let srs = Backend.Tick.Keypair.load_urs () in
     let _, main =
-      Wrap_main.wrap_main ~feature_flags ~num_chunks ~srs full_signature
+      Wrap_main.wrap_main ~feature_flags ~num_chunks ~o1js_compatible_mode:None
+        ~srs full_signature
         choices_length dummy_step_keys dummy_step_widths dummy_step_domains
         max_proofs_verified
     in

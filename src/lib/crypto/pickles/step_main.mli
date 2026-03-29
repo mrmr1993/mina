@@ -42,6 +42,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) : sig
     -> known_wrap_keys:
          'local_branches
          Pickles_types.Hlist.H1.T(Types_map.For_step.Optional_wrap_key).t
+    -> o1js_compatible_mode:bool option
     -> self:('var, 'value, 'max_proofs_verified, 'self_branches) Tag.t
     -> ( 'prev_vars
        , 'prev_values

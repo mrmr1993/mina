@@ -364,6 +364,7 @@ struct
            , Ret_value.t )
            Inductive_rule.public_input
       -> auxiliary_typ:(Auxiliary_var.t, Auxiliary_value.t) Impls.Step.Typ.t
+      -> o1js_compatible_mode:bool option
       -> choices:(prev_varss, prev_valuess, widthss, heightss) H4.T(IR).t
       -> unit
       -> ( prev_valuess
@@ -382,7 +383,8 @@ struct
        ~proof_cache ?disk_keys ?override_wrap_domain ?override_wrap_main
        ?(num_chunks = Plonk_checks.num_chunks_by_default) ?(lazy_mode = false)
        ~branches ~prev_varss_length ~max_proofs_verified ~name
-       ?constraint_constants ~public_input ~auxiliary_typ ~choices () ->
+       ?constraint_constants ~public_input ~auxiliary_typ ~o1js_compatible_mode
+       ~choices () ->
     let snark_keys_header kind constraint_system_hash =
       let constraint_constants : Snark_keys_header.Constraint_constants.t =
         match constraint_constants with
@@ -518,7 +520,7 @@ struct
                     Step_branch_data.create ~index:!i ~feature_flags ~num_chunks
                       ~actual_feature_flags:rule.feature_flags
                       ~max_proofs_verified:Max_proofs_verified.n ~branches ~self
-                      ~public_input ~auxiliary_typ Arg_var.to_field_elements
+                      ~public_input ~auxiliary_typ ~o1js_compatible_mode Arg_var.to_field_elements
                       Arg_value.to_field_elements rule ~wrap_domains ~chain_to )
               in
               Timer.clock __LOC__ ; incr i ; res
@@ -647,7 +649,7 @@ struct
       match override_wrap_main with
       | None ->
           let srs = Tick.Keypair.load_urs () in
-          Wrap_main.wrap_main ~num_chunks ~feature_flags ~srs full_signature
+          Wrap_main.wrap_main ~num_chunks ~feature_flags ~o1js_compatible_mode ~srs full_signature
             prev_varss_length step_vks proofs_verifieds all_step_domains
             max_proofs_verified
       | Some { wrap_main; tweak_statement = _ } ->
@@ -1005,6 +1007,7 @@ let compile_with_wrap_main_override_promise :
          (module Nat.Add.Intf with type n = max_proofs_verified)
     -> name:string
     -> ?constraint_constants:Snark_keys_header.Constraint_constants.t
+    -> ?o1js_compatible_mode:bool
     -> choices:
          (   self:(var, value, max_proofs_verified, branches) Tag.t
           -> ( branches
@@ -1038,7 +1041,7 @@ let compile_with_wrap_main_override_promise :
  fun ?self ?(cache = []) ?(storables = Storables.default) ?proof_cache
      ?disk_keys ?override_wrap_domain ?override_wrap_main ?num_chunks ?lazy_mode
      ~public_input ~auxiliary_typ ~max_proofs_verified ~name
-     ?constraint_constants ~choices () ->
+     ?constraint_constants ?o1js_compatible_mode ~choices () ->
   let self =
     match self with
     | None ->
@@ -1113,7 +1116,8 @@ let compile_with_wrap_main_override_promise :
     M.compile ~self ~proof_cache ~cache ~storables ?disk_keys
       ?override_wrap_domain ?override_wrap_main ?num_chunks ?lazy_mode ~branches
       ~prev_varss_length ~max_proofs_verified ~name ~public_input ~auxiliary_typ
-      ?constraint_constants ~choices:(conv_irs choices) ()
+      ?constraint_constants ~o1js_compatible_mode
+      ~choices:(conv_irs choices) ()
   in
   let (module Max_proofs_verified) = max_proofs_verified in
   let T = Max_proofs_verified.eq in

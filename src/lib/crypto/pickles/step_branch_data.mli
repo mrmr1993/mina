@@ -102,6 +102,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) : sig
          , 'ret_value )
          Inductive_rule.public_input
     -> auxiliary_typ:('a, 'b) Impls.Step.Typ.t
+    -> o1js_compatible_mode:bool option
     -> 'c
     -> 'd
     -> chain_to:unit Promise.t

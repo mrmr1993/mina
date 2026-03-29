@@ -71,7 +71,7 @@ let split_field (x : Field.t) : Field.t * Boolean.var =
 (* The SNARK function for wrapping any proof coming from the given set of keys *)
 let wrap_main
     (type max_proofs_verified branches prev_varss max_local_max_proofs_verifieds)
-    ~num_chunks ~feature_flags
+    ~num_chunks ~feature_flags ~o1js_compatible_mode
     (full_signature :
       ( max_proofs_verified
       , branches
@@ -152,6 +152,11 @@ let wrap_main
           , Field.t )
           Types.Wrap.Statement.In_circuit.t ) ->
       let logger = Context_logger.get () in
+      ( match o1js_compatible_mode with
+      | Some true ->
+          assert_ (Set_o1js_compatible_mode true)
+      | _ ->
+          () ) ;
       with_label __LOC__ (fun () ->
           let which_branch' =
             exists

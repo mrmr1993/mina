@@ -5,6 +5,7 @@ open Pickles_types
 val wrap_main :
      num_chunks:int
   -> feature_flags:Opt.Flag.t Plonk_types.Features.Full.t
+  -> o1js_compatible_mode:bool option
   -> ( 'max_proofs_verified
      , 'branches
      , 'max_local_max_proofs_verifieds )

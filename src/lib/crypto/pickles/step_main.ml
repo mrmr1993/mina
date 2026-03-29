@@ -156,6 +156,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
            Types_map.Compiled.basic
       -> known_wrap_keys:
            local_branches H1.T(Types_map.For_step.Optional_wrap_key).t
+      -> o1js_compatible_mode:bool option
       -> self:(var, value, max_proofs_verified, self_branches) Tag.t
       -> ( prev_vars
          , prev_values
@@ -177,7 +178,8 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
          Staged.t =
    fun (module Req) max_proofs_verified ~self_branches ~local_signature
        ~local_signature_length ~local_branches_length ~proofs_verified ~lte
-       ~public_input ~auxiliary_typ ~basic ~known_wrap_keys ~self rule ->
+       ~public_input ~auxiliary_typ ~basic ~known_wrap_keys ~o1js_compatible_mode
+       ~self rule ->
     let module Typ_with_max_proofs_verified = struct
       type ('var, 'value, 'local_max_proofs_verified, 'local_branches) t =
         ( ( 'var
@@ -267,6 +269,11 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
     in
     let main () : _ Types.Step.Statement.t Promise.t =
       let open Impls.Step in
+      ( match o1js_compatible_mode with
+      | Some true ->
+          assert_ (Set_o1js_compatible_mode true)
+      | _ ->
+          () ) ;
       let logger = Context_logger.get () in
       let module Max_proofs_verified = ( val max_proofs_verified : Nat.Add.Intf
                                            with type n = max_proofs_verified )
