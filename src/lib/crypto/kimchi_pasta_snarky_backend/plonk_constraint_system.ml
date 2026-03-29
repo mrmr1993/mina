@@ -1264,7 +1264,8 @@ end = struct
   (** Adds a row/gate/constraint to a constraint system `sys`. *)
   (** When [BREAK_AT_GATE] is set to an integer N, raise an exception with
       backtrace when gate N is added to the constraint system. Useful for
-      identifying which code produces a specific gate. *)
+      identifying which code produces a specific gate.
+      Set [BREAK_SKIP] to skip the first M occurrences (default 0). *)
   let break_at_gate =
     lazy
       ( match Stdlib.Sys.getenv_opt "BREAK_AT_GATE" with
@@ -1273,11 +1274,21 @@ end = struct
       | None ->
           None )
 
+  let break_skip_remaining = ref
+    ( match Stdlib.Sys.getenv_opt "BREAK_SKIP" with
+    | Some s -> int_of_string s
+    | None -> 0 )
+
   let add_row sys (vars : V.t option array) kind coeffs =
     ( match Lazy.force break_at_gate with
     | Some n when sys.next_row = n ->
-        failwithf "BREAK_AT_GATE: gate %d is %s"
-          n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) ()
+        if !break_skip_remaining > 0 then
+          decr break_skip_remaining
+        else (
+          Printf.eprintf "BREAK_AT_GATE: gate %d is %s\n%!"
+            n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) ;
+          failwithf "BREAK_AT_GATE: gate %d is %s"
+            n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) () )
     | _ ->
         () ) ;
     match sys.gates with
