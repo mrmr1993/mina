@@ -1,0 +1,15 @@
+(executable
+ (name test_pickles_compat)
+ (libraries
+  core_kernel
+  pickles
+  pickles_types
+  kimchi_pasta
+  kimchi_pasta.basic
+  mina_base
+  promise
+  snarky.backendless)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
