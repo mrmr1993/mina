@@ -152,11 +152,18 @@ let wrap_main
           , Field.t )
           Types.Wrap.Statement.In_circuit.t ) ->
       let logger = Context_logger.get () in
+      let inject_marker id =
+        let c = Field.Constant.of_int in
+        assert_
+          (Raw { kind = Kimchi_types.Zero ; values = [||]
+               ; coeffs = [| c id; c 1; c 2; c 3; c 4; c 5; c 6 |] })
+      in
       ( match o1js_compatible_mode with
       | Some true ->
           assert_ (Set_o1js_compatible_mode true)
       | _ ->
           () ) ;
+      inject_marker 21 ; (* start of wrap_main *)
       with_label __LOC__ (fun () ->
           let which_branch' =
             exists
@@ -205,6 +212,7 @@ let wrap_main
                 in
                 exists typ ~request:(fun () -> Req.Proof_state) )
           in
+          inject_marker 22 ; (* after which_branch + prev_proof_state *)
           let step_plonk_index =
             with_label __LOC__ (fun () ->
                 Wrap_verifier.choose_key which_branch
@@ -303,6 +311,7 @@ let wrap_main
               lookup_pattern_range_check ;
             assert_consistent lookup_selector_ffmul foreign_field_mul
           in
+          inject_marker 23 ; (* after step_plonk_index + feature flags *)
           let prev_step_accs =
             with_label __LOC__ (fun () ->
                 exists (Vector.wrap_typ Inner_curve.typ Max_proofs_verified.n)
@@ -341,6 +350,7 @@ let wrap_main
                 |> M.f
                 |> V.f Max_widths_by_slot.length )
           in
+          inject_marker 24 ; (* before new_bulletproof_challenges *)
           let new_bulletproof_challenges =
             with_label __LOC__ (fun () ->
                 let evals =
@@ -425,6 +435,7 @@ let wrap_main
                 in
                 chals )
           in
+          inject_marker 25 ; (* after bulletproof_challenges *)
           let prev_statement =
             let prev_messages_for_next_wrap_proof =
               Vector.map2 prev_step_accs old_bp_chals
@@ -442,6 +453,7 @@ let wrap_main
             ; proof_state = prev_proof_state
             }
           in
+          inject_marker 26 ; (* after prev_statement *)
           let openings_proof =
             let shift = Shifts.tick1 in
             exists
@@ -469,6 +481,7 @@ let wrap_main
                  ~length:(Nat.to_int Backend.Tick.Rounds.n) )
               ~request:(fun () -> Req.Openings_proof)
           in
+          inject_marker 27 ; (* after openings_proof *)
           let ( sponge_digest_before_evaluations_actual
               , (`Success bulletproof_success, bulletproof_challenges_actual) )
               =
@@ -503,6 +516,7 @@ let wrap_main
                 [%log internal] "Wrap_verifier_incrementally_verify_proof_done" ;
                 res )
           in
+          inject_marker 28 ; (* after incrementally_verify_proof *)
           with_label __LOC__ (fun () ->
               Boolean.Assert.is_true bulletproof_success ) ;
           with_label __LOC__ (fun () ->

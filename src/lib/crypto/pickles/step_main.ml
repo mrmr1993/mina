@@ -14,6 +14,13 @@ open Impls.Step
 module Make (Inductive_rule : Inductive_rule.Intf) = struct
   module B = Inductive_rule.B
 
+  let inject_marker id =
+    let open Impls.Step in
+    let c = Field.Constant.of_int in
+    assert_
+      (Raw { kind = Kimchi_types.Zero ; values = [||]
+           ; coeffs = [| c id; c 1; c 2; c 3; c 4; c 5; c 6 |] })
+
   let verify_one ~srs
       ({ app_state
        ; wrap_proof
@@ -25,6 +32,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
         _ Per_proof_witness.t ) (d : _ Types_map.For_step.t)
       (messages_for_next_wrap_proof : Digest.t) (unfinalized : Unfinalized.t)
       (must_verify : B.t) : _ Vector.t * B.t =
+    inject_marker 110 ; (* verify_one start *)
     Boolean.Assert.( = ) unfinalized.should_finalize must_verify ;
     let deferred_values = proof_state.deferred_values in
     let finalized, chals =
@@ -41,6 +49,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
             ~step_domains:d.step_domains ~zk_rows:d.zk_rows ~sponge
             ~prev_challenges deferred_values prev_proof_evals )
     in
+    inject_marker 111 ; (* after finalize_other_proof *)
     let branch_data = deferred_values.branch_data in
     let sponge_after_index, hash_messages_for_next_step_proof =
       let to_field_elements =
@@ -54,6 +63,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
       in
       (sponge_after_index, unstage hash_messages_for_next_step_proof)
     in
+    inject_marker 112 ; (* after sponge_after_index *)
     (* prepare the statement to be verified below *)
     let statement =
       let prev_messages_for_next_step_proof =
@@ -79,6 +89,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
       ; proof_state = { proof_state with messages_for_next_wrap_proof }
       }
     in
+    inject_marker 113 ; (* before Step_verifier.verify *)
     (* and when the statement is prepared, we call the step verifier with this
        statement *)
     let verified =
@@ -279,6 +290,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
                                            with type n = max_proofs_verified )
       in
       let T = Max_proofs_verified.eq in
+      inject_marker 100 ; (* before app_state *)
       let app_state = exists input_typ ~request:(fun () -> Req.App_state) in
       let%bind.Promise { Inductive_rule.previous_proof_statements
                        ; public_output = ret_var
@@ -288,6 +300,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
         with_label "rule_main" (fun () ->
             rule.main { public_input = app_state } )
       in
+      inject_marker 101 ; (* after user rule *)
       with_label "step_main" (fun () ->
           let () =
             exists Typ.unit ~request:(fun () ->
@@ -349,6 +362,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
                 in
                 Req.Compute_prev_proof_parts previous_proof_statements )
           in
+          inject_marker 102 ; (* before dlog_plonk_index *)
           let dlog_plonk_index =
             let num_chunks = (* TODO *) Plonk_checks.num_chunks_by_default in
             exists
@@ -391,6 +405,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
             in
             go prevs previous_proof_statements
           in
+          inject_marker 103 ; (* before go loop *)
           let srs = Backend.Tock.Keypair.load_urs () in
           [%log internal] "Step_compute_bulletproof_challenges" ;
           let bulletproof_challenges =
@@ -534,9 +549,10 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
                     unfinalized_proofs previous_proof_statements proofs_verified
                     ~actual_wrap_domains
                 in
-                Boolean.Assert.all vs ; chalss )
+                Boolean.Assert.all vs ; inject_marker 104 ; chalss )
           in
           [%log internal] "Step_compute_bulletproof_challenges_done" ;
+          inject_marker 105 ; (* before hash_messages *)
           let messages_for_next_step_proof =
             let challenge_polynomial_commitments =
               let module M =
@@ -581,6 +597,7 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
                       bulletproof_challenges
                   } )
           in
+          inject_marker 106 ; (* before unfinalized_proofs *)
           let unfinalized_proofs =
             Vector.extend_front unfinalized_proofs_unextended lte
               Max_proofs_verified.n (Unfinalized.dummy ())
