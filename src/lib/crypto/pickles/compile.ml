@@ -520,8 +520,9 @@ struct
                     Step_branch_data.create ~index:!i ~feature_flags ~num_chunks
                       ~actual_feature_flags:rule.feature_flags
                       ~max_proofs_verified:Max_proofs_verified.n ~branches ~self
-                      ~public_input ~auxiliary_typ ~o1js_compatible_mode Arg_var.to_field_elements
-                      Arg_value.to_field_elements rule ~wrap_domains ~chain_to )
+                      ~public_input ~auxiliary_typ ~o1js_compatible_mode
+                      Arg_var.to_field_elements Arg_value.to_field_elements rule
+                      ~wrap_domains ~chain_to )
               in
               Timer.clock __LOC__ ; incr i ; res
             in
@@ -566,6 +567,24 @@ struct
               let k_p =
                 lazy
                   (let (T (typ, _conv, conv_inv)) = etyp in
+                   let typ =
+                     let (Typ t) = typ in
+                     match o1js_compatible_mode with
+                     | None | Some false ->
+                         typ
+                     | Some true ->
+                         Typ
+                           { t with
+                             check =
+                               (fun x ->
+                                 let open Internal_Basic in
+                                 let open Checked in
+                                 let%bind () =
+                                   assert_ (Set_o1js_compatible_mode true)
+                                 in
+                                 t.check x )
+                           }
+                   in
                    let%bind.Promise main =
                      b.main ~step_domains:all_step_domains
                    in
@@ -649,9 +668,9 @@ struct
       match override_wrap_main with
       | None ->
           let srs = Tick.Keypair.load_urs () in
-          Wrap_main.wrap_main ~num_chunks ~feature_flags ~o1js_compatible_mode ~srs full_signature
-            prev_varss_length step_vks proofs_verifieds all_step_domains
-            max_proofs_verified
+          Wrap_main.wrap_main ~num_chunks ~feature_flags ~o1js_compatible_mode
+            ~srs full_signature prev_varss_length step_vks proofs_verifieds
+            all_step_domains max_proofs_verified
       | Some { wrap_main; tweak_statement = _ } ->
           (* Instead of creating a proof using the pickles wrap circuit, we
              have been asked to create proof in an 'adversarial' way, where
@@ -672,6 +691,24 @@ struct
         lazy
           (let%map.Promise wrap_main = Lazy.force wrap_main in
            let (T (typ, conv, _conv_inv)) = input ~feature_flags () in
+           let typ =
+             let (Typ t) = typ in
+             match o1js_compatible_mode with
+             | None | Some false ->
+                 typ
+             | Some true ->
+                 Typ
+                   { t with
+                     check =
+                       (fun x ->
+                         let open Internal_Basic in
+                         let open Checked in
+                         let%bind () =
+                           assert_ (Set_o1js_compatible_mode true)
+                         in
+                         t.check x )
+                   }
+           in
            let main x () = wrap_main (conv x) in
            let cs =
              constraint_system ~input_typ:typ ~return_typ:Impls.Wrap.Typ.unit
@@ -1116,8 +1153,7 @@ let compile_with_wrap_main_override_promise :
     M.compile ~self ~proof_cache ~cache ~storables ?disk_keys
       ?override_wrap_domain ?override_wrap_main ?num_chunks ?lazy_mode ~branches
       ~prev_varss_length ~max_proofs_verified ~name ~public_input ~auxiliary_typ
-      ?constraint_constants ~o1js_compatible_mode
-      ~choices:(conv_irs choices) ()
+      ?constraint_constants ~o1js_compatible_mode ~choices:(conv_irs choices) ()
   in
   let (module Max_proofs_verified) = max_proofs_verified in
   let T = Max_proofs_verified.eq in
