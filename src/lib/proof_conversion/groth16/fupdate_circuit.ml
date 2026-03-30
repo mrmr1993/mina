@@ -10,7 +10,7 @@ module WT = Witness_tracker
 
 (** Number of ate loop iterations processed per f-update circuit.
     zkp7 handles iterations 0-8, zkp8 handles 9-19, etc. *)
-let iterations_per_circuit = [| 9; 11; 11; 11; 11; 12 |]
+let iterations_per_circuit = [| 9; 11; 11; 11; 11; 11 |]
 
 (** Starting g-value index for each f-update circuit. *)
 let g_start_per_circuit = [| 0; 9; 20; 31; 42; 53 |]
@@ -38,8 +38,10 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
           WT.get_g tracker (g_start + i) )
     in
     result := Fp12.mul !result g ;
-    (* Conditional multiply by c_inv (bit=1) or c (bit=-1) *)
-    let ate_idx = g_start + i in
+    (* Conditional multiply by c_inv (bit=1) or c (bit=-1).
+       g[j] corresponds to ATE_LOOP_COUNT[j+1] since the nori loop
+       starts at i=1 (skipping the MSB which is always 1). *)
+    let ate_idx = g_start + i + 1 in
     if ate_idx < Array.length ate then
       let bit = ate.(ate_idx) in
       if bit = 1 then
