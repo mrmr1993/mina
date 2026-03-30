@@ -77,10 +77,17 @@ module Groth16 : PROOF_SYSTEM = struct
     printf "Wrote %d proofs to %s\n" (Array.length proofs) output_path
 end
 
-(** PLONK proof conversion (SP1). Not yet implemented. *)
+(** PLONK proof conversion (SP1). *)
 module Plonk : PROOF_SYSTEM = struct
   let name = "plonk"
 
-  let convert ~input_path:_ ~output_path:_ =
-    failwith "PLONK proof conversion not yet implemented"
+  let convert ~input_path ~output_path =
+    printf "PLONK proof conversion\n" ;
+    printf "  Input: %s\n" input_path ;
+    printf "  Output: %s\n" output_path ;
+    printf "  SHA-256 gadget: available (%d round constants)\n"
+      (Array.length Sha256.k) ;
+    printf "  Fiat-Shamir: available\n" ;
+    printf "  UInt32 arithmetic: available\n" ;
+    failwith "PLONK circuit bodies not yet implemented"
 end
