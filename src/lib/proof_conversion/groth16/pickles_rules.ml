@@ -46,7 +46,17 @@ let compile_and_prove_one ~(n : int) :
   let _output, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove [||])
   in
-  Printf.printf "done\n%!" ;
+  (* Verify the proof *)
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+      Proof.verify_promise [ ([||], [||]), proof ] )
+  in
+  ( match verified with
+  | Ok () ->
+      Printf.printf "verified ✓\n%!"
+  | Error e ->
+      Printf.printf "VERIFY FAILED: %s\n%!"
+        (Core_kernel.Error.to_string_hum e) ) ;
   proof
 
 (** Compile all circuits (without proving). *)
