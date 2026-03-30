@@ -83,6 +83,22 @@ let mul_by_line (a : Circuit.t) ~(c01 : Fp2.Circuit.t) ~(c11 : Fp2.Circuit.t) :
   let c1 = Fp6.sub (Fp6.sub line_sum b0) b1 in
   { c0; c1 }
 
+(** Assert two Fp12 elements are equal. *)
+let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
+  Fp6.assert_equal a.c0 b.c0 ; Fp6.assert_equal a.c1 b.c1
+
+(** Fp12 one as a circuit constant. *)
+let one : Circuit.t =
+  let module Step = Pickles.Impls.Step in
+  let zero_fp2 = Fp2.of_constant Fp2.Constant.zero in
+  let one_fp2 = Fp2.of_constant Fp2.Constant.one in
+  { c0 = { Fp6.Circuit.c0 = one_fp2; c1 = zero_fp2; c2 = zero_fp2 }
+  ; c1 = { Fp6.Circuit.c0 = zero_fp2; c1 = zero_fp2; c2 = zero_fp2 }
+  }
+
+(** Assert an Fp12 element equals one. *)
+let assert_one (a : Circuit.t) : unit = assert_equal a one
+
 (** Cyclotomic squaring (for elements in the cyclotomic subgroup).
     More efficient than general squaring. *)
 let cyclotomic_square (a : Circuit.t) : Circuit.t =

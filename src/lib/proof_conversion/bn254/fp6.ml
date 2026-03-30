@@ -51,6 +51,11 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c2 = Fp2.add (Fp2.add a0b2 a1b1) a2b0 in
   { c0; c1; c2 }
 
+let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
+  Fp2.assert_equal a.c0 b.c0 ;
+  Fp2.assert_equal a.c1 b.c1 ;
+  Fp2.assert_equal a.c2 b.c2
+
 let mul_by_01 (a : Circuit.t) (b0 : Fp2.Circuit.t) (b1 : Fp2.Circuit.t) :
     Circuit.t =
   let a0b0 = Fp2.mul a.c0 b0 in
