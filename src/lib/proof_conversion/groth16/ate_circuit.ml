@@ -78,22 +78,24 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) :
     Step.Field.t =
   assert (circuit_index >= 0 && circuit_index <= 5) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
-  (* Witness the Fp12 accumulator *)
-  let f : Fp12.Circuit.t =
-    let w () : Fp2.Circuit.t =
-      { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-      ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
-    in
-    let w6 () : Fp6.Circuit.t =
-      { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-    in
-    { Fp12.Circuit.c0 = w6 (); c1 = w6 () }
-  in
-  (* Witness the G1 affine cache *)
-  let cache : Lines.AffineCache.t =
-    { x_over_y = FF.Field3.of_constant FF.Bignum_bigint.one
-    ; y_inv = FF.Field3.of_constant FF.Bignum_bigint.one
-    }
+  (* Witness the Fp12 accumulator and G1 cache.
+     TODO: use Circuit_config.get_tracker() for real witness data
+     once the witness tracker computes full Miller loop intermediates. *)
+  let f, cache =
+    ignore (Circuit_config.get_tracker () : Witness_tracker.t option) ;
+        let w () : Fp2.Circuit.t =
+          { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
+          ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
+        in
+        let w6 () : Fp6.Circuit.t =
+          { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
+        in
+        let f = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
+        let cache : Lines.AffineCache.t =
+          { x_over_y = FF.Field3.of_constant FF.Bignum_bigint.one
+          ; y_inv = FF.Field3.of_constant FF.Bignum_bigint.one }
+        in
+        (f, cache)
   in
   (* Run the ate loop chunk *)
   let _f_updated = run_chunk f ~begin_idx ~end_idx ~cache in

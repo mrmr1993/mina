@@ -42,7 +42,7 @@ module Groth16 : PROOF_SYSTEM = struct
     let vk = Proof_json.load_vk vk_path in
     printf "Loaded VK: %d IC points\n" (Array.length vk.ic) ;
     let tracker = Witness_tracker.create ~proof ~vk in
-    let _witness_data = Witness_provider.make_witness_data ~proof ~vk in
+    Circuit_config.set_tracker tracker ;
     printf "Witness data prepared: %d IC points, %d public inputs\n"
       (Witness_tracker.num_ic tracker)
       (Witness_tracker.num_public_inputs tracker) ;
