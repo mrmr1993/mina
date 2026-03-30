@@ -8,7 +8,6 @@
       src/lib/proof_conversion/test/generate_pickles_compat_fixture.ts *)
 
 open Core_kernel
-
 module Step = Pickles.Impls.Step
 
 (** Replicates the [dummy_constraints] function from o1js's pickles_bindings.ml.
@@ -20,8 +19,7 @@ let dummy_constraints () =
   let module Inner_curve = Pickles.Step_main_inputs.Inner_curve in
   let module Ops = Pickles.Step_main_inputs.Ops in
   let inner_curve_typ : (Field.t * Field.t, Kimchi_pasta.Pasta.Pallas.t) Typ.t =
-    Typ.transport Inner_curve.typ
-      ~there:Kimchi_pasta.Pasta.Pallas.to_affine_exn
+    Typ.transport Inner_curve.typ ~there:Kimchi_pasta.Pasta.Pallas.to_affine_exn
       ~back:Kimchi_pasta.Pasta.Pallas.of_affine
   in
   let x = exists Field.typ ~compute:(fun () -> Field.Constant.of_int 3) in
@@ -46,6 +44,19 @@ let dummy_constraints () =
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
 let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
 
+(** Inject a Zero gate marker with coefficients [x, 1, 2, 3, 4, 5, 6]
+    where x is a unique identifier. These markers show up in gate dumps
+    and make it easy to locate corresponding positions between OCaml and
+    o1js circuit compilations. *)
+let _marker (x : int) =
+  Step.assert_
+    (Raw
+       { kind = Zero
+       ; values = [||]
+       ; coeffs =
+           Array.map ~f:Step.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
+       } )
+
 (* ------------------------------------------------------------------ *)
 (* Test 1: Non-recursive program (max_proofs_verified = N0)            *)
 (* ------------------------------------------------------------------ *)
@@ -59,9 +70,7 @@ module Simple = struct
           let open Step in
           dummy_constraints () ;
           let pub_field = pub.(0) in
-          let x =
-            exists Field.typ ~compute:(fun () -> Field.Constant.zero)
-          in
+          let x = exists Field.typ ~compute:(fun () -> Field.Constant.zero) in
           let x_sq = Field.mul x x in
           Field.Assert.equal pub_field x_sq ;
           Promise.return
@@ -81,8 +90,7 @@ let compile_simple ~name =
            (public_input_typ 1, public_input_typ 0) )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name
-      ~o1js_compatible_mode:true
+      ~name ~o1js_compatible_mode:true
       ~choices:(fun ~self:_ -> [ Simple.rule ])
       ()
   in
@@ -141,8 +149,7 @@ module Recursive = struct
           in
           (* Witness the proof as an opaque prover value *)
           let prev_proof =
-            exists (Typ.prover_value ()) ~compute:(fun () ->
-                failwith "dummy" )
+            exists (Typ.prover_value ()) ~compute:(fun () -> failwith "dummy")
           in
           let proof_must_verify = Boolean.true_ in
           let prev_input = fst prev_statement in
@@ -170,8 +177,7 @@ let compile_recursive ~name =
            (public_input_typ 1, public_input_typ 0) )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N1)
-      ~name
-      ~o1js_compatible_mode:true
+      ~name ~o1js_compatible_mode:true
       ~choices:(fun ~self ->
         [ Recursive.base_rule; Recursive.recursive_rule self ] )
       ()
@@ -194,9 +200,7 @@ let check_vk ~name ~expected ~actual =
   let hash_str = Kimchi_pasta.Pasta.Fp.to_string actual in
   printf "  VK hash (OCaml):  %s\n" hash_str ;
   printf "  VK hash (o1js):   %s\n" expected ;
-  if String.equal hash_str expected then (
-    printf "  PASS\n" ;
-    true )
+  if String.equal hash_str expected then (printf "  PASS\n" ; true)
   else (
     printf "  FAIL - VK hashes differ\n" ;
     ignore name ;
@@ -219,20 +223,22 @@ let () =
   printf "  Compiling... %!" ;
   let simple_hash = compile_simple ~name:"simple-compat-test" in
   printf "done\n" ;
-  if not (check_vk ~name:"simple" ~expected:expected_simple_vk_hash
-            ~actual:simple_hash) then
-    all_pass := false ;
+  if
+    not
+      (check_vk ~name:"simple" ~expected:expected_simple_vk_hash
+         ~actual:simple_hash )
+  then all_pass := false ;
 
   (* --- Recursive program (N1) --- *)
   printf "\n[recursive-compat-test]\n" ;
   printf "  Compiling... %!" ;
   let recursive_hash = compile_recursive ~name:"recursive-compat-test" in
   printf "done\n" ;
-  if not (check_vk ~name:"recursive" ~expected:expected_recursive_vk_hash
-            ~actual:recursive_hash) then
-    all_pass := false ;
+  if
+    not
+      (check_vk ~name:"recursive" ~expected:expected_recursive_vk_hash
+         ~actual:recursive_hash )
+  then all_pass := false ;
 
-  if not !all_pass then (
-    printf "\nFAILED\n" ;
-    exit 1 )
+  if not !all_pass then (printf "\nFAILED\n" ; exit 1)
   else printf "\nAll compatibility checks passed.\n"
