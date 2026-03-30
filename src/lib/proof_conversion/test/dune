@@ -29,3 +29,14 @@
   (backend bisect_ppx))
  (preprocess
   (pps ppx_version ppx_jane)))
+
+(executable
+ (name test_gate_comparison)
+ (modules test_gate_comparison gate_comparison)
+ (libraries
+  core_kernel
+  yojson)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
