@@ -41,7 +41,10 @@ module Groth16 : PROOF_SYSTEM = struct
     in
     printf "Witness tracker created\n" ;
     printf "Compiling %d circuits via Pickles...\n" Circuits.num_circuits ;
-    ignore (Pickles_rules.compile () : unit) ;
+    let circuits = Pickles_rules.compile () in
+    printf "Compiled %d circuits. Proving not yet integrated "
+      (Array.length circuits) ;
+    printf "(requires async scheduler coordination).\n" ;
     printf "Output path: %s\n" output_path
 end
 

@@ -45,7 +45,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         let witness_fp12 () : Fp12.Circuit.t =
           let w () : Fp2.Circuit.t =
             let w1 () =
-              FF.Field3.of_constant FF.Bignum_bigint.zero
+              FF.Field3.of_constant FF.Bignum_bigint.one
             in
             { Fp2.Circuit.c0 = w1 (); c1 = w1 () }
           in
@@ -69,8 +69,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         let module FF = Snarky_foreign_field.Foreign_field in
         let witness_fp12 () : Fp12.Circuit.t =
           let w () : Fp2.Circuit.t =
-            { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.zero
-            ; c1 = FF.Field3.of_constant FF.Bignum_bigint.zero }
+            { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
+            ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
           in
           let w6 () : Fp6.Circuit.t =
             { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
@@ -90,8 +90,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         let module FF = Snarky_foreign_field.Foreign_field in
         let witness_fp12 () : Fp12.Circuit.t =
           let w () : Fp2.Circuit.t =
-            { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.zero
-            ; c1 = FF.Field3.of_constant FF.Bignum_bigint.zero }
+            { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
+            ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
           in
           let w6 () : Fp6.Circuit.t =
             { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
@@ -106,16 +106,16 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         ()
   | 14 ->
       (* VK IC scaling: G1 multi-scalar multiplication.
-         Computes PI = sum_i(public_input_i * IC_i) using
-         the foreign curve library. *)
+         Uses the BN254 generator as placeholder witness values. *)
       fun () ->
         let module FF = Snarky_foreign_field.Foreign_field in
         let witness_g1 () : G1.Circuit.t =
-          { G1.Circuit.x = FF.Field3.of_constant FF.Bignum_bigint.zero
-          ; y = FF.Field3.of_constant FF.Bignum_bigint.one }
+          { G1.Circuit.x = FF.Field3.of_constant Bn254_params.g1_generator_x
+          ; y = FF.Field3.of_constant Bn254_params.g1_generator_y }
         in
         let p1 = witness_g1 () in
-        let p2 = witness_g1 () in
+        (* Use a doubled point as the second operand to avoid p1 = p2 *)
+        let p2 = G1.double p1 in
         let _sum = G1.add_nonzero p1 p2 in
         ()
   | 15 ->
