@@ -36,10 +36,9 @@ module Groth16 : PROOF_SYSTEM = struct
     in
     let vk = Proof_json.load_vk vk_path in
     printf "Loaded VK: %d IC points\n" (Array.length vk.ic) ;
-    let _tracker =
-      Witness_tracker.create ~proof ~vk
-    in
-    printf "Witness tracker created\n" ;
+    let _tracker = Witness_tracker.create ~proof ~vk in
+    let _witness_data = Witness_provider.make_witness_data ~proof ~vk in
+    printf "Witness data prepared\n" ;
     printf "Compiling and proving all %d circuits...\n" Circuits.num_circuits ;
     let proofs =
       Array.init Circuits.num_circuits ~f:(fun n ->

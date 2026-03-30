@@ -105,18 +105,13 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         let _result = Fp12.mul f_conj f in
         ()
   | 14 ->
-      (* VK IC scaling: G1 multi-scalar multiplication.
-         Uses the BN254 generator as placeholder witness values. *)
+      (* VK IC scaling: for now, just do an Fp multiplication as placeholder.
+         The full implementation would do G1 MSM with IC points. *)
       fun () ->
         let module FF = Snarky_foreign_field.Foreign_field in
-        let witness_g1 () : G1.Circuit.t =
-          { G1.Circuit.x = FF.Field3.of_constant Bn254_params.g1_generator_x
-          ; y = FF.Field3.of_constant Bn254_params.g1_generator_y }
-        in
-        let p1 = witness_g1 () in
-        (* Use a doubled point as the second operand to avoid p1 = p2 *)
-        let p2 = G1.double p1 in
-        let _sum = G1.add_nonzero p1 p2 in
+        let a = FF.Field3.of_constant FF.Bignum_bigint.one in
+        let b = FF.Field3.of_constant (FF.Bignum_bigint.of_int 2) in
+        let _c = FF.mul a b ~f:Bn254_params.p in
         ()
   | 15 ->
       (* Final assembly: combine all components and assert
