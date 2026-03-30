@@ -6,11 +6,6 @@ module FF = Snarky_foreign_field.Foreign_field
 
 let p = Bn254_params.p
 
-(** Fp2 element as a pair of Field3 values. *)
-module Circuit = struct
-  type t = { c0 : FF.Field3.t; c1 : FF.Field3.t }
-end
-
 (** Constant Fp2 element as bignum pairs. *)
 module Constant = struct
   type t = FF.Bignum_bigint.t * FF.Bignum_bigint.t
@@ -18,6 +13,20 @@ module Constant = struct
   let zero : t = (FF.Bignum_bigint.zero, FF.Bignum_bigint.zero)
 
   let one : t = (FF.Bignum_bigint.one, FF.Bignum_bigint.zero)
+end
+
+(** Fp2 element as a pair of Field3 values. *)
+module Circuit = struct
+  type t = { c0 : FF.Field3.t; c1 : FF.Field3.t }
+
+  let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple2 FF.Field3.typ FF.Field3.typ)
+      ~there:(fun (c0, c1) -> (c0, c1))
+      ~back:(fun (c0, c1) -> (c0, c1))
+    |> Pickles.Impls.Step.Typ.transport_var
+      ~there:(fun { c0; c1 } -> (c0, c1))
+      ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =

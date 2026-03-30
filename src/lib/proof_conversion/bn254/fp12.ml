@@ -3,9 +3,22 @@
     Elements are pairs (c0, c1) representing c0 + c1*w where w^2 = v.
     This is the target field of the BN254 pairing. *)
 
+module Constant = struct
+  type t = Fp6.Constant.t * Fp6.Constant.t
+end
+
 (** Fp12 element as a pair of Fp6 values. *)
 module Circuit = struct
   type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
+
+  let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple2 Fp6.Circuit.typ Fp6.Circuit.typ)
+      ~there:(fun (c0, c1) -> (c0, c1))
+      ~back:(fun (c0, c1) -> (c0, c1))
+    |> Pickles.Impls.Step.Typ.transport_var
+      ~there:(fun { c0; c1 } -> (c0, c1))
+      ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
 (** Addition. *)

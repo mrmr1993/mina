@@ -3,8 +3,22 @@
     Elements are triples (c0, c1, c2) representing c0 + c1*v + c2*v^2
     where v^3 = xi and xi = 9 + u (the Fp2 non-residue). *)
 
+module Constant = struct
+  type t = Fp2.Constant.t * Fp2.Constant.t * Fp2.Constant.t
+end
+
 module Circuit = struct
   type t = { c0 : Fp2.Circuit.t; c1 : Fp2.Circuit.t; c2 : Fp2.Circuit.t }
+
+  let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple3
+         Fp2.Circuit.typ Fp2.Circuit.typ Fp2.Circuit.typ)
+      ~there:(fun (c0, c1, c2) -> (c0, c1, c2))
+      ~back:(fun (c0, c1, c2) -> (c0, c1, c2))
+    |> Pickles.Impls.Step.Typ.transport_var
+      ~there:(fun { c0; c1; c2 } -> (c0, c1, c2))
+      ~back:(fun (c0, c1, c2) -> { c0; c1; c2 })
 end
 
 let mul_by_non_residue (x : Fp2.Circuit.t) : Fp2.Circuit.t =

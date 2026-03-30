@@ -20,16 +20,14 @@ let ate_iterations_per_circuit =
 (** Total number of circuits. *)
 let num_circuits = 16
 
-(** Helper: witness an Fp12 from constants and return it. *)
-let witness_fp12_ones () : Fp12.Circuit.t =
-  let w () : Fp2.Circuit.t =
-    { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-    ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
+(** Witness an Fp12 from the tracker's Miller loop result. *)
+let exists_fp12_from_tracker () : Fp12.Circuit.t =
+  let v =
+    match Circuit_config.get_tracker () with
+    | Some tracker -> Witness_tracker.get_f tracker
+    | None -> Witness_tracker.Fp12.one
   in
-  let w6 () : Fp6.Circuit.t =
-    { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-  in
-  { Fp12.Circuit.c0 = w6 (); c1 = w6 () }
+  Step.exists Fp12.Circuit.typ ~compute:(fun () -> v)
 
 (** Build the circuit body for zkpN.
     Takes the input hash and returns the output hash. *)
@@ -43,20 +41,20 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Processes the last ate loop iterations and applies the Frobenius
          correction terms phi(Q), phi^2(Q), phi^3(Q). *)
       fun input_hash ->
-        let f = witness_fp12_ones () in
+        let f = exists_fp12_from_tracker () in
         (* Final ate loop iterations (index 59-64 overlap with zkp5,
            but zkp6 handles the Frobenius correction) *)
         let f_sq = Fp12.square f in
-        let g = witness_fp12_ones () in
+        let g = exists_fp12_from_tracker () in
         let f_updated = Fp12.mul f_sq g in
         (* Frobenius corrections: multiply by phi(Q) line evaluations.
            In the full implementation, these use precomputed Frobenius
            constants gamma_1s applied to the G2 point. *)
-        let frobenius_line = witness_fp12_ones () in
+        let frobenius_line = exists_fp12_from_tracker () in
         let f_fr1 = Fp12.mul f_updated frobenius_line in
-        let frobenius_line2 = witness_fp12_ones () in
+        let frobenius_line2 = exists_fp12_from_tracker () in
         let f_fr2 = Fp12.mul f_fr1 frobenius_line2 in
-        let frobenius_line3 = witness_fp12_ones () in
+        let frobenius_line3 = exists_fp12_from_tracker () in
         let _f_final = Fp12.mul f_fr2 frobenius_line3 in
         Accumulator_hash.combine_hashes
           [ input_hash; Step.Field.of_int 6 ]
@@ -69,7 +67,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          f^(p^6-1) = conjugate(f) * inverse(f)  [simplified]
          f^(p^2+1) = frobenius^2(f) * f *)
       fun input_hash ->
-        let f = witness_fp12_ones () in
+        let f = exists_fp12_from_tracker () in
         (* Easy part step 1: f1 = conjugate(f) * f (simplified from f/f) *)
         let f_conj = Fp12.conjugate f in
         let f1 = Fp12.mul f_conj f in
@@ -96,8 +94,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          In the full implementation, this combines all accumulated values
          and checks e(A,B) * e(-C,delta) * e(PI,gamma) = alpha_beta. *)
       fun input_hash ->
-        let f = witness_fp12_ones () in
-        let alpha_beta = witness_fp12_ones () in
+        let f = exists_fp12_from_tracker () in
+        let alpha_beta = exists_fp12_from_tracker () in
         (* The pairing check: assert f * alpha_beta = 1 (simplified).
            In reality this compares the Miller loop result against
            the precomputed alpha_beta from the VK. *)

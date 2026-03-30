@@ -128,6 +128,39 @@ module Field3 = struct
         c
     | None ->
         failwith "Field3.to_constant: not a constant"
+
+  (** Forward reference to multi_range_check, set after it's defined. *)
+  let check_ref : (t -> unit) ref = ref (fun _ -> ())
+
+  (** Snarky Typ for Field3 values. Witnessing via [exists typ ~compute]
+      automatically applies multi_range_check to ensure each limb is
+      in [0, 2^88). *)
+  let typ : (t, Constant.t) Circuit.Typ.t =
+    Circuit.Typ.Typ
+      { size_in_field_elements = 3
+      ; constraint_system_auxiliary = (fun () -> ())
+      ; value_to_fields =
+          (fun x ->
+            let l0, l1, l2 = Constant.split x in
+            ( [| bignum_to_field_const l0
+               ; bignum_to_field_const l1
+               ; bignum_to_field_const l2
+              |]
+            , () ) )
+      ; value_of_fields =
+          (fun (fields, ()) ->
+            let l0 = field_const_to_bignum fields.(0) in
+            let l1 = field_const_to_bignum fields.(1) in
+            let l2 = field_const_to_bignum fields.(2) in
+            Constant.combine (l0, l1, l2) )
+      ; var_to_fields =
+          (fun (l0, l1, l2) -> ([| l0; l1; l2 |], ()))
+      ; var_of_fields =
+          (fun (fields, ()) -> (fields.(0), fields.(1), fields.(2)))
+      ; check =
+          (fun (l0, l1, l2) ->
+            Circuit.make_checked (fun () -> !check_ref (l0, l1, l2)) )
+      }
 end
 
 (* ------------------------------------------------------------------ *)
@@ -269,6 +302,9 @@ let multi_range_check ((x, y, z) : Field3.t) : unit =
     let x64, x76 = range_check0 x ~compact:false in
     let y64, y76 = range_check0 y ~compact:false in
     range_check1 ~x64 ~x76 ~y64 ~y76 ~z ~yz:zero
+
+(* Initialize the Field3.typ check function now that multi_range_check exists *)
+let () = Field3.check_ref := multi_range_check
 
 (** Range check a compact 2-limb value [xy] (176 bits) and a single
     limb [z] (88 bits). Returns the three individual limbs. *)

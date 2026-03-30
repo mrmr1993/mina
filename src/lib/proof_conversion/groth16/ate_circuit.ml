@@ -1,60 +1,43 @@
-(** Ate loop circuit body shared by zkp0-5.
-
-    Each circuit processes a range of ate loop iterations:
-    - Square the Fp12 accumulator
-    - Multiply by line evaluations from G2 doubling/addition
-    - Hash intermediate Fp12 values for the line digest
-
-    The line coefficients and G1 affine cache are provided as
-    witnessed values. *)
+(** Ate loop circuit body shared by zkp0-5. *)
 
 module FF = Snarky_foreign_field.Foreign_field
 module Step = Pickles.Impls.Step
+module WT = Witness_tracker
 
-(** Process one ate loop iteration:
-    f = f^2 * line_double * [line_add if bit != 0] *)
+(** Process one ate loop iteration in-circuit. *)
 let process_iteration (f : Fp12.Circuit.t) ~(bit : int)
     ~(double_lambda : Fp2.Circuit.t) ~(double_neg_mu : Fp2.Circuit.t)
     ~(cache : Lines.AffineCache.t)
     ~(add_lambda : Fp2.Circuit.t option)
     ~(add_neg_mu : Fp2.Circuit.t option) : Fp12.Circuit.t =
-  (* f = f^2 *)
   let f = Fp12.square f in
-  (* f = f * line_double(T, P) *)
   let double_line : Lines.G2Line.t =
     { lambda = double_lambda; neg_mu = double_neg_mu }
   in
   let f = Lines.mul_by_line f double_line cache in
-  (* If bit != 0: f = f * line_add *)
   match (bit, add_lambda, add_neg_mu) with
-  | 0, _, _ ->
-      f
+  | 0, _, _ -> f
   | _, Some al, Some anm ->
-      let add_line : Lines.G2Line.t =
-        { lambda = al; neg_mu = anm }
-      in
-      Lines.mul_by_line f add_line cache
-  | _ ->
-      f
+      Lines.mul_by_line f { lambda = al; neg_mu = anm } cache
+  | _ -> f
 
-(** Run a chunk of ate loop iterations for a circuit.
-    [begin_idx] and [end_idx] define the range within ATE_LOOP_COUNT. *)
+(** Run a chunk of ate loop iterations. *)
 let run_chunk (f : Fp12.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
-    ~(cache : Lines.AffineCache.t) : Fp12.Circuit.t =
+    ~(cache : Lines.AffineCache.t)
+    ~(tracker : WT.t) : Fp12.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
   let result = ref f in
   for i = begin_idx to end_idx - 1 do
     let bit = ate.(i) in
-    (* Witness line coefficients for this iteration *)
-    let witness_fp2 () : Fp2.Circuit.t =
-      { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-      ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
-    in
-    let double_lambda = witness_fp2 () in
-    let double_neg_mu = witness_fp2 () in
+    let iter = WT.get_iteration tracker (i - 1) in
+    let double_lambda = Step.exists Fp2.Circuit.typ ~compute:(fun () -> iter.double_line.lambda) in
+    let double_neg_mu = Step.exists Fp2.Circuit.typ ~compute:(fun () -> iter.double_line.neg_mu) in
     let add_lambda, add_neg_mu =
-      if bit <> 0 then (Some (witness_fp2 ()), Some (witness_fp2 ()))
-      else (None, None)
+      match iter.add_line with
+      | Some l ->
+          ( Some (Step.exists Fp2.Circuit.typ ~compute:(fun () -> l.lambda))
+          , Some (Step.exists Fp2.Circuit.typ ~compute:(fun () -> l.neg_mu)) )
+      | None -> (None, None)
     in
     result :=
       process_iteration !result ~bit ~double_lambda ~double_neg_mu
@@ -62,58 +45,32 @@ let run_chunk (f : Fp12.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
   done ;
   !result
 
-(** Iteration ranges for each circuit (1-indexed into ATE_LOOP_COUNT).
-    The first bit (index 0) is the MSB = 1, already handled in initialization. *)
 let circuit_ranges =
-  [| (1, 13)   (* zkp0: iterations 1-12 *)
-   ; (13, 24)  (* zkp1: iterations 13-23 *)
-   ; (24, 35)  (* zkp2: iterations 24-34 *)
-   ; (35, 47)  (* zkp3: iterations 35-46 *)
-   ; (47, 59)  (* zkp4: iterations 47-58 *)
-   ; (59, 65)  (* zkp5: iterations 59-64 *)
-  |]
+  [| (1, 13); (13, 24); (24, 35); (35, 47); (47, 59); (59, 65) |]
 
 (** Build the circuit body for an ate loop circuit (zkp0-5). *)
 let build ~(circuit_index : int) (input_hash : Step.Field.t) :
     Step.Field.t =
   assert (circuit_index >= 0 && circuit_index <= 5) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
-  (* Witness the Fp12 accumulator and G1 affine cache. *)
-  let f, cache =
-    match Circuit_witness.get_circuit_fp12 ~circuit_index with
-    | Some fp12_val ->
-        (* Use real precomputed data from the witness tracker *)
-        let f = Circuit_witness.witness_fp12 fp12_val in
-        let cache =
-          match Circuit_config.get_tracker () with
-          | Some tracker ->
-              let neg_a = Witness_tracker.get_neg_a tracker in
-              let x_ov_y, y_i = Witness_tracker.compute_affine_cache neg_a in
-              Circuit_witness.witness_affine_cache ~x_over_y:x_ov_y ~y_inv:y_i
-          | None ->
-              { Lines.AffineCache.x_over_y =
-                  FF.Field3.of_constant FF.Bignum_bigint.one
-              ; y_inv = FF.Field3.of_constant FF.Bignum_bigint.one }
-        in
-        (f, cache)
-    | None ->
-        (* Fallback: constant ones *)
-        let w () : Fp2.Circuit.t =
-          { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-          ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one }
-        in
-        let w6 () : Fp6.Circuit.t =
-          { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-        in
-        let f = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
-        let cache : Lines.AffineCache.t =
-          { x_over_y = FF.Field3.of_constant FF.Bignum_bigint.one
-          ; y_inv = FF.Field3.of_constant FF.Bignum_bigint.one }
-        in
-        (f, cache)
+  let tracker =
+    match Circuit_config.get_tracker () with
+    | Some t -> t
+    | None -> failwith "ate_circuit: no tracker configured"
   in
-  (* Run the ate loop chunk *)
-  let _f_updated = run_chunk f ~begin_idx ~end_idx ~cache in
-  (* Hash the updated accumulator as output *)
+  let fp12_val =
+    match Circuit_witness.get_circuit_fp12 ~circuit_index with
+    | Some v -> v
+    | None -> WT.Fp12.one
+  in
+  let f = Step.exists Fp12.Circuit.typ ~compute:(fun () -> fp12_val) in
+  let neg_a = WT.get_neg_a tracker in
+  let x_ov_y, y_i = WT.compute_affine_cache neg_a in
+  let cache : Lines.AffineCache.t =
+    { x_over_y = Step.exists FF.Field3.typ ~compute:(fun () -> x_ov_y)
+    ; y_inv = Step.exists FF.Field3.typ ~compute:(fun () -> y_i)
+    }
+  in
+  let _f_updated = run_chunk f ~begin_idx ~end_idx ~cache ~tracker in
   Accumulator_hash.combine_hashes
     [ input_hash; Step.Field.of_int circuit_index ]
