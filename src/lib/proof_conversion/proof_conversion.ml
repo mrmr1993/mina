@@ -84,10 +84,26 @@ module Plonk : PROOF_SYSTEM = struct
   let convert ~input_path ~output_path =
     printf "PLONK proof conversion\n" ;
     printf "  Input: %s\n" input_path ;
-    printf "  Output: %s\n" output_path ;
-    printf "  SHA-256 gadget: available (%d round constants)\n"
-      (Array.length Sha256.k) ;
-    printf "  Fiat-Shamir: available\n" ;
-    printf "  UInt32 arithmetic: available\n" ;
-    failwith "PLONK circuit bodies not yet implemented"
+    printf "  SHA-256: %d round constants\n" (Array.length Sha256.k) ;
+    printf "Compiling and proving %d PLONK circuits...\n"
+      Plonk_circuits.num_circuits ;
+    let proofs = Plonk_pickles_rules.compile_and_prove_all () in
+    printf "Generated %d PLONK proofs.\n" (Array.length proofs) ;
+    let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+    let json_proofs =
+      Array.mapi proofs ~f:(fun i proof ->
+        `Assoc
+          [ ("circuit", `Int i)
+          ; ("proof", `String (P.to_base64 proof))
+          ] )
+    in
+    let output_json =
+      `Assoc
+        [ ("type", `String "plonk")
+        ; ("num_circuits", `Int Plonk_circuits.num_circuits)
+        ; ("proofs", `List (Array.to_list json_proofs))
+        ]
+    in
+    Yojson.Safe.to_file output_path output_json ;
+    printf "Wrote %d proofs to %s\n" (Array.length proofs) output_path
 end
