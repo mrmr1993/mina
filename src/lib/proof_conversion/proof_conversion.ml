@@ -13,6 +13,7 @@ let public_input_typ = Circuit_utils.public_input_typ
 (** Re-export key modules for external access. *)
 module Witness_tracker = Witness_tracker
 module Bn254_params = Bn254_params
+module Proof_json = Proof_json
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig

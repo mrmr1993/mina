@@ -51,12 +51,102 @@ let test_fp12_identity () =
   assert (Bignum_bigint.(fst c10 = zero)) ;
   printf "OK\n"
 
+let test_fp2_square () =
+  printf "Testing Fp2 squaring... %!" ;
+  let a : WT.Fp2.t = (Bignum_bigint.of_int 3, Bignum_bigint.of_int 4) in
+  let c0, c1 = WT.Fp2.square a in
+  (* (3+4i)^2 = 9-16 + 24i = -7 + 24i *)
+  let expected_c0 = WT.Fp.sub (Bignum_bigint.of_int 9) (Bignum_bigint.of_int 16) in
+  assert (Bignum_bigint.(c0 = expected_c0)) ;
+  assert (Bignum_bigint.(c1 = of_int 24)) ;
+  printf "OK\n"
+
+let test_fp6_mul_identity () =
+  printf "Testing Fp6 multiplication (a*1=a)... %!" ;
+  let a : WT.Fp6.t =
+    ( (Bignum_bigint.of_int 5, Bignum_bigint.of_int 7)
+    , (Bignum_bigint.of_int 11, Bignum_bigint.of_int 13)
+    , (Bignum_bigint.of_int 17, Bignum_bigint.of_int 19) )
+  in
+  let result = WT.Fp6.mul a WT.Fp6.one in
+  let (r00, r01), (r10, r11), (r20, r21) = result in
+  assert (Bignum_bigint.(r00 = of_int 5)) ;
+  assert (Bignum_bigint.(r01 = of_int 7)) ;
+  assert (Bignum_bigint.(r10 = of_int 11)) ;
+  assert (Bignum_bigint.(r11 = of_int 13)) ;
+  assert (Bignum_bigint.(r20 = of_int 17)) ;
+  assert (Bignum_bigint.(r21 = of_int 19)) ;
+  printf "OK\n"
+
+let test_fp12_mul_identity () =
+  printf "Testing Fp12 multiplication (a*1=a)... %!" ;
+  let a_c0 : WT.Fp6.t =
+    ( (Bignum_bigint.of_int 2, Bignum_bigint.of_int 3)
+    , (Bignum_bigint.of_int 5, Bignum_bigint.of_int 7)
+    , (Bignum_bigint.of_int 11, Bignum_bigint.of_int 13) )
+  in
+  let a_c1 : WT.Fp6.t =
+    ( (Bignum_bigint.of_int 17, Bignum_bigint.of_int 19)
+    , (Bignum_bigint.of_int 23, Bignum_bigint.of_int 29)
+    , (Bignum_bigint.of_int 31, Bignum_bigint.of_int 37) )
+  in
+  let a : WT.Fp12.t = (a_c0, a_c1) in
+  let result = WT.Fp12.mul a WT.Fp12.one in
+  let (r00, _, _), _ = result in
+  assert (Bignum_bigint.(fst r00 = of_int 2)) ;
+  assert (Bignum_bigint.(snd r00 = of_int 3)) ;
+  printf "OK\n"
+
+let test_fp12_conjugate_property () =
+  printf "Testing Fp12 conjugate (a * conj(a) is real)... %!" ;
+  let a_c0 : WT.Fp6.t =
+    ( (Bignum_bigint.of_int 2, Bignum_bigint.of_int 3)
+    , WT.Fp2.zero, WT.Fp2.zero )
+  in
+  let a_c1 : WT.Fp6.t =
+    ( (Bignum_bigint.of_int 5, Bignum_bigint.of_int 7)
+    , WT.Fp2.zero, WT.Fp2.zero )
+  in
+  let a : WT.Fp12.t = (a_c0, a_c1) in
+  let conj = WT.Fp12.conjugate a in
+  let product = WT.Fp12.mul a conj in
+  (* a * conj(a) should have c1 = 0 (it's a "real" Fp6) *)
+  let _, (c10, c11, c12) = product in
+  assert (Bignum_bigint.(fst c10 = zero && snd c10 = zero)) ;
+  assert (Bignum_bigint.(fst c11 = zero && snd c11 = zero)) ;
+  assert (Bignum_bigint.(fst c12 = zero && snd c12 = zero)) ;
+  printf "OK\n"
+
+let test_witness_tracker_creation () =
+  printf "Testing witness tracker with real proof data... %!" ;
+  let proof_path =
+    match Stdlib.Sys.getenv_opt "PROOF_JSON" with
+    | Some p -> p
+    | None -> ""
+  in
+  if String.is_empty proof_path then
+    printf "SKIPPED (set PROOF_JSON=path)\n"
+  else
+    let vk_path = Filename.dirname proof_path ^ "/vk.json" in
+    let proof = Proof_conversion.Proof_json.load_proof proof_path in
+    let vk = Proof_conversion.Proof_json.load_vk vk_path in
+    let tracker = WT.create ~proof ~vk in
+    printf "IC=%d PI=%d... " (WT.num_ic tracker) (WT.num_public_inputs tracker) ;
+    let neg_a = WT.get_neg_a tracker in
+    assert (Bignum_bigint.(neg_a.x > zero)) ;
+    printf "OK\n"
+
 let () =
   printf "Tower field arithmetic tests\n" ;
   printf "============================\n" ;
   test_fp_arithmetic () ;
   test_fp2_mul () ;
+  test_fp2_square () ;
   test_fp2_conjugate () ;
   test_fp2_inverse () ;
+  test_fp6_mul_identity () ;
   test_fp12_identity () ;
+  test_fp12_mul_identity () ;
+  test_fp12_conjugate_property () ;
+  test_witness_tracker_creation () ;
   printf "All tests passed.\n"
