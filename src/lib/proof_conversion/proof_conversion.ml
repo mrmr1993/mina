@@ -46,8 +46,25 @@ module Groth16 : PROOF_SYSTEM = struct
         Pickles_rules.compile_and_prove_single ~n )
     in
     printf "Generated %d proofs successfully.\n" (Array.length proofs) ;
-    ignore (proofs : Pickles_types.Nat.N0.n Pickles.Proof.t array) ;
-    printf "Output path: %s\n" output_path
+    (* Serialize proofs to JSON *)
+    let json_proofs =
+      Array.mapi proofs ~f:(fun i proof ->
+        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+        let proof_str = P.to_base64 proof
+        in
+        `Assoc
+          [ ("circuit", `Int i)
+          ; ("proof", `String proof_str)
+          ] )
+    in
+    let output_json =
+      `Assoc
+        [ ("num_circuits", `Int Circuits.num_circuits)
+        ; ("proofs", `List (Array.to_list json_proofs))
+        ]
+    in
+    Yojson.Safe.to_file output_path output_json ;
+    printf "Wrote %d proofs to %s\n" (Array.length proofs) output_path
 end
 
 (** PLONK proof conversion (SP1). Not yet implemented. *)
