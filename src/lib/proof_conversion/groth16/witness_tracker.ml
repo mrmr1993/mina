@@ -277,7 +277,9 @@ type t =
   ; c : Fp12.t
   ; c_inv : Fp12.t
   ; shift_power : int
+  ; mutable t_point : G2.t  (** Current G2 point T *)
   ; mutable f : Fp12.t
+  ; mutable g_digest : BI.t  (** Poseidon hash of line evaluation array *)
   ; mutable g_values : Fp12.t array
   ; mutable iterations : iteration_data array
   ; mutable line_hashes : BI.t array
@@ -327,6 +329,49 @@ let get_full_ic_acc (t : t) : G1.t =
     In the final circuit, the independently-computed IC accumulation
     must be asserted equal to this value. *)
 let get_pi (t : t) : G1.t = get_full_ic_acc t
+
+(** Get the current T point (G2). *)
+let get_t_point (t : t) : G2.t = t.t_point
+
+(** Get the g_digest (Poseidon hash of line evaluation array). *)
+let get_g_digest (t : t) : BI.t = t.g_digest
+
+(** Construct the full Accumulator.Constant from the current tracker state.
+    This provides all the data needed to witness the accumulator in-circuit. *)
+let get_accumulator_constant (t : t) : Accumulator.Constant.t =
+  let neg_a = get_neg_a t in
+  let b_g2 = G2.of_proof_json t.vk.beta in
+  let c_g1 = get_c t in
+  let pi = get_pi t in
+  (* The Accumulator module references the bn254 G1/G2 Constant types,
+     but this file has local G1/G2 that shadow them. The record field
+     labels are resolved via the type annotation on each sub-struct.
+     G1.Constant.t = {x:BI.t; y:BI.t} and our G1.t = {x:BI.t; y:BI.t},
+     so the values are compatible — we just need the labels. *)
+  let module FF = Snarky_foreign_field.Foreign_field in
+  let to_fp = FF.bignum_to_field_const in
+  ignore to_fp ;
+  (* Build proof sub-struct. The neg_a, c, pi fields need G1.Constant.t
+     which has the same structure as our local G1.t. *)
+  let neg_a_c = { Accumulator.G1_constant.x = neg_a.x; y = neg_a.y } in
+  let b_c = { Accumulator.G2_constant.x = b_g2.x; y = b_g2.y } in
+  let c_c = { Accumulator.G1_constant.x = c_g1.x; y = c_g1.y } in
+  let pi_c = { Accumulator.G1_constant.x = pi.x; y = pi.y } in
+  let t_c = { Accumulator.G2_constant.x = t.t_point.x; y = t.t_point.y } in
+  let proof : Accumulator.RecursionProof.Constant.t =
+    { neg_a = neg_a_c
+    ; b = b_c
+    ; c = c_c
+    ; pi = pi_c
+    ; c_fp12 = t.c
+    ; c_inv = t.c_inv
+    ; shift_power = t.shift_power
+    }
+  in
+  let state : Accumulator.State.Constant.t =
+    { t_point = t_c; f = t.f; g_digest = FF.bignum_to_field_const t.g_digest }
+  in
+  { Accumulator.Constant.proof; state }
 
 (** Get the current Miller loop accumulator. *)
 let get_f (t : t) : Fp12.t = t.f
@@ -456,6 +501,7 @@ let compute_miller_loop (t : t) : unit =
       { f_before; double_line; add_line = add_line_opt; f_after = !f }
   done ;
   t.f <- !f ;
+  t.t_point <- !current_t ;
   t.g_values <- g_values ;
   t.iterations <- iterations ;
   (* Compute Frobenius correction line evaluations for zkp6 *)
@@ -493,7 +539,9 @@ let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)
     ; c
     ; c_inv
     ; shift_power = aux.shift_power
+    ; t_point = { G2.x = Fp2.zero; y = Fp2.zero }
     ; f = Fp12.one
+    ; g_digest = BI.zero
     ; g_values = [||]
     ; iterations = [||]
     ; line_hashes = [||]

@@ -11,6 +11,12 @@ open! Core_kernel
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 
+(** Re-export Constant types so callers in files where local modules
+    shadow G1/G2 can resolve record field labels. *)
+module G1_constant = G1.Constant
+
+module G2_constant = G2.Constant
+
 (** RecursionProof: the proof data carried through all circuits.
     Matches nori's RecursionProof struct field order exactly. *)
 module RecursionProof = struct
