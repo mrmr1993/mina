@@ -7,6 +7,7 @@ module BI = Bignum_bigint
 
 (** Re-export constant types for witness_tracker access. *)
 module G1_constant = G1.Constant
+
 module G2_constant = G2.Constant
 
 (** Parse a bignum from a JSON string value. *)
@@ -22,20 +23,36 @@ let bignum_of_json (j : Yojson.Safe.t) : Bignum_bigint.t =
 (** Parse a G1 point from JSON {x, y}. *)
 let g1_of_json (j : Yojson.Safe.t) : G1.Constant.t =
   let open Yojson.Safe.Util in
-  { x = bignum_of_json (member "x" j)
-  ; y = bignum_of_json (member "y" j)
-  }
+  { x = bignum_of_json (member "x" j); y = bignum_of_json (member "y" j) }
 
 (** Parse a G2 point from JSON {x_c0, x_c1, y_c0, y_c1}. *)
 let g2_of_json (j : Yojson.Safe.t) : G2.Constant.t =
   let open Yojson.Safe.Util in
-  { x =
-      ( bignum_of_json (member "x_c0" j)
-      , bignum_of_json (member "x_c1" j) )
-  ; y =
-      ( bignum_of_json (member "y_c0" j)
-      , bignum_of_json (member "y_c1" j) )
+  { x = (bignum_of_json (member "x_c0" j), bignum_of_json (member "x_c1" j))
+  ; y = (bignum_of_json (member "y_c0" j), bignum_of_json (member "y_c1" j))
   }
+
+(** Parse an Fp2 constant from JSON {c0: "...", c1: "..."}
+    or from two named fields. *)
+let fp2_of_json_fields ~c0 ~c1 : Fp2.Constant.t = (c0, c1)
+
+(** Parse an Fp12 constant from JSON with g00..g21, h00..h21 fields.
+    Fp12 = (Fp6(Fp2, Fp2, Fp2), Fp6(Fp2, Fp2, Fp2))
+    where g = c0 (Fp6) and h = c1 (Fp6). *)
+let fp12_of_json (j : Yojson.Safe.t) : Fp12.Constant.t =
+  let open Yojson.Safe.Util in
+  let g f = bignum_of_json (member f j) in
+  let c0 : Fp6.Constant.t =
+    ( fp2_of_json_fields ~c0:(g "g00") ~c1:(g "g01")
+    , fp2_of_json_fields ~c0:(g "g10") ~c1:(g "g11")
+    , fp2_of_json_fields ~c0:(g "g20") ~c1:(g "g21") )
+  in
+  let c1 : Fp6.Constant.t =
+    ( fp2_of_json_fields ~c0:(g "h00") ~c1:(g "h01")
+    , fp2_of_json_fields ~c0:(g "h10") ~c1:(g "h11")
+    , fp2_of_json_fields ~c0:(g "h20") ~c1:(g "h21") )
+  in
+  (c0, c1)
 
 (** Parsed Groth16 verification key. *)
 type vk =
@@ -44,6 +61,8 @@ type vk =
   ; gamma : G2.Constant.t
   ; delta : G2.Constant.t
   ; ic : G1.Constant.t array
+  ; alpha_beta : Fp12.Constant.t
+  ; w27 : Fp12.Constant.t
   }
 
 (** Parse a verification key from JSON. *)
@@ -65,7 +84,32 @@ let vk_of_json (j : Yojson.Safe.t) : vk =
     in
     collect 0 []
   in
-  { alpha; beta; gamma; delta; ic }
+  let alpha_beta = fp12_of_json (member "alpha_beta" j) in
+  let w27 = fp12_of_json (member "w27" j) in
+  { alpha; beta; gamma; delta; ic; alpha_beta; w27 }
+
+(** Auxiliary witness data (c, shift_power) computed externally. *)
+type aux_witness = { c : Fp12.Constant.t; shift_power : int }
+
+(** Parse auxiliary witness from JSON. *)
+let aux_witness_of_json (j : Yojson.Safe.t) : aux_witness =
+  let open Yojson.Safe.Util in
+  let c = fp12_of_json (member "c" j) in
+  let shift_power =
+    match member "shift_power" j with
+    | `String s ->
+        int_of_string s
+    | `Int i ->
+        i
+    | _ ->
+        failwith "aux_witness: expected int for shift_power"
+  in
+  { c; shift_power }
+
+(** Load and parse auxiliary witness from a JSON file. *)
+let load_aux_witness (path : string) : aux_witness =
+  let j = Yojson.Safe.from_file path in
+  aux_witness_of_json j
 
 (** Parsed Groth16 proof. *)
 type proof =

@@ -71,7 +71,7 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
   let f =
     Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-        Circuit_witness.get_circuit_fp12 ~circuit_index )
+        Circuit_witness.get_ate_initial_f ~circuit_index )
   in
   let cache : Lines.AffineCache.t =
     { x_over_y =

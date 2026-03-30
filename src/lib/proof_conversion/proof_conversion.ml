@@ -12,6 +12,7 @@ let public_input_typ = Circuit_utils.public_input_typ
 
 (** Re-export key modules for external access. *)
 module Witness_tracker = Witness_tracker
+
 module Bn254_params = Bn254_params
 module Proof_json = Proof_json
 module Circuit_info = Circuit_info
@@ -34,16 +35,15 @@ module Groth16 : PROOF_SYSTEM = struct
   let convert ~input_path ~output_path =
     printf "Loading proof from %s\n" input_path ;
     let proof = Proof_json.load_proof input_path in
-    printf "Loaded proof: %d public inputs\n"
-      (Array.length proof.public_inputs) ;
+    printf "Loaded proof: %d public inputs\n" (Array.length proof.public_inputs) ;
     printf "Loading VK...\n" ;
     (* VK path is derived from input path for now *)
-    let vk_path =
-      Filename.dirname input_path ^ "/vk.json"
-    in
+    let vk_path = Filename.dirname input_path ^ "/vk.json" in
     let vk = Proof_json.load_vk vk_path in
     printf "Loaded VK: %d IC points\n" (Array.length vk.ic) ;
-    let tracker = Witness_tracker.create ~proof ~vk in
+    let aux_path = Filename.dirname input_path ^ "/aux_witness.json" in
+    let aux = Proof_json.load_aux_witness aux_path in
+    let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
     printf "Witness data prepared: %d IC points, %d public inputs\n"
       (Witness_tracker.num_ic tracker)
@@ -55,12 +55,14 @@ module Groth16 : PROOF_SYSTEM = struct
     (* Run compression tree *)
     printf "Running compression tree...\n%!" ;
     let module Step = Pickles.Impls.Step in
-    let hash_pairs = Array.init Circuits.num_circuits ~f:(fun i ->
-      let input = if i = 0 then Step.Field.Constant.zero
-        else Step.Field.Constant.of_int i
-      in
-      let output = Step.Field.Constant.of_int (i + 1) in
-      (input, output) )
+    let hash_pairs =
+      Array.init Circuits.num_circuits ~f:(fun i ->
+          let input =
+            if i = 0 then Step.Field.Constant.zero
+            else Step.Field.Constant.of_int i
+          in
+          let output = Step.Field.Constant.of_int (i + 1) in
+          (input, output) )
     in
     let final_hash, _final_proof = Compressor.compress ~hash_pairs in
     printf "Compression complete. Final hash: %s\n"
@@ -68,13 +70,9 @@ module Groth16 : PROOF_SYSTEM = struct
     (* Serialize proofs to JSON *)
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
-        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
-        let proof_str = P.to_base64 proof
-        in
-        `Assoc
-          [ ("circuit", `Int i)
-          ; ("proof", `String proof_str)
-          ] )
+          let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+          let proof_str = P.to_base64 proof in
+          `Assoc [ ("circuit", `Int i); ("proof", `String proof_str) ] )
     in
     let output_json =
       `Assoc
@@ -101,41 +99,48 @@ module Plonk : PROOF_SYSTEM = struct
     (* Run compression tree *)
     printf "Running PLONK compression tree...\n%!" ;
     let module Step = Pickles.Impls.Step in
-    let hash_pairs = Array.init Plonk_circuits.num_circuits ~f:(fun i ->
-      let input = if i = 0 then Step.Field.Constant.zero
-        else Step.Field.Constant.of_int i in
-      let output = Step.Field.Constant.of_int (i + 1) in
-      (input, output) ) in
+    let hash_pairs =
+      Array.init Plonk_circuits.num_circuits ~f:(fun i ->
+          let input =
+            if i = 0 then Step.Field.Constant.zero
+            else Step.Field.Constant.of_int i
+          in
+          let output = Step.Field.Constant.of_int (i + 1) in
+          (input, output) )
+    in
     (* PLONK has 24 circuits — pad to 32 for binary tree (next power of 2) *)
-    let padded = Array.init 32 ~f:(fun i ->
-      if i < Array.length hash_pairs then hash_pairs.(i)
-      else (Step.Field.Constant.zero, Step.Field.Constant.zero) ) in
+    let padded =
+      Array.init 32 ~f:(fun i ->
+          if i < Array.length hash_pairs then hash_pairs.(i)
+          else (Step.Field.Constant.zero, Step.Field.Constant.zero) )
+    in
     (* Layer 1: 16 nodes *)
     Printf.printf "  Layer 1 (16 nodes)... %!" ;
-    let layer1 = Array.init 16 ~f:(fun i ->
-      let left_in, left_out = padded.(i * 2) in
-      let right_in, right_out = padded.(i * 2 + 1) in
-      fst (Compressor.prove_layer1 ~left_in ~left_out ~right_in ~right_out) ) in
+    let layer1 =
+      Array.init 16 ~f:(fun i ->
+          let left_in, left_out = padded.(i * 2) in
+          let right_in, right_out = padded.((i * 2) + 1) in
+          fst (Compressor.prove_layer1 ~left_in ~left_out ~right_in ~right_out) )
+    in
     Printf.printf "done\n%!" ;
     let current = ref layer1 in
     for layer = 2 to 5 do
       let n = Array.length !current in
       Printf.printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
-      current := Array.init (n / 2) ~f:(fun i ->
-        fst (Compressor.prove_merge
-          ~left:(!current).(i * 2)
-          ~right:(!current).(i * 2 + 1)
-          ~layer) ) ;
+      current :=
+        Array.init (n / 2) ~f:(fun i ->
+            fst
+              (Compressor.prove_merge
+                 ~left:!current.(i * 2)
+                 ~right:!current.((i * 2) + 1)
+                 ~layer ) ) ;
       Printf.printf "done\n%!"
     done ;
     Printf.printf "  PLONK compression complete.\n%!" ;
     let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
-        `Assoc
-          [ ("circuit", `Int i)
-          ; ("proof", `String (P.to_base64 proof))
-          ] )
+          `Assoc [ ("circuit", `Int i); ("proof", `String (P.to_base64 proof)) ] )
     in
     let output_json =
       `Assoc

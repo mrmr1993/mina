@@ -4,19 +4,27 @@ module FF = Snarky_foreign_field.Foreign_field
 
 let p = Bn254_params.p
 
-module Circuit = struct
-  type t = { x : FF.Field3.t; y : FF.Field3.t }
-end
-
 module Constant = struct
   type t = { x : FF.Bignum_bigint.t; y : FF.Bignum_bigint.t }
+end
+
+module Circuit = struct
+  type t = { x : FF.Field3.t; y : FF.Field3.t }
+
+  let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple2 FF.Field3.typ FF.Field3.typ)
+      ~there:(fun { Constant.x; y } -> (x, y))
+      ~back:(fun (x, y) -> { Constant.x; y })
+    |> Pickles.Impls.Step.Typ.transport_var
+         ~there:(fun { x; y } -> (x, y))
+         ~back:(fun (x, y) -> { x; y })
 end
 
 let of_constant (pt : Constant.t) : Circuit.t =
   { x = FF.Field3.of_constant pt.x; y = FF.Field3.of_constant pt.y }
 
-let negate (pt : Circuit.t) : Circuit.t =
-  { x = pt.x; y = FF.negate pt.y ~f:p }
+let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FF.negate pt.y ~f:p }
 
 let assert_on_curve (pt : Circuit.t) : unit =
   let x_sq = FF.mul pt.x pt.x ~f:p in
