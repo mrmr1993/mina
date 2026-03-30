@@ -4,6 +4,9 @@ open Unsigned.Size_t
 
 (* TODO: open Core here instead of opening it multiple times below *)
 
+(** Counter to generate a distinct identifier for each functor invocation. *)
+let make_counter = ref 0
+
 module Kimchi_gate_type = struct
   (* Alias to allow deriving sexp *)
   type t = Kimchi_types.gate_type =
@@ -1261,7 +1264,6 @@ end = struct
       the public-input rows. *)
   let wire sys key row col = wire' sys key (Row.After_public_input row) col
 
-  (** Adds a row/gate/constraint to a constraint system `sys`. *)
   (** When [BREAK_AT_GATE] is set to an integer N, raise an exception with
       backtrace when gate N is added to the constraint system. Useful for
       identifying which code produces a specific gate.
@@ -1274,21 +1276,25 @@ end = struct
       | None ->
           None )
 
-  let break_skip_remaining = ref
-    ( match Stdlib.Sys.getenv_opt "BREAK_SKIP" with
-    | Some s -> int_of_string s
-    | None -> 0 )
+  let break_skip_remaining =
+    ref
+      ( match Stdlib.Sys.getenv_opt "BREAK_SKIP" with
+      | Some s ->
+          int_of_string s
+      | None ->
+          0 )
 
+  (** Adds a row/gate/constraint to a constraint system `sys`. *)
   let add_row sys (vars : V.t option array) kind coeffs =
     ( match Lazy.force break_at_gate with
     | Some n when sys.next_row = n ->
-        if !break_skip_remaining > 0 then
-          decr break_skip_remaining
+        if !break_skip_remaining > 0 then decr break_skip_remaining
         else (
-          Printf.eprintf "BREAK_AT_GATE: gate %d is %s\n%!"
-            n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) ;
-          failwithf "BREAK_AT_GATE: gate %d is %s"
-            n (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) () )
+          Printf.eprintf "BREAK_AT_GATE: gate %d is %s\n%!" n
+            (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string) ;
+          failwithf "BREAK_AT_GATE: gate %d is %s" n
+            (Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string)
+            () )
     | _ ->
         () ) ;
     match sys.gates with
@@ -1439,6 +1445,10 @@ end = struct
       OCaml and js_of_ocaml (o1js) compilation. *)
   let dump_counter = ref 0
 
+  let make_counter =
+    let x = !make_counter in
+    incr make_counter ; x
+
   let maybe_dump_gates (sys : t) =
     match Stdlib.Sys.getenv_opt "DUMP_PCS_GATES" with
     | None ->
@@ -1448,7 +1458,9 @@ end = struct
         incr dump_counter ;
         let num_gates = num_constraints sys in
         let path =
-          Printf.sprintf "%s/cs_%d_%dgates.json" dir n num_gates
+          Printf.sprintf "%s/cs_%s_%d_%d_gates.json" dir
+            (Fp.size |> Fp.Bigint.to_hex_string |> String.sub ~pos:54 ~len:4)
+            make_counter n
         in
         let json = to_json sys in
         Core_kernel.Out_channel.write_all path ~data:json ;
@@ -1460,8 +1472,7 @@ end = struct
     | Unfinalized_rev _ ->
         finalize sys ; digest sys
     | Compiled (digest, _) ->
-        maybe_dump_gates sys ;
-        digest
+        maybe_dump_gates sys ; digest
 
   (** Regroup terms that share the same variable.
       For example, (3, i2) ; (2, i2) can be simplified to (5, i2).
@@ -1509,6 +1520,17 @@ end = struct
     match sys.pending_generic_gate with
     (* if the queue of generic gate is empty, queue this *)
     | None ->
+        (* DEBUG: log half-generic pairing when TRACE_GENERIC is set *)
+        if Option.is_some (Stdlib.Sys.getenv_opt "TRACE_GENERIC") then
+          add_row sys [| l; r; o |] Zero
+            (Array.append
+               [| Fp.of_int 5
+                ; Fp.of_int 5
+                ; Fp.of_int 5
+                ; Fp.of_int 5
+                ; Fp.of_int 5
+               |]
+               coeffs ) ;
         sys.pending_generic_gate <- Some (l, r, o, coeffs)
     (* otherwise empty the queue and create the row  *)
     | Some (l2, r2, o2, coeffs2) ->
