@@ -7,10 +7,6 @@
 
     Reference: nori-proof-conversion/src/groth/recursion/prove_zkps.ts *)
 
-module Fp2 = Bn254.Fp2
-module Fp12 = Bn254.Fp12
-module G1 = Bn254.G1
-
 (** The Groth16 proof structure (negated A, B, C, PI points). *)
 module Proof = struct
   module Circuit = struct

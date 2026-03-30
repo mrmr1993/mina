@@ -52,12 +52,29 @@ module type PROOF_SYSTEM = sig
   val convert : input_path:string -> output_path:string -> unit
 end
 
-(** Groth16 proof conversion (RISC Zero). Not yet implemented. *)
+(** Groth16 proof conversion (RISC Zero). *)
 module Groth16 : PROOF_SYSTEM = struct
   let name = "groth16"
 
-  let convert ~input_path:_ ~output_path:_ =
-    failwith "Groth16 proof conversion not yet implemented"
+  let convert ~input_path ~output_path =
+    printf "Loading proof from %s\n" input_path ;
+    let proof = Proof_json.load_proof input_path in
+    printf "Loaded proof: %d public inputs\n"
+      (Array.length proof.public_inputs) ;
+    printf "Loading VK...\n" ;
+    (* VK path is derived from input path for now *)
+    let vk_path =
+      Filename.dirname input_path ^ "/vk.json"
+    in
+    let vk = Proof_json.load_vk vk_path in
+    printf "Loaded VK: %d IC points\n" (Array.length vk.ic) ;
+    let _tracker =
+      Witness_tracker.create ~proof ~vk
+    in
+    printf "Witness tracker created\n" ;
+    printf "Circuit compilation and proving not yet implemented\n" ;
+    printf "Output path: %s\n" output_path ;
+    failwith "Groth16 proving pipeline not yet implemented"
 end
 
 (** PLONK proof conversion (SP1). Not yet implemented. *)

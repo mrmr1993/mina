@@ -1,3 +1,5 @@
+(include_subdirs no)
+
 (executable
  (name test_pickles_compat)
  (libraries

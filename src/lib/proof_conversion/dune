@@ -1,3 +1,5 @@
+(include_subdirs unqualified)
+
 (library
  (name proof_conversion)
  (public_name proof_conversion)
@@ -12,7 +14,8 @@
   snarky.backendless
   kimchi_backend_common
   yojson
-  bignum.bigint)
+  bignum.bigint
+  snarky_foreign_field)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

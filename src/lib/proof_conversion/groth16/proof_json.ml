@@ -3,27 +3,27 @@
     Handles RISC Zero proof format with G1 points as {x, y} and
     G2 points as {x_c0, x_c1, y_c0, y_c1}. *)
 
-open Bignum_bigint
+module BI = Bignum_bigint
 
 (** Parse a bignum from a JSON string value. *)
 let bignum_of_json (j : Yojson.Safe.t) : Bignum_bigint.t =
   match j with
   | `String s ->
-      of_string s
+      BI.of_string s
   | `Int i ->
-      of_int i
+      BI.of_int i
   | _ ->
       failwith "bignum_of_json: expected string or int"
 
 (** Parse a G1 point from JSON {x, y}. *)
-let g1_of_json (j : Yojson.Safe.t) : Bn254.G1.Constant.t =
+let g1_of_json (j : Yojson.Safe.t) : G1.Constant.t =
   let open Yojson.Safe.Util in
   { x = bignum_of_json (member "x" j)
   ; y = bignum_of_json (member "y" j)
   }
 
 (** Parse a G2 point from JSON {x_c0, x_c1, y_c0, y_c1}. *)
-let g2_of_json (j : Yojson.Safe.t) : Bn254.G2.Constant.t =
+let g2_of_json (j : Yojson.Safe.t) : G2.Constant.t =
   let open Yojson.Safe.Util in
   { x =
       ( bignum_of_json (member "x_c0" j)
@@ -35,11 +35,11 @@ let g2_of_json (j : Yojson.Safe.t) : Bn254.G2.Constant.t =
 
 (** Parsed Groth16 verification key. *)
 type vk =
-  { alpha : Bn254.G1.Constant.t
-  ; beta : Bn254.G2.Constant.t
-  ; gamma : Bn254.G2.Constant.t
-  ; delta : Bn254.G2.Constant.t
-  ; ic : Bn254.G1.Constant.t array
+  { alpha : G1.Constant.t
+  ; beta : G2.Constant.t
+  ; gamma : G2.Constant.t
+  ; delta : G2.Constant.t
+  ; ic : G1.Constant.t array
   }
 
 (** Parse a verification key from JSON. *)
@@ -65,9 +65,9 @@ let vk_of_json (j : Yojson.Safe.t) : vk =
 
 (** Parsed Groth16 proof. *)
 type proof =
-  { neg_a : Bn254.G1.Constant.t
-  ; b : Bn254.G2.Constant.t
-  ; c : Bn254.G1.Constant.t
+  { neg_a : G1.Constant.t
+  ; b : G2.Constant.t
+  ; c : G1.Constant.t
   ; public_inputs : Bignum_bigint.t array
   }
 

@@ -7,7 +7,7 @@
 
 open Bignum_bigint
 
-let p = Bn254.Bn254_params.p
+let p = Bn254_params.p
 
 (** Out-of-circuit Fp arithmetic. *)
 module Fp = struct
@@ -66,7 +66,7 @@ end
 module Fp6 = struct
   type t = Fp2.t * Fp2.t * Fp2.t
 
-  let xi : Fp2.t = Bn254.Bn254_params.fp2_non_residue
+  let xi : Fp2.t = Bn254_params.fp2_non_residue
 
   let mul_by_nr x = Fp2.mul x xi
 
@@ -123,7 +123,8 @@ module Fp12 = struct
     (* For elements on the cyclotomic subgroup, inv = conjugate.
        For general elements, use the formula:
        inv(a0 + a1*w) = (a0 - a1*w) / (a0^2 - a1^2*v) *)
-    ignore (a0, a1) ;
+    ignore (a0 : Fp6.t) ;
+    ignore (a1 : Fp6.t) ;
     failwith "Fp12.inverse: not yet implemented for general elements"
 end
 
