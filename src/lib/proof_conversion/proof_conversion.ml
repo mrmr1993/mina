@@ -39,11 +39,9 @@ module Groth16 : PROOF_SYSTEM = struct
     let _tracker = Witness_tracker.create ~proof ~vk in
     let _witness_data = Witness_provider.make_witness_data ~proof ~vk in
     printf "Witness data prepared\n" ;
-    printf "Compiling and proving all %d circuits...\n" Circuits.num_circuits ;
-    let proofs =
-      Array.init Circuits.num_circuits ~f:(fun n ->
-        Pickles_rules.compile_and_prove_single ~n )
-    in
+    printf "Compiling and proving all %d circuits (chained)...\n"
+      Circuits.num_circuits ;
+    let proofs = Pickles_rules.compile_and_prove_all () in
     printf "Generated %d proofs successfully.\n" (Array.length proofs) ;
     (* Serialize proofs to JSON *)
     let json_proofs =

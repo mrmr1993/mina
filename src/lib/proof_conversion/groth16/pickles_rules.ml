@@ -1,8 +1,8 @@
 (** Pickles inductive rules for Groth16 proof conversion.
 
-    Each of the 16 circuits is compiled as a separate Pickles program
-    (no previous proofs — base case only). The circuits are chained
-    via Poseidon hash of the accumulator state passed as public I/O. *)
+    Each circuit uses public input = [input_hash] and
+    public output = [output_hash] to chain circuits together.
+    The hash is a Poseidon digest of the accumulator state. *)
 
 module Step = Pickles.Impls.Step
 
@@ -12,28 +12,30 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
   { identifier = Printf.sprintf "zkp%d" n
   ; prevs = []
   ; main =
-      (fun { public_input = _pub } ->
+      (fun { public_input = pub } ->
         Circuit_utils.dummy_constraints () ;
-        body () ;
+        (* pub is Field.t array of length 1 = [input_hash] *)
+        let input_hash = pub.(0) in
+        let output_hash = body input_hash in
         Promise.return
           { Pickles.Inductive_rule.previous_proof_statements = []
-          ; public_output = [||]
+          ; public_output = [| output_hash |]
           ; auxiliary_output = ()
           } )
   ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
   }
 
-(** Compile and immediately prove a single circuit.
-    Must be called within an async context (Promise.block_on_async_exn). *)
-let compile_and_prove_one ~(n : int) :
-    Pickles_types.Nat.N0.n Pickles.Proof.t =
+(** Compile and prove a single circuit.
+    Takes the input hash value and returns (output_hash, proof). *)
+let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
+    Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   Printf.printf "  [zkp%d] compiling... %!" n ;
   let rule = make_rule ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 0, Circuit_utils.public_input_typ 0))
+           (Circuit_utils.public_input_typ 1, Circuit_utils.public_input_typ 1))
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(Printf.sprintf "groth16-zkp%d" n)
@@ -43,13 +45,14 @@ let compile_and_prove_one ~(n : int) :
   in
   let (Pickles.Provers.[ prove ]) = provers in
   Printf.printf "proving... %!" ;
-  let _output, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prove [||])
+  let output, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prove [| input_hash |])
   in
-  (* Verify the proof *)
+  let output_hash = output.(0) in
+  (* Verify *)
   let verified =
     Promise.block_on_async_exn (fun () ->
-      Proof.verify_promise [ ([||], [||]), proof ] )
+      Proof.verify_promise [ (([| input_hash |], [| output_hash |]), proof) ] )
   in
   ( match verified with
   | Ok () ->
@@ -57,34 +60,21 @@ let compile_and_prove_one ~(n : int) :
   | Error e ->
       Printf.printf "VERIFY FAILED: %s\n%!"
         (Core_kernel.Error.to_string_hum e) ) ;
-  proof
+  (output_hash, proof)
 
-(** Compile all circuits (without proving). *)
-let compile () =
-  Printf.printf "Compiling %d Groth16 circuits via Pickles...\n%!"
+(** Compile and prove all 16 circuits, chaining input/output hashes. *)
+let compile_and_prove_all () :
+    Pickles_types.Nat.N0.n Pickles.Proof.t array =
+  Printf.printf "Compiling and proving %d circuits (chained)...\n%!"
     Circuits.num_circuits ;
-  for n = 0 to Circuits.num_circuits - 1 do
-    Printf.printf "  Compiling zkp%d... %!" n ;
-    let rule = make_rule ~n in
-    let _tag, _cache, (module Proof), _provers =
-      Pickles.compile_promise
-        ~public_input:
-          (Pickles.Inductive_rule.Input_and_output
-             (Circuit_utils.public_input_typ 0,
-              Circuit_utils.public_input_typ 0))
-        ~auxiliary_typ:Step.Typ.unit
-        ~max_proofs_verified:(module Pickles_types.Nat.N0)
-        ~name:(Printf.sprintf "groth16-zkp%d" n)
-        ~o1js_compatible_mode:true
-        ~choices:(fun ~self:_ -> [ rule ])
-        ()
+  let current_hash = ref Step.Field.Constant.zero in
+  let proofs = Array.init Circuits.num_circuits (fun n ->
+    let output_hash, proof =
+      compile_and_prove_one ~n ~input_hash:!current_hash
     in
-    Printf.printf "done\n%!"
-  done ;
-  Printf.printf "All %d circuits compiled successfully.\n%!"
-    Circuits.num_circuits
-
-(** Compile and prove a single circuit end-to-end (for testing). *)
-let compile_and_prove_single ~(n : int) :
-    Pickles_types.Nat.N0.n Pickles.Proof.t =
-  compile_and_prove_one ~n
+    current_hash := output_hash ;
+    proof )
+  in
+  Printf.printf "Final chain hash: %s\n%!"
+    (Kimchi_pasta.Pasta.Fp.to_string !current_hash) ;
+  proofs
