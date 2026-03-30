@@ -40,11 +40,14 @@ module Groth16 : PROOF_SYSTEM = struct
       Witness_tracker.create ~proof ~vk
     in
     printf "Witness tracker created\n" ;
-    printf "Compiling %d circuits via Pickles...\n" Circuits.num_circuits ;
-    let circuits = Pickles_rules.compile () in
-    printf "Compiled %d circuits. Proving not yet integrated "
-      (Array.length circuits) ;
-    printf "(requires async scheduler coordination).\n" ;
+    printf "Compiling and proving circuits...\n" ;
+    (* Prove zkp6 (empty body) and zkp0 (Fp12 multiply) *)
+    let proof6 = Pickles_rules.compile_and_prove_single ~n:6 in
+    ignore (proof6 : Pickles_types.Nat.N0.n Pickles.Proof.t) ;
+    let proof0 = Pickles_rules.compile_and_prove_single ~n:0 in
+    printf "Generated proofs for zkp6 and zkp0!\n" ;
+    let proof = proof0 in
+    ignore (proof : Pickles_types.Nat.N0.n Pickles.Proof.t) ;
     printf "Output path: %s\n" output_path
 end
 
