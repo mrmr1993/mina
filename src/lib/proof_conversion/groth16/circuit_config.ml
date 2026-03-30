@@ -9,5 +9,12 @@ let tracker : Witness_tracker.t option ref = ref None
 (** Set the tracker for circuit witness access. *)
 let set_tracker t = tracker := Some t
 
-(** Get the tracker, or None if running without real data. *)
-let get_tracker () = !tracker
+(** Get the tracker. Fails if called without a tracker set —
+    this should only be called from within [exists ~compute] closures
+    during proving, where a tracker is always present. *)
+let get_tracker () =
+  match !tracker with
+  | Some t ->
+      t
+  | None ->
+      failwith "Circuit_config.get_tracker: no tracker set"
