@@ -2,12 +2,21 @@
 
 open! Core_kernel
 
-module Circuit = struct
-  type t = { x : Fp2.Circuit.t; y : Fp2.Circuit.t }
-end
-
 module Constant = struct
   type t = { x : Fp2.Constant.t; y : Fp2.Constant.t }
+end
+
+module Circuit = struct
+  type t = { x : Fp2.Circuit.t; y : Fp2.Circuit.t }
+
+  let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple2 Fp2.Circuit.typ Fp2.Circuit.typ)
+      ~there:(fun { Constant.x; y } -> (x, y))
+      ~back:(fun (x, y) -> { Constant.x; y })
+    |> Pickles.Impls.Step.Typ.transport_var
+         ~there:(fun { x; y } -> (x, y))
+         ~back:(fun (x, y) -> { x; y })
 end
 
 let of_constant (pt : Constant.t) : Circuit.t =
