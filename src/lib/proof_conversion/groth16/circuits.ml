@@ -44,14 +44,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
         Accumulator_hash.combine_hashes
           [ input_hash; Step.Field.of_int 6 ]
   | 7 | 8 | 9 | 10 | 11 | 12 ->
-      (* f-update: Fp12 square + multiply *)
-      fun input_hash ->
-        let f = witness_fp12_ones () in
-        let g = witness_fp12_ones () in
-        let f_sq = Fp12.square f in
-        let _result = Fp12.mul f_sq g in
-        Accumulator_hash.combine_hashes
-          [ input_hash; Step.Field.of_int circuit_index ]
+      (* f-update: cyclotomic squarings + multiplication *)
+      Fupdate_circuit.build ~circuit_index
   | 13 ->
       (* Final exponentiation: Fp12 conjugate + mul *)
       fun input_hash ->
