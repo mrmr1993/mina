@@ -22,7 +22,15 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
           ; public_output = [| output_hash |]
           ; auxiliary_output = ()
           } )
-  ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+  ; feature_flags =
+      if Circuit_witness.use_variable_witnesses then
+        { Pickles_types.Plonk_types.Features.none_bool with
+          range_check0 = true
+        ; range_check1 = true
+        ; foreign_field_add = true
+        ; foreign_field_mul = true
+        }
+      else Pickles_types.Plonk_types.Features.none_bool
   }
 
 (** Compile and prove a single circuit.

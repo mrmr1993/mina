@@ -146,12 +146,21 @@ let compute_affine_cache (p : G1.t) :
   let x_over_y = Fp.mul p.x y_inv in
   (x_over_y, y_inv)
 
+(** Per-iteration witness data for ate loop circuits. *)
+type iteration_data =
+  { f_before : Fp12.t
+  ; double_line : Line.t
+  ; add_line : Line.t option
+  ; f_after : Fp12.t
+  }
+
 (** The witness tracker state. *)
 type t =
   { proof : Proof_json.proof
   ; vk : Proof_json.vk
   ; mutable f : Fp12.t
   ; mutable g_values : Fp12.t array
+  ; mutable iterations : iteration_data array
   ; mutable line_hashes : BI.t array
   }
 
@@ -231,33 +240,47 @@ let compute_miller_loop (t : t) : unit =
   (* Initialize: T = B, f = 1 *)
   let current_t = ref b in
   let f = ref Fp12.one in
-  let g_values = Stdlib.Array.make (Stdlib.( - ) n 1) Fp12.one in
-  for i = 1 to Stdlib.( - ) n 1 do
-    (* Double T, get line *)
+  let num_iters = Stdlib.( - ) n 1 in
+  let g_values = Stdlib.Array.make num_iters Fp12.one in
+  let dummy_iter =
+    { f_before = Fp12.one
+    ; double_line = { Line.lambda = Fp2.zero; neg_mu = Fp2.zero }
+    ; add_line = None
+    ; f_after = Fp12.one
+    }
+  in
+  let iterations = Stdlib.Array.make num_iters dummy_iter in
+  for i = 1 to num_iters do
+    let f_before = !f in
     let double_line, new_t = compute_double_line !current_t in
     current_t := new_t ;
-    (* f = f^2 *)
     f := Fp12.square !f ;
-    (* f = f * line_double *)
     let line_eval = evaluate_line double_line ~x_over_y ~y_inv in
     f := Fp12.mul !f line_eval ;
-    (* If bit != 0: add B or -B *)
     let bit = ate.(i) in
-    if bit = 1 then (
-      let add_line, new_t = compute_add_line !current_t b in
-      current_t := new_t ;
-      let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
-      f := Fp12.mul !f add_eval )
-    else if bit = -1 then (
-      let neg_b = { G2.x = b.x; y = Fp2.neg b.y } in
-      let add_line, new_t = compute_add_line !current_t neg_b in
-      current_t := new_t ;
-      let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
-      f := Fp12.mul !f add_eval ) ;
-    g_values.(i - 1) <- !f
+    let add_line_opt =
+      if bit = 1 then (
+        let add_line, new_t = compute_add_line !current_t b in
+        current_t := new_t ;
+        let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
+        f := Fp12.mul !f add_eval ;
+        Some add_line )
+      else if bit = Stdlib.( ~- ) 1 then (
+        let neg_b = { G2.x = b.x; y = Fp2.neg b.y } in
+        let add_line, new_t = compute_add_line !current_t neg_b in
+        current_t := new_t ;
+        let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
+        f := Fp12.mul !f add_eval ;
+        Some add_line )
+      else None
+    in
+    g_values.(Stdlib.( - ) i 1) <- !f ;
+    iterations.(Stdlib.( - ) i 1) <-
+      { f_before; double_line; add_line = add_line_opt; f_after = !f }
   done ;
   t.f <- !f ;
-  t.g_values <- g_values
+  t.g_values <- g_values ;
+  t.iterations <- iterations
 
 (** Get the Fp12 accumulator value at a specific ate loop iteration. *)
 let get_f_at_iteration (t : t) (i : int) : Fp12.t =
@@ -268,9 +291,16 @@ let get_f_at_iteration (t : t) (i : int) : Fp12.t =
   else
     t.f  (* Final value *)
 
+(** Get per-iteration witness data. *)
+let get_iteration (t : t) (i : int) : iteration_data =
+  t.iterations.(i)
+
 (** Create a witness tracker from parsed proof and VK.
     Immediately computes the full Miller loop. *)
 let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : t =
-  let t = { proof; vk; f = Fp12.one; g_values = [||]; line_hashes = [||] } in
+  let t =
+    { proof; vk; f = Fp12.one; g_values = [||]
+    ; iterations = [||]; line_hashes = [||] }
+  in
   compute_miller_loop t ;
   t
