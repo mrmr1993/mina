@@ -60,7 +60,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
              WT.get_c_fp12 (Circuit_config.get_tracker ()) )
        in
        (* Verify c * c_inv = 1 *)
-       let _check = Fp12.mul c c_inv in
+       let product = Fp12.mul c c_inv in
+       Fp12.assert_one product ;
        (* Frobenius corrections: line evaluations from piB, pi2B, pi3B *)
        let frobenius_line_piB =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
@@ -122,7 +123,58 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              WT.get_alpha_beta (Circuit_config.get_tracker ()) )
        in
-       let _result = Fp12.mul f alpha_beta in
+       let f = Fp12.mul f alpha_beta in
+       (* Apply shift_power correction: multiply by w27^shift_power.
+          shift_power is 0, 1, or 2; we use Provable.switch-style
+          conditional selection. *)
+       let shift_power =
+         Step.exists Step.Field.typ ~compute:(fun () ->
+             Step.Field.Constant.of_int
+               (WT.get_shift_power (Circuit_config.get_tracker ())) )
+       in
+       let w27 =
+         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
+             WT.get_w27 (Circuit_config.get_tracker ()) )
+       in
+       let w27_sq =
+         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
+             WT.get_w27_square (Circuit_config.get_tracker ()) )
+       in
+       (* Conditional: if shift=0 → f, if shift=1 → f*w27, if shift=2 → f*w27² *)
+       let is_0 = Step.Field.equal shift_power (Step.Field.of_int 0) in
+       let is_1 = Step.Field.equal shift_power (Step.Field.of_int 1) in
+       let is_2 = Step.Field.equal shift_power (Step.Field.of_int 2) in
+       (* Exactly one must be true *)
+       Step.Boolean.Assert.is_true
+         (Step.Boolean.( ||| ) is_0 (Step.Boolean.( ||| ) is_1 is_2)) ;
+       let f_shifted_1 = Fp12.mul f w27 in
+       let f_shifted_2 = Fp12.mul f w27_sq in
+       (* Select: result = is_0 * f + is_1 * f*w27 + is_2 * f*w27² *)
+       let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
+           (b : Fp12.Circuit.t) : Fp12.Circuit.t =
+         let sel (x : FF.Field3.t) (y : FF.Field3.t) : FF.Field3.t =
+           let x0, x1, x2 = x in
+           let y0, y1, y2 = y in
+           ( Step.Field.if_ cond ~then_:x0 ~else_:y0
+           , Step.Field.if_ cond ~then_:x1 ~else_:y1
+           , Step.Field.if_ cond ~then_:x2 ~else_:y2 )
+         in
+         let sel_fp2 (x : Fp2.Circuit.t) (y : Fp2.Circuit.t) : Fp2.Circuit.t =
+           { Fp2.Circuit.c0 = sel x.c0 y.c0; c1 = sel x.c1 y.c1 }
+         in
+         let sel_fp6 (x : Fp6.Circuit.t) (y : Fp6.Circuit.t) : Fp6.Circuit.t =
+           { Fp6.Circuit.c0 = sel_fp2 x.c0 y.c0
+           ; c1 = sel_fp2 x.c1 y.c1
+           ; c2 = sel_fp2 x.c2 y.c2
+           }
+         in
+         { Fp12.Circuit.c0 = sel_fp6 a.c0 b.c0; c1 = sel_fp6 a.c1 b.c1 }
+       in
+       (* Nested select: if is_2 then f*w27² else (if is_1 then f*w27 else f) *)
+       let result = select_fp12 is_1 f_shifted_1 f in
+       let result = select_fp12 is_2 f_shifted_2 result in
+       (* Assert the final result equals Fp12.one — the pairing check *)
+       Fp12.assert_one result ;
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 13 ]
   | 14 ->
       (* VK IC accumulation (partial): ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2].
@@ -188,14 +240,14 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Complete accumulation *)
        let acc = G1.add_nonzero partial_acc scaled4 in
        let full_acc = G1.add_nonzero acc scaled5 in
-       (* Witness PI from the original proof and assert equality *)
+       (* Witness PI from the proof's accumulator (the point used in the
+          pairing check). This must equal the IC accumulation. *)
        let pi =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
              let tracker = Circuit_config.get_tracker () in
-             g1_of_tracker (WT.get_full_ic_acc tracker) )
+             g1_of_tracker (WT.get_pi tracker) )
        in
-       ignore (pi : G1.Circuit.t) ;
-       (* TODO: assert full_acc = PI *)
+       (* Assert computed IC accumulation equals the proof's PI *)
        FF.assert_equal full_acc.x pi.x ;
        FF.assert_equal full_acc.y pi.y ;
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 15 ]

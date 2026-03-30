@@ -322,6 +322,12 @@ let get_full_ic_acc (t : t) : G1.t =
   let acc = G1.add partial (get_scaled_ic t 4 3) in
   G1.add acc (get_scaled_ic t 5 4)
 
+(** Get the PI point (public input commitment) used in the pairing.
+    This is the IC accumulation result = ic0 + sum(ic_i * pi_i).
+    In the final circuit, the independently-computed IC accumulation
+    must be asserted equal to this value. *)
+let get_pi (t : t) : G1.t = get_full_ic_acc t
+
 (** Get the current Miller loop accumulator. *)
 let get_f (t : t) : Fp12.t = t.f
 
