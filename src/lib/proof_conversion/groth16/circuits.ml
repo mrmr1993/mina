@@ -36,15 +36,8 @@ let witness_fp12_ones () : Fp12.Circuit.t =
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits: Fp12 multiplication *)
-      fun input_hash ->
-        let _iters = ate_iterations_per_circuit.(circuit_index) in
-        let a = witness_fp12_ones () in
-        let b = witness_fp12_ones () in
-        let _c = Fp12.mul a b in
-        (* Chain: output hash = Poseidon(input_hash, circuit_index) *)
-        Accumulator_hash.combine_hashes
-          [ input_hash; Step.Field.of_int circuit_index ]
+      (* Ate loop circuits: real ate loop iterations *)
+      Ate_circuit.build ~circuit_index
   | 6 ->
       (* Final ate loop + Frobenius *)
       fun input_hash ->
