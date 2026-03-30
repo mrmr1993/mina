@@ -1,37 +1,61 @@
 (** Gate sequence comparison between OCaml and nori circuit compilations.
 
     Compares gate JSON files dumped via [DUMP_PCS_GATES] on both sides.
-    Each JSON file contains an array of gate objects with a "type" field.
+    Each JSON file is a PCS dump: {"public_input_size": N, "gates": [...]}
+    where each gate has "typ" (or "type"), "wires", and "coeffs".
+
+    Can also handle nori's analyzeMethods format: {"gates": ["RangeCheck0", ...]}
 
     Usage:
-      gate_comparison.compare ~reference_dir ~candidate_dir
+      dune exec .../test_gate_comparison.exe -- \
+        --reference /tmp/nori_gates --candidate /tmp/ocaml_gates *)
 
-    Reports: exact match, first divergence point, gate count delta by type. *)
+open! Core_kernel
 
-open Core_kernel
+(** Extract gate type from a gate object (supports both "typ" and "type"). *)
+let gate_type_of_json (gate : Yojson.Safe.t) : string =
+  match gate with
+  | `Assoc fields ->
+      let typ =
+        match List.Assoc.find fields ~equal:String.equal "typ" with
+        | Some (`String s) ->
+            Some s
+        | _ ->
+            None
+      in
+      let typ =
+        match typ with
+        | Some _ ->
+            typ
+        | None -> (
+            match List.Assoc.find fields ~equal:String.equal "type" with
+            | Some (`String s) ->
+                Some s
+            | _ ->
+                None )
+      in
+      Option.value_exn ~message:"gate object has no typ/type field" typ
+  | `String s ->
+      s (* nori compact format: plain string *)
+  | _ ->
+      failwith "unexpected gate format"
 
-(** Extract the ordered list of gate types from a gate JSON file.
-    The JSON format is: [ {"type": "Generic", "wires": [...], "coeffs": [...]}, ... ] *)
-let gate_types_of_json_file (path : string) : string list =
+(** Extract gate types from a JSON file (auto-detects format). *)
+let gate_types_of_file (path : string) : string list =
   let json = Yojson.Safe.from_file path in
   match json with
+  | `Assoc fields -> (
+      match List.Assoc.find fields ~equal:String.equal "gates" with
+      | Some (`List gates) ->
+          List.map gates ~f:gate_type_of_json
+      | _ ->
+          failwithf "no 'gates' array in %s" path () )
   | `List gates ->
-      List.map gates ~f:(fun gate ->
-          match gate with
-          | `Assoc fields -> (
-              match List.Assoc.find fields ~equal:String.equal "type" with
-              | Some (`String ty) ->
-                  ty
-              | _ ->
-                  failwithf "gate_types_of_json_file: missing 'type' in %s" path
-                    () )
-          | _ ->
-              failwithf "gate_types_of_json_file: gate is not an object in %s"
-                path () )
+      List.map gates ~f:gate_type_of_json
   | _ ->
-      failwithf "gate_types_of_json_file: expected array in %s" path ()
+      failwithf "unexpected top-level JSON in %s" path ()
 
-(** Summary of gate types: type name -> count *)
+(** Gate type -> count *)
 let gate_summary (gates : string list) : (string * int) list =
   let counts = Hashtbl.create (module String) in
   List.iter gates ~f:(fun ty ->
@@ -39,7 +63,7 @@ let gate_summary (gates : string list) : (string * int) list =
   Hashtbl.to_alist counts
   |> List.sort ~compare:(fun (a, _) (b, _) -> String.compare a b)
 
-(** Find the first index where two gate lists diverge. *)
+(** Find first divergence between two gate lists. *)
 let first_divergence (a : string list) (b : string list) :
     (int * string option * string option) option =
   let rec go i la lb =
@@ -56,82 +80,60 @@ let first_divergence (a : string list) (b : string list) :
   in
   go 0 a b
 
-type comparison_result =
-  { file : string
-  ; reference_count : int
-  ; candidate_count : int
-  ; match_ : bool
-  ; first_divergence : (int * string option * string option) option
-  ; delta_by_type : (string * int) list
-  }
-
-(** Compare two gate JSON files. *)
-let compare_files ~(reference_path : string) ~(candidate_path : string)
-    ~(name : string) : comparison_result =
-  let ref_gates = gate_types_of_json_file reference_path in
-  let cand_gates = gate_types_of_json_file candidate_path in
+(** Compare two gate files and print results. *)
+let compare_files ~reference_path ~candidate_path ~name =
+  let ref_gates = gate_types_of_file reference_path in
+  let cand_gates = gate_types_of_file candidate_path in
   let ref_summary = gate_summary ref_gates in
   let cand_summary = gate_summary cand_gates in
-  (* Compute delta: candidate - reference for each gate type *)
-  let all_types =
-    List.dedup_and_sort ~compare:String.compare
-      (List.map ref_summary ~f:fst @ List.map cand_summary ~f:fst)
-  in
-  let delta_by_type =
-    List.filter_map all_types ~f:(fun ty ->
-        let r =
-          List.Assoc.find ref_summary ~equal:String.equal ty
-          |> Option.value ~default:0
-        in
-        let c =
-          List.Assoc.find cand_summary ~equal:String.equal ty
-          |> Option.value ~default:0
-        in
-        let d = c - r in
-        if d <> 0 then Some (ty, d) else None )
-  in
-  { file = name
-  ; reference_count = List.length ref_gates
-  ; candidate_count = List.length cand_gates
-  ; match_ = List.equal String.equal ref_gates cand_gates
-  ; first_divergence = first_divergence ref_gates cand_gates
-  ; delta_by_type
-  }
-
-(** Print a comparison result. *)
-let print_result (r : comparison_result) =
-  let status = if r.match_ then "EXACT MATCH" else "DIVERGES" in
-  printf "  %-30s %s  (ref=%d, cand=%d, delta=%+d)\n" r.file status
-    r.reference_count r.candidate_count
-    (r.candidate_count - r.reference_count) ;
-  if not r.match_ then (
-    ( match r.first_divergence with
-    | Some (idx, ref_gate, cand_gate) ->
-        let ref_s = Option.value ref_gate ~default:"<end>" in
-        let cand_s = Option.value cand_gate ~default:"<end>" in
-        printf "    first divergence at gate %d: ref=%s, cand=%s\n" idx ref_s
-          cand_s
+  let is_match = List.equal String.equal ref_gates cand_gates in
+  let status = if is_match then "EXACT MATCH" else "DIVERGES" in
+  printf "  %-30s %s  (ref=%d, cand=%d, delta=%+d)\n" name status
+    (List.length ref_gates) (List.length cand_gates)
+    (List.length cand_gates - List.length ref_gates) ;
+  if not is_match then (
+    ( match first_divergence ref_gates cand_gates with
+    | Some (idx, ref_g, cand_g) ->
+        let s = Option.value ~default:"<end>" in
+        printf "    first divergence at gate %d: ref=%s, cand=%s\n" idx
+          (s ref_g) (s cand_g)
     | None ->
         () ) ;
-    if not (List.is_empty r.delta_by_type) then (
+    (* Delta by type *)
+    let all_types =
+      List.dedup_and_sort ~compare:String.compare
+        (List.map ref_summary ~f:fst @ List.map cand_summary ~f:fst)
+    in
+    let deltas =
+      List.filter_map all_types ~f:(fun ty ->
+          let r =
+            List.Assoc.find ref_summary ~equal:String.equal ty
+            |> Option.value ~default:0
+          in
+          let c =
+            List.Assoc.find cand_summary ~equal:String.equal ty
+            |> Option.value ~default:0
+          in
+          if c - r <> 0 then Some (ty, c - r) else None )
+    in
+    if not (List.is_empty deltas) then (
       printf "    delta by type:\n" ;
-      List.iter r.delta_by_type ~f:(fun (ty, d) ->
-          printf "      %-20s %+d\n" ty d ) ) )
+      List.iter deltas ~f:(fun (ty, d) -> printf "      %-20s %+d\n" ty d) ) ) ;
+  is_match
 
-(** List JSON files in a directory, sorted by name. *)
-let list_json_files (dir : string) : string list =
+(** List JSON files in a directory, sorted. *)
+let list_json_files dir =
   Stdlib.Sys.readdir dir |> Array.to_list
-  |> List.filter ~f:(fun f -> String.is_suffix f ~suffix:".json")
+  |> List.filter ~f:(String.is_suffix ~suffix:".json")
   |> List.sort ~compare:String.compare
 
-(** Compare all matching JSON files between two directories. *)
-let compare_dirs ~(reference_dir : string) ~(candidate_dir : string) : unit =
+(** Compare matching files between two directories. *)
+let compare_dirs ~reference_dir ~candidate_dir =
   let ref_files = list_json_files reference_dir in
   let cand_files = list_json_files candidate_dir in
-  printf "Gate Comparison: %s vs %s\n" reference_dir candidate_dir ;
-  printf "  Reference files: %d\n" (List.length ref_files) ;
-  printf "  Candidate files: %d\n\n" (List.length cand_files) ;
-  (* Match files by name *)
+  printf "Gate Comparison\n" ;
+  printf "  reference: %s (%d files)\n" reference_dir (List.length ref_files) ;
+  printf "  candidate: %s (%d files)\n\n" candidate_dir (List.length cand_files) ;
   let ref_set = Set.of_list (module String) ref_files in
   let cand_set = Set.of_list (module String) cand_files in
   let common = Set.inter ref_set cand_set |> Set.to_list in
@@ -140,20 +142,16 @@ let compare_dirs ~(reference_dir : string) ~(candidate_dir : string) : unit =
   let n_match = ref 0 in
   let n_diverge = ref 0 in
   List.iter common ~f:(fun file ->
-      let r =
+      let ok =
         compare_files
           ~reference_path:(reference_dir ^ "/" ^ file)
           ~candidate_path:(candidate_dir ^ "/" ^ file)
           ~name:file
       in
-      if r.match_ then incr n_match else incr n_diverge ;
-      print_result r ) ;
-  if not (List.is_empty ref_only) then (
-    printf "\n  Reference-only files:\n" ;
-    List.iter ref_only ~f:(fun f -> printf "    %s\n" f) ) ;
-  if not (List.is_empty cand_only) then (
-    printf "\n  Candidate-only files:\n" ;
-    List.iter cand_only ~f:(fun f -> printf "    %s\n" f) ) ;
-  printf "\nSummary: %d exact matches, %d divergences, %d unmatched\n" !n_match
-    !n_diverge
+      if ok then incr n_match else incr n_diverge ) ;
+  if not (List.is_empty ref_only) then
+    printf "\n  Reference-only: %s\n" (String.concat ~sep:", " ref_only) ;
+  if not (List.is_empty cand_only) then
+    printf "\n  Candidate-only: %s\n" (String.concat ~sep:", " cand_only) ;
+  printf "\nSummary: %d match, %d diverge, %d unmatched\n" !n_match !n_diverge
     (List.length ref_only + List.length cand_only)
