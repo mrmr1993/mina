@@ -725,9 +725,18 @@ let mul (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     multi_range_check q ;
     compact_multi_range_check r01 r2
 
-(** Assert that x * y = xy mod f. *)
+(** Assert that x * y = xy mod f (compact field2 form). *)
 type field2 = Circuit.Field.t * Circuit.Field.t
 
+let assert_mul_field2 (x : Field3.t) (y : Field3.t) (xy : field2)
+    ~(f : Bignum_bigint.t) : unit =
+  let q, r01, r2 = multiply_no_range_check x y ~f in
+  multi_range_check q ;
+  let xy01, xy2 = xy in
+  Circuit.assert_ (Equal (r01, xy01)) ;
+  Circuit.assert_ (Equal (r2, xy2))
+
+(** Assert that x * y = xy mod f. *)
 let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
     ~(f : Bignum_bigint.t) : unit =
   if
@@ -749,3 +758,81 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
     multi_range_check q ;
     Circuit.assert_ (Equal (r01, xy01)) ;
     Circuit.assert_ (Equal (r2, xy2))
+
+(* ------------------------------------------------------------------ *)
+(* Modular inverse                                                     *)
+(* ------------------------------------------------------------------ *)
+
+(** Extended Euclidean algorithm for modular inverse. *)
+let bignum_mod_inverse (x : Bignum_bigint.t) ~(f : Bignum_bigint.t) :
+    Bignum_bigint.t option =
+  let rec gcd_ext a b =
+    if Bignum_bigint.(b = zero) then
+      (a, Bignum_bigint.one, Bignum_bigint.zero)
+    else
+      let q, r = Bignum_bigint.(a / b, a % b) in
+      let g, s, t = gcd_ext b r in
+      (g, t, Bignum_bigint.(s - (q * t)))
+  in
+  let x_mod = Bignum_bigint.(((x % f) + f) % f) in
+  if Bignum_bigint.(x_mod = zero) then None
+  else
+    let g, s, _t = gcd_ext x_mod f in
+    if Bignum_bigint.(g <> one) then None
+    else Some Bignum_bigint.(((s % f) + f) % f)
+
+(** Compute modular inverse x^{-1} mod f. *)
+let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
+  if Field3.is_constant x then
+    let x_big = Field3.to_constant x in
+    match bignum_mod_inverse x_big ~f with
+    | Some x_inv ->
+        Field3.of_constant x_inv
+    | None ->
+        failwith "inv: inverse does not exist"
+  else
+    let x0, x1, x2 = x in
+    let w i =
+      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+          let xv0 =
+            field_const_to_bignum (Circuit.As_prover.read_var x0)
+          in
+          let xv1 =
+            field_const_to_bignum (Circuit.As_prover.read_var x1)
+          in
+          let xv2 =
+            field_const_to_bignum (Circuit.As_prover.read_var x2)
+          in
+          let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
+          let x_inv =
+            match bignum_mod_inverse x_big ~f with
+            | Some v ->
+                v
+            | None ->
+                Bignum_bigint.zero
+          in
+          let l0, l1, l2 = Field3.Constant.split x_inv in
+          bignum_to_field_const [| l0; l1; l2 |].(i) )
+    in
+    let v0 = w 0 in
+    let v1 = w 1 in
+    let v2 = w 2 in
+    let x_inv = (v0, v1, v2) in
+    multi_range_check x_inv ;
+    let _, _, x_inv2 = x_inv in
+    let x_inv2_bound = weak_bound x_inv2 ~f in
+    let one_field2 : field2 =
+      ( Circuit.Field.(constant Constant.one)
+      , Circuit.Field.(constant Constant.zero) )
+    in
+    assert_mul_field2 x x_inv one_field2 ~f ;
+    multi_range_check
+      ( x_inv2_bound
+      , Circuit.Field.constant Circuit.Field.Constant.zero
+      , Circuit.Field.constant Circuit.Field.Constant.zero ) ;
+    x_inv
+
+(** Compute x / y mod f. *)
+let div (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
+  let y_inv = inv y ~f in
+  mul x y_inv ~f
