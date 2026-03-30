@@ -836,3 +836,80 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
 let div (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
   let y_inv = inv y ~f in
   mul x y_inv ~f
+
+(* ------------------------------------------------------------------ *)
+(* Utility functions                                                   *)
+(* ------------------------------------------------------------------ *)
+
+(** Assert x < bound by computing (bound-1) - x and range-checking. *)
+let assert_less_than (x : Field3.t) ~(bound : Bignum_bigint.t) : unit =
+  if Field3.is_constant x then (
+    let x_big = Field3.to_constant x in
+    if Bignum_bigint.(x_big >= bound) then
+      failwith "assert_less_than: x >= bound" )
+  else if Bignum_bigint.(bound > zero) then
+    ignore (negate x ~f:Bignum_bigint.(bound - one) : Field3.t)
+  else failwith "assert_less_than: bound must be positive"
+
+(** Assert two Field3 values are equal limb-wise. *)
+let assert_equal ((x0, x1, x2) : Field3.t) ((y0, y1, y2) : Field3.t) :
+    unit =
+  if
+    Field3.is_constant (x0, x1, x2)
+    && Field3.is_constant (y0, y1, y2)
+  then (
+    let x_big = Field3.to_constant (x0, x1, x2) in
+    let y_big = Field3.to_constant (y0, y1, y2) in
+    if not Bignum_bigint.(x_big = y_big) then
+      failwith "assert_equal: x != y" )
+  else (
+    Circuit.assert_ (Equal (x0, y0)) ;
+    Circuit.assert_ (Equal (x1, y1)) ;
+    Circuit.assert_ (Equal (x2, y2)) )
+
+(** Boolean AND via field multiplication. *)
+let bool_and (a : Circuit.Boolean.var) (b : Circuit.Boolean.var) :
+    Circuit.Boolean.var =
+  let r =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let av = Circuit.As_prover.read Circuit.Boolean.typ a in
+        let bv = Circuit.As_prover.read Circuit.Boolean.typ b in
+        if av && bv then Circuit.Field.Constant.one
+        else Circuit.Field.Constant.zero )
+  in
+  Circuit.assert_ (R1CS ((a :> Circuit.Field.t), (b :> Circuit.Field.t), r)) ;
+  Circuit.Boolean.Unsafe.of_cvar r
+
+(** Check if a circuit field variable equals a bignum constant.
+    Matches o1js Field.equals(). *)
+let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
+    Circuit.Boolean.var =
+  match (Circuit.Field.to_constant x, Circuit.Field.to_constant y) with
+  | Some cx, Some cy ->
+      if Circuit.Field.Constant.(equal cx cy) then Circuit.Boolean.true_
+      else Circuit.Boolean.false_
+  | _ ->
+      let diff = seal Circuit.Field.(x - y) in
+      let r =
+        Circuit.exists Circuit.Boolean.typ ~compute:(fun () ->
+            let dv = Circuit.As_prover.read_var diff in
+            Circuit.Field.Constant.(equal dv zero) )
+      in
+      let z =
+        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+            let dv = Circuit.As_prover.read_var diff in
+            if Circuit.Field.Constant.(equal dv zero) then
+              Circuit.Field.Constant.zero
+            else Circuit.Field.Constant.(inv dv) )
+      in
+      (* b * diff = 0 (if b=true then diff must be 0) *)
+      Circuit.assert_
+        (R1CS ((r :> Circuit.Field.t), diff, Circuit.Field.zero)) ;
+      (* z * diff = 1 - b (if diff != 0 then b must be false) *)
+      Circuit.assert_
+        (R1CS (z, diff, Circuit.Field.(constant Constant.one - (r :> t)))) ;
+      r
+
+let field_equal (x : Circuit.Field.t) (c : Bignum_bigint.t) :
+    Circuit.Boolean.var =
+  field_var_equal x (Circuit.Field.constant (bignum_to_field_const c))
