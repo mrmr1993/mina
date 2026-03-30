@@ -66,7 +66,30 @@ let run_chunk (f : Fp12.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
 let circuit_ranges =
   [| (1, 13); (13, 24); (24, 35); (35, 47); (47, 59); (59, 65) |]
 
-(** Build the circuit body for an ate loop circuit (zkp0-5). *)
+(** Build the circuit body for an ate loop circuit from a witnessed
+    accumulator. Returns the updated f value. *)
+let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
+    Fp12.Circuit.t =
+  assert (circuit_index >= 0 && circuit_index <= 5) ;
+  let begin_idx, end_idx = circuit_ranges.(circuit_index) in
+  let f = acc.state.f in
+  let cache : Lines.AffineCache.t =
+    { x_over_y =
+        Step.exists FF.Field3.typ ~compute:(fun () ->
+            let tracker = Circuit_config.get_tracker () in
+            let neg_a = WT.get_neg_a tracker in
+            fst (WT.compute_affine_cache neg_a) )
+    ; y_inv =
+        Step.exists FF.Field3.typ ~compute:(fun () ->
+            let tracker = Circuit_config.get_tracker () in
+            let neg_a = WT.get_neg_a tracker in
+            snd (WT.compute_affine_cache neg_a) )
+    }
+  in
+  run_chunk f ~begin_idx ~end_idx ~cache
+
+(** Build the circuit body for an ate loop circuit (zkp0-5).
+    Legacy entry point — kept for backward compatibility. *)
 let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   assert (circuit_index >= 0 && circuit_index <= 5) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
