@@ -1,5 +1,6 @@
 (** G1 affine point operations on BN254. *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 
 let p = Bn254_params.p

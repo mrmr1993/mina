@@ -17,6 +17,8 @@
           --reference /path/to/nori_gates \
           --candidate /path/to/ocaml_gates *)
 
+open! Core_kernel
+
 let () =
   let reference_dir = ref "" in
   let candidate_dir = ref "" in
@@ -32,9 +34,8 @@ let () =
   Stdlib.Arg.parse spec
     (fun _ -> ())
     "test_gate_comparison --reference DIR --candidate DIR" ;
-  if String.equal !reference_dir "" || String.equal !candidate_dir "" then (
-    Printf.eprintf
-      "Usage: test_gate_comparison --reference DIR --candidate DIR\n" ;
-    Stdlib.exit 1 ) ;
+  if String.is_empty !reference_dir || String.is_empty !candidate_dir then (
+    eprintf "Usage: test_gate_comparison --reference DIR --candidate DIR\n" ;
+    exit 1 ) ;
   Gate_comparison.compare_dirs ~reference_dir:!reference_dir
     ~candidate_dir:!candidate_dir

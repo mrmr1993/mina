@@ -3,6 +3,8 @@
     Set by the proof conversion pipeline before circuit compilation.
     The circuits access this data through closure capture. *)
 
+open! Core_kernel
+
 (** Optional witness tracker — set when processing real proof data. *)
 let tracker : Witness_tracker.t option ref = ref None
 

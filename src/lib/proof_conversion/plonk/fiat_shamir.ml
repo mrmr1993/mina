@@ -6,13 +6,11 @@
 
     Reference: nori-proof-conversion/src/plonk/fiat-shamir/ *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Transcript state: accumulated bytes for hashing. *)
-type t =
-  { mutable words : Uint32.t list
-  ; mutable word_count : int
-  }
+type t = { mutable words : Uint32.t list; mutable word_count : int }
 
 (** Create an empty transcript. *)
 let create () : t = { words = []; word_count = 0 }
@@ -30,8 +28,7 @@ let absorb_field (t : t) (x : Step.Field.t) : unit =
       Step.exists Step.Field.typ ~compute:(fun () ->
           let xv = Step.As_prover.read_var x in
           let x_int =
-            Bignum_bigint.of_string
-              (Step.Field.Constant.to_string xv)
+            Bignum_bigint.of_string (Step.Field.Constant.to_string xv)
           in
           let mask = Bignum_bigint.of_string "4294967295" in
           let shifted = Bignum_bigint.shift_right x_int (i * 32) in
@@ -46,13 +43,14 @@ let absorb_field (t : t) (x : Step.Field.t) : unit =
 let squeeze (t : t) : Uint32.t array =
   (* Pad the words to a multiple of 16 (512 bits per block) *)
   let words = Array.of_list t.words in
-  let padded_len = ((Array.length words + 15) / 16) * 16 in
-  let padded = Array.make padded_len (Uint32.of_int 0) in
-  Array.blit words 0 padded 0 (Array.length words) ;
+  let padded_len = (Array.length words + 15) / 16 * 16 in
+  let padded = Array.create ~len:padded_len (Uint32.of_int 0) in
+  Array.blit ~src:words ~src_pos:0 ~dst:padded ~dst_pos:0
+    ~len:(Array.length words) ;
   (* Split into 16-word blocks *)
   let n_blocks = padded_len / 16 in
-  let blocks = Array.init n_blocks (fun i ->
-    Array.sub padded (i * 16) 16 )
+  let blocks =
+    Array.init n_blocks ~f:(fun i -> Array.sub padded ~pos:(i * 16) ~len:16)
   in
   let hash = Sha256.hash_padded blocks in
   (* Clear transcript for next squeeze *)
@@ -65,5 +63,4 @@ let squeeze_challenge (t : t) : Step.Field.t =
   let hash = squeeze t in
   (* Combine first 4 words into a field element (128 bits of entropy) *)
   ignore hash ;
-  Step.exists Step.Field.typ ~compute:(fun () ->
-      Step.Field.Constant.zero )
+  Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)

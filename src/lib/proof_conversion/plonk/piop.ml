@@ -11,6 +11,7 @@
 
     Reference: nori-proof-conversion/src/plonk/piop/ *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 
 let r = Bn254_params.r
@@ -21,8 +22,7 @@ let pow_fr (base : FF.Field3.t) ~(exp : int) : FF.Field3.t =
   let current = ref base in
   let e = ref exp in
   while !e > 0 do
-    if !e mod 2 = 1 then
-      result := FF.mul !result !current ~f:r ;
+    if !e mod 2 = 1 then result := FF.mul !result !current ~f:r ;
     current := FF.mul !current !current ~f:r ;
     e := !e / 2
   done ;
@@ -39,24 +39,28 @@ let eval_l0 ~(zeta : FF.Field3.t) ~(domain_size : int) : FF.Field3.t =
   let zh = eval_vanishing ~zeta ~domain_size in
   let n_inv =
     FF.Field3.of_constant
-      (match
-         FF.bignum_mod_inverse (FF.Bignum_bigint.of_int domain_size) ~f:r
-       with
-       | Some v -> v
-       | None -> failwith "eval_l0: domain_size has no inverse")
+      ( match
+          FF.bignum_mod_inverse (FF.Bignum_bigint.of_int domain_size) ~f:r
+        with
+      | Some v ->
+          v
+      | None ->
+          failwith "eval_l0: domain_size has no inverse" )
   in
   let zeta_minus_1 =
     FF.sub zeta (FF.Field3.of_constant FF.Bignum_bigint.one) ~f:r
   in
-  let denom = FF.mul (FF.Field3.of_constant (FF.Bignum_bigint.of_int domain_size))
-      zeta_minus_1 ~f:r in
-  ignore n_inv ;
-  FF.div zh denom ~f:r
+  let denom =
+    FF.mul
+      (FF.Field3.of_constant (FF.Bignum_bigint.of_int domain_size))
+      zeta_minus_1 ~f:r
+  in
+  ignore n_inv ; FF.div zh denom ~f:r
 
 (** Compute the public input polynomial contribution:
     PI(zeta) = sum_i (pi_i * L_i(zeta)) *)
-let compute_pi ~(public_inputs : FF.Field3.t array)
-    ~(zeta : FF.Field3.t) ~(domain_size : int) : FF.Field3.t =
+let compute_pi ~(public_inputs : FF.Field3.t array) ~(zeta : FF.Field3.t)
+    ~(domain_size : int) : FF.Field3.t =
   if Array.length public_inputs = 0 then
     FF.Field3.of_constant FF.Bignum_bigint.zero
   else

@@ -7,12 +7,14 @@
 
     Reference: nori-proof-conversion/src/groth/recursion/prove_zkps.ts *)
 
+open! Core_kernel
+
 (** The Groth16 proof structure (negated A, B, C, PI points). *)
 module Proof = struct
   module Circuit = struct
     type t =
       { neg_a : G1.Circuit.t
-      ; b : Fp2.Circuit.t * Fp2.Circuit.t  (* G2 point as Fp2 pair *)
+      ; b : Fp2.Circuit.t * Fp2.Circuit.t (* G2 point as Fp2 pair *)
       ; c : G1.Circuit.t
       ; pi : G1.Circuit.t
       }
@@ -36,9 +38,9 @@ module Circuit = struct
   type t =
     { proof : Proof.Circuit.t
     ; aux : AuxWitness.Circuit.t
-    ; f : Fp12.Circuit.t          (** Miller loop intermediate result *)
+    ; f : Fp12.Circuit.t  (** Miller loop intermediate result *)
     ; g_digest : Pickles.Impls.Step.Field.t
-        (** Poseidon hash of line evaluation Fp12 values *)
+          (** Poseidon hash of line evaluation Fp12 values *)
     }
 end
 

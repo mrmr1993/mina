@@ -3,6 +3,7 @@
     Handles RISC Zero proof format with G1 points as {x, y} and
     G2 points as {x_c0, x_c1, y_c0, y_c1}. *)
 
+open! Core_kernel
 module BI = Bignum_bigint
 
 (** Re-export constant types for witness_tracker access. *)
@@ -75,7 +76,7 @@ let vk_of_json (j : Yojson.Safe.t) : vk =
   (* Collect IC points: ic0, ic1, ic2, ... *)
   let ic =
     let rec collect i acc =
-      let key = Printf.sprintf "ic%d" i in
+      let key = sprintf "ic%d" i in
       match Yojson.Safe.Util.member key j with
       | `Null ->
           Array.of_list (List.rev acc)
@@ -98,7 +99,7 @@ let aux_witness_of_json (j : Yojson.Safe.t) : aux_witness =
   let shift_power =
     match member "shift_power" j with
     | `String s ->
-        int_of_string s
+        Int.of_string s
     | `Int i ->
         i
     | _ ->
@@ -128,7 +129,7 @@ let proof_of_json (j : Yojson.Safe.t) : proof =
   (* Collect public inputs: pi1, pi2, pi3, ... *)
   let public_inputs =
     let rec collect i acc =
-      let key = Printf.sprintf "pi%d" i in
+      let key = sprintf "pi%d" i in
       match Yojson.Safe.Util.member key j with
       | `Null ->
           Array.of_list (List.rev acc)

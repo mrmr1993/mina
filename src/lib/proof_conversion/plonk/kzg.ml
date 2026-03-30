@@ -12,15 +12,16 @@
 
     Reference: nori-proof-conversion/src/kzg/ *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 
 (** KZG proof accumulator state. *)
 module Accumulator = struct
   type t =
-    { a : G1.Circuit.t        (** Commitment point *)
-    ; neg_b : G1.Circuit.t    (** Negative opening proof point *)
+    { a : G1.Circuit.t  (** Commitment point *)
+    ; neg_b : G1.Circuit.t  (** Negative opening proof point *)
     ; shift_power : Pickles.Impls.Step.Field.t
-    ; c : Fp12.Circuit.t      (** Pairing auxiliary witness *)
+    ; c : Fp12.Circuit.t  (** Pairing auxiliary witness *)
     ; c_inv : Fp12.Circuit.t  (** Inverse of c *)
     }
 end
@@ -28,17 +29,17 @@ end
 (** KZG state carried through the Miller loop. *)
 module State = struct
   type t =
-    { f : Fp12.Circuit.t          (** Miller loop accumulator *)
+    { f : Fp12.Circuit.t  (** Miller loop accumulator *)
     ; lines_digest : Pickles.Impls.Step.Field.t
-        (** Poseidon hash of line evaluation Fp12 values *)
+          (** Poseidon hash of line evaluation Fp12 values *)
     }
 end
 
 (** Batch KZG opening: combine multiple opening proofs into a single
     pairing check using random linear combination. *)
 let batch_opening ~(commitments : G1.Circuit.t array)
-    ~(evaluations : FF.Field3.t array)
-    ~(random : FF.Field3.t) : G1.Circuit.t * FF.Field3.t =
+    ~(evaluations : FF.Field3.t array) ~(random : FF.Field3.t) :
+    G1.Circuit.t * FF.Field3.t =
   assert (Array.length commitments = Array.length evaluations) ;
   (* C_batch = sum_i (r^i * C_i) *)
   (* v_batch = sum_i (r^i * v_i) *)

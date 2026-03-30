@@ -2,6 +2,7 @@
 
     Elements are pairs (c0, c1) representing c0 + c1 * u where u^2 = -1. *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 
 let p = Bn254_params.p
@@ -25,8 +26,8 @@ module Circuit = struct
       ~there:(fun (c0, c1) -> (c0, c1))
       ~back:(fun (c0, c1) -> (c0, c1))
     |> Pickles.Impls.Step.Typ.transport_var
-      ~there:(fun { c0; c1 } -> (c0, c1))
-      ~back:(fun (c0, c1) -> { c0; c1 })
+         ~there:(fun { c0; c1 } -> (c0, c1))
+         ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =
@@ -77,5 +78,4 @@ let inverse (a : Circuit.t) : Circuit.t =
 let frobenius (a : Circuit.t) : Circuit.t = conjugate a
 
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
-  FF.assert_equal a.c0 b.c0 ;
-  FF.assert_equal a.c1 b.c1
+  FF.assert_equal a.c0 b.c0 ; FF.assert_equal a.c1 b.c1

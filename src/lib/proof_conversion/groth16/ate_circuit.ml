@@ -1,5 +1,6 @@
 (** Ate loop circuit body shared by zkp0-5. *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 module Step = Pickles.Impls.Step
 module WT = Witness_tracker
@@ -45,13 +46,13 @@ let run_chunk (f : Fp12.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
           Step.exists Fp2.Circuit.typ ~compute:(fun () ->
               let tracker = Circuit_config.get_tracker () in
               let line = (WT.get_iteration tracker (i - 1)).add_line in
-              match line with Some l -> l.lambda | None -> assert false )
+              (Option.value_exn line).lambda )
         in
         let anm =
           Step.exists Fp2.Circuit.typ ~compute:(fun () ->
               let tracker = Circuit_config.get_tracker () in
               let line = (WT.get_iteration tracker (i - 1)).add_line in
-              match line with Some l -> l.neg_mu | None -> assert false )
+              (Option.value_exn line).neg_mu )
         in
         (Some al, Some anm)
       else (None, None)

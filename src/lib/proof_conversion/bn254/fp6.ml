@@ -3,6 +3,8 @@
     Elements are triples (c0, c1, c2) representing c0 + c1*v + c2*v^2
     where v^3 = xi and xi = 9 + u (the Fp2 non-residue). *)
 
+open! Core_kernel
+
 module Constant = struct
   type t = Fp2.Constant.t * Fp2.Constant.t * Fp2.Constant.t
 end
@@ -12,13 +14,13 @@ module Circuit = struct
 
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
     Pickles.Impls.Step.Typ.transport
-      (Pickles.Impls.Step.Typ.tuple3
-         Fp2.Circuit.typ Fp2.Circuit.typ Fp2.Circuit.typ)
+      (Pickles.Impls.Step.Typ.tuple3 Fp2.Circuit.typ Fp2.Circuit.typ
+         Fp2.Circuit.typ )
       ~there:(fun (c0, c1, c2) -> (c0, c1, c2))
       ~back:(fun (c0, c1, c2) -> (c0, c1, c2))
     |> Pickles.Impls.Step.Typ.transport_var
-      ~there:(fun { c0; c1; c2 } -> (c0, c1, c2))
-      ~back:(fun (c0, c1, c2) -> { c0; c1; c2 })
+         ~there:(fun { c0; c1; c2 } -> (c0, c1, c2))
+         ~back:(fun (c0, c1, c2) -> { c0; c1; c2 })
 end
 
 let mul_by_non_residue (x : Fp2.Circuit.t) : Fp2.Circuit.t =
@@ -26,16 +28,10 @@ let mul_by_non_residue (x : Fp2.Circuit.t) : Fp2.Circuit.t =
   Fp2.mul x xi
 
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp2.add a.c0 b.c0
-  ; c1 = Fp2.add a.c1 b.c1
-  ; c2 = Fp2.add a.c2 b.c2
-  }
+  { c0 = Fp2.add a.c0 b.c0; c1 = Fp2.add a.c1 b.c1; c2 = Fp2.add a.c2 b.c2 }
 
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp2.sub a.c0 b.c0
-  ; c1 = Fp2.sub a.c1 b.c1
-  ; c2 = Fp2.sub a.c2 b.c2
-  }
+  { c0 = Fp2.sub a.c0 b.c0; c1 = Fp2.sub a.c1 b.c1; c2 = Fp2.sub a.c2 b.c2 }
 
 let neg (a : Circuit.t) : Circuit.t =
   { c0 = Fp2.neg a.c0; c1 = Fp2.neg a.c1; c2 = Fp2.neg a.c2 }
@@ -61,9 +57,7 @@ let mul_by_01 (a : Circuit.t) (b0 : Fp2.Circuit.t) (b1 : Fp2.Circuit.t) :
   let a1b1 = Fp2.mul a.c1 b1 in
   let c0 = Fp2.add a0b0 (mul_by_non_residue (Fp2.mul a.c2 b1)) in
   let c1 =
-    Fp2.sub
-      (Fp2.mul (Fp2.add a.c0 a.c1) (Fp2.add b0 b1))
-      (Fp2.add a0b0 a1b1)
+    Fp2.sub (Fp2.mul (Fp2.add a.c0 a.c1) (Fp2.add b0 b1)) (Fp2.add a0b0 a1b1)
   in
   let c2 = Fp2.add (Fp2.mul a.c2 b0) a1b1 in
   { c0; c1; c2 }

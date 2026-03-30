@@ -1,5 +1,7 @@
 (** G2 affine point operations on BN254. *)
 
+open! Core_kernel
+
 module Circuit = struct
   type t = { x : Fp2.Circuit.t; y : Fp2.Circuit.t }
 end
@@ -11,8 +13,7 @@ end
 let of_constant (pt : Constant.t) : Circuit.t =
   { x = Fp2.of_constant pt.x; y = Fp2.of_constant pt.y }
 
-let negate (pt : Circuit.t) : Circuit.t =
-  { x = pt.x; y = Fp2.neg pt.y }
+let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = Fp2.neg pt.y }
 
 let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
   let dx = Fp2.sub p2.x p1.x in

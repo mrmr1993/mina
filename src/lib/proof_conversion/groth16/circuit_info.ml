@@ -1,6 +1,7 @@
 (** Extract circuit information (gate counts, types) for comparison
     against nori-proof-conversion fixtures. *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Compile a circuit and extract the step circuit gate count. *)
@@ -10,10 +11,11 @@ let get_gate_count ~(n : int) : int =
     Pickles.compile_promise
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 1, Circuit_utils.public_input_typ 1))
+           (Circuit_utils.public_input_typ 1, Circuit_utils.public_input_typ 1)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:(Printf.sprintf "groth16-info-zkp%d" n)
+      ~name:(sprintf "groth16-info-zkp%d" n)
       ~o1js_compatible_mode:true
       ~choices:(fun ~self:_ -> [ rule ])
       ()
@@ -21,7 +23,7 @@ let get_gate_count ~(n : int) : int =
   (* Force VK computation to get the step circuit digest *)
   let vk =
     Promise.block_on_async_exn (fun () ->
-      Lazy.force Proof.verification_key_promise )
+        Lazy.force Proof.verification_key_promise )
   in
   ignore (vk : Pickles.Verification_key.t) ;
   (* The gate count is embedded in the VK — for now return a placeholder.
@@ -30,9 +32,9 @@ let get_gate_count ~(n : int) : int =
 
 (** Report circuit information for all 16 Groth16 circuits. *)
 let report_all () =
-  Printf.printf "Groth16 Circuit Information\n" ;
-  Printf.printf "==========================\n" ;
-  Printf.printf "%-8s %-20s %s\n" "Circuit" "Description" "Status" ;
+  printf "Groth16 Circuit Information\n" ;
+  printf "==========================\n" ;
+  printf "%-8s %-20s %s\n" "Circuit" "Description" "Status" ;
   let descriptions =
     [| "ate loop (12 iters)"
      ; "ate loop (11 iters)"
@@ -53,8 +55,8 @@ let report_all () =
     |]
   in
   for n = 0 to Circuits.num_circuits - 1 do
-    Printf.printf "  zkp%-3d %-20s compiling... %!" n descriptions.(n) ;
+    printf "  zkp%-3d %-20s compiling... %!" n descriptions.(n) ;
     let _count = get_gate_count ~n in
-    Printf.printf "done\n%!"
+    printf "done\n%!"
   done ;
-  Printf.printf "\nUse DUMP_PCS_GATES=<dir> for full gate JSON dumps.\n"
+  printf "\nUse DUMP_PCS_GATES=<dir> for full gate JSON dumps.\n"

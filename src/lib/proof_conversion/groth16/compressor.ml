@@ -10,6 +10,7 @@
     without recursive verification (verification requires side-loaded
     VKs which need additional infrastructure). *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Layer1 circuit: takes two adjacent proof hashes and combines them.
@@ -25,8 +26,7 @@ let layer1_body (pub : Step.Field.t array) : Step.Field.t array =
   Step.Field.Assert.equal left_out right_in ;
   (* Combine into a single hash *)
   let combined =
-    Accumulator_hash.combine_hashes
-      [ left_in; right_out; Step.Field.of_int 1 ]
+    Accumulator_hash.combine_hashes [ left_in; right_out; Step.Field.of_int 1 ]
   in
   [| combined |]
 
@@ -52,9 +52,7 @@ let merge_body (pub : Step.Field.t array) : Step.Field.t array =
   let left = pub.(0) in
   let right = pub.(1) in
   let layer = pub.(2) in
-  let combined =
-    Accumulator_hash.combine_hashes [ left; right; layer ]
-  in
+  let combined = Accumulator_hash.combine_hashes [ left; right; layer ] in
   [| combined |]
 
 let merge_rule : _ Pickles.Inductive_rule.Promise.t =
@@ -74,82 +72,84 @@ let merge_rule : _ Pickles.Inductive_rule.Promise.t =
 
 (** Compile and prove a layer1 node. *)
 let prove_layer1 ~(left_in : Step.Field.Constant.t)
-    ~(left_out : Step.Field.Constant.t)
-    ~(right_in : Step.Field.Constant.t)
+    ~(left_out : Step.Field.Constant.t) ~(right_in : Step.Field.Constant.t)
     ~(right_out : Step.Field.Constant.t) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 4, Circuit_utils.public_input_typ 1))
+           (Circuit_utils.public_input_typ 4, Circuit_utils.public_input_typ 1)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:"groth16-layer1"
-      ~o1js_compatible_mode:true
+      ~name:"groth16-layer1" ~o1js_compatible_mode:true
       ~choices:(fun ~self:_ -> [ layer1_rule ])
       ()
   in
-  let (Pickles.Provers.[ prove ]) = provers in
+  let Pickles.Provers.[ prove ] = provers in
   let output, _aux, proof =
     Promise.block_on_async_exn (fun () ->
-      prove [| left_in; left_out; right_in; right_out |] )
+        prove [| left_in; left_out; right_in; right_out |] )
   in
   (output.(0), proof)
 
 (** Compile and prove a merge node. *)
-let prove_merge ~(left : Step.Field.Constant.t)
-    ~(right : Step.Field.Constant.t)
+let prove_merge ~(left : Step.Field.Constant.t) ~(right : Step.Field.Constant.t)
     ~(layer : int) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 3, Circuit_utils.public_input_typ 1))
+           (Circuit_utils.public_input_typ 3, Circuit_utils.public_input_typ 1)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:(Printf.sprintf "groth16-merge-l%d" layer)
+      ~name:(sprintf "groth16-merge-l%d" layer)
       ~o1js_compatible_mode:true
       ~choices:(fun ~self:_ -> [ merge_rule ])
       ()
   in
-  let (Pickles.Provers.[ prove ]) = provers in
+  let Pickles.Provers.[ prove ] = provers in
   let output, _aux, proof =
     Promise.block_on_async_exn (fun () ->
-      prove [| left; right; Step.Field.Constant.of_int layer |] )
+        prove [| left; right; Step.Field.Constant.of_int layer |] )
   in
   (output.(0), proof)
 
 (** Run the full compression tree on 16 circuit hash pairs.
     Returns the final combined hash and proof. *)
-let compress ~(hash_pairs : (Step.Field.Constant.t * Step.Field.Constant.t) array) :
+let compress
+    ~(hash_pairs : (Step.Field.Constant.t * Step.Field.Constant.t) array) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   assert (Array.length hash_pairs = 16) ;
-  Printf.printf "Compression tree: 16 → 8 → 4 → 2 → 1\n%!" ;
+  printf "Compression tree: 16 → 8 → 4 → 2 → 1\n%!" ;
   (* Layer 1: combine pairs *)
-  Printf.printf "  Layer 1 (8 nodes)... %!" ;
-  let layer1_hashes = Array.init 8 (fun i ->
-    let left_in, left_out = hash_pairs.(i * 2) in
-    let right_in, right_out = hash_pairs.(i * 2 + 1) in
-    fst (prove_layer1 ~left_in ~left_out ~right_in ~right_out) )
+  printf "  Layer 1 (8 nodes)... %!" ;
+  let layer1_hashes =
+    Array.init 8 ~f:(fun i ->
+        let left_in, left_out = hash_pairs.(i * 2) in
+        let right_in, right_out = hash_pairs.((i * 2) + 1) in
+        fst (prove_layer1 ~left_in ~left_out ~right_in ~right_out) )
   in
-  Printf.printf "done\n%!" ;
+  printf "done\n%!" ;
   (* Layer 2-4: merge pairs *)
   let current = ref layer1_hashes in
   for layer = 2 to 4 do
     let n = Array.length !current in
-    Printf.printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
-    current := Array.init (n / 2) (fun i ->
-      fst (prove_merge
-        ~left:(!current).(i * 2)
-        ~right:(!current).(i * 2 + 1)
-        ~layer) ) ;
-    Printf.printf "done\n%!"
+    printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
+    current :=
+      Array.init (n / 2) ~f:(fun i ->
+          fst
+            (prove_merge
+               ~left:!current.(i * 2)
+               ~right:!current.((i * 2) + 1)
+               ~layer ) ) ;
+    printf "done\n%!"
   done ;
-  let final_hash = (!current).(0) in
-  Printf.printf "  Final hash: %s\n%!"
-    (Kimchi_pasta.Pasta.Fp.to_string final_hash) ;
+  let final_hash = !current.(0) in
+  printf "  Final hash: %s\n%!" (Kimchi_pasta.Pasta.Fp.to_string final_hash) ;
   (* Return final hash with a dummy proof for now *)
   let _, proof = prove_merge ~left:final_hash ~right:final_hash ~layer:5 in
   (final_hash, proof)

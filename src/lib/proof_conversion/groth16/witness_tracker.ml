@@ -3,6 +3,7 @@
     Pre-computes all intermediate values needed by the 16 recursive
     circuits. Operates on pure bignum arithmetic (no circuit constraints). *)
 
+open! Core_kernel
 module BI = Bignum_bigint
 
 let p = Bn254_params.p
@@ -210,7 +211,7 @@ module G1 = struct
     let n = String.length bits * 8 in
     let get_bit i =
       if i / 8 < String.length bits then
-        (Stdlib.Char.code bits.[i / 8] lsr (i mod 8)) land 1
+        (Char.to_int bits.[i / 8] lsr (i mod 8)) land 1
       else 0
     in
     (* Find highest set bit *)
@@ -406,12 +407,12 @@ let compute_miller_loop (t : t) : unit =
   let b = G2.of_proof_json t.vk.beta in
   (* Using beta as B placeholder *)
   let ate = Bn254_params.ate_loop_count in
-  let n = Stdlib.Array.length ate in
+  let n = Array.length ate in
   (* Initialize: T = B, f = 1 *)
   let current_t = ref b in
   let f = ref Fp12.one in
-  let num_iters = Stdlib.( - ) n 1 in
-  let g_values = Stdlib.Array.make num_iters Fp12.one in
+  let num_iters = n - 1 in
+  let g_values = Array.create ~len:num_iters Fp12.one in
   let dummy_iter =
     { f_before = Fp12.one
     ; double_line = { Line.lambda = Fp2.zero; neg_mu = Fp2.zero }
@@ -419,7 +420,7 @@ let compute_miller_loop (t : t) : unit =
     ; f_after = Fp12.one
     }
   in
-  let iterations = Stdlib.Array.make num_iters dummy_iter in
+  let iterations = Array.create ~len:num_iters dummy_iter in
   for i = 1 to num_iters do
     let f_before = !f in
     let double_line, new_t = compute_double_line !current_t in
@@ -435,7 +436,7 @@ let compute_miller_loop (t : t) : unit =
         let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
         f := Fp12.mul !f add_eval ;
         Some add_line )
-      else if bit = Stdlib.( ~- ) 1 then (
+      else if bit = -1 then (
         let neg_b = { G2.x = b.x; y = Fp2.neg b.y } in
         let add_line, new_t = compute_add_line !current_t neg_b in
         current_t := new_t ;
@@ -444,8 +445,8 @@ let compute_miller_loop (t : t) : unit =
         Some add_line )
       else None
     in
-    g_values.(Stdlib.( - ) i 1) <- !f ;
-    iterations.(Stdlib.( - ) i 1) <-
+    g_values.(i - 1) <- !f ;
+    iterations.(i - 1) <-
       { f_before; double_line; add_line = add_line_opt; f_after = !f }
   done ;
   t.f <- !f ;

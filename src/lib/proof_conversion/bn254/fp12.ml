@@ -3,6 +3,8 @@
     Elements are pairs (c0, c1) representing c0 + c1*w where w^2 = v.
     This is the target field of the BN254 pairing. *)
 
+open! Core_kernel
+
 module Constant = struct
   type t = Fp6.Constant.t * Fp6.Constant.t
 end

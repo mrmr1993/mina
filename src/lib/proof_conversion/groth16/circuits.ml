@@ -6,6 +6,7 @@
 
     The chain: zkp0 output → zkp1 input → ... → zkp15 output *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 module WT = Witness_tracker
@@ -131,7 +132,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       fun input_hash ->
        (* Witness the 5 public inputs *)
        let pis =
-         Stdlib.Array.init 5 (fun i ->
+         Array.init 5 ~f:(fun i ->
              Step.exists FF.Field3.typ ~compute:(fun () ->
                  WT.get_public_input (Circuit_config.get_tracker ()) i ) )
        in
@@ -199,4 +200,4 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        FF.assert_equal full_acc.y pi.y ;
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 15 ]
   | n ->
-      failwith (Printf.sprintf "Invalid circuit index: %d" n)
+      failwith (sprintf "Invalid circuit index: %d" n)

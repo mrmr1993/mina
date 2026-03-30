@@ -4,6 +4,7 @@
     g values from the line accumulation and conditionally multiplying
     by c or c_inv based on the ate loop count bits. *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 module WT = Witness_tracker
 

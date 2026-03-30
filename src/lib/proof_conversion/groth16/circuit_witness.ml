@@ -3,6 +3,7 @@
     Each function calls [Circuit_config.get_tracker ()] internally,
     so they are safe to use inside [exists ~compute] closures. *)
 
+open! Core_kernel
 module WT = Witness_tracker
 
 (** Get the initial Fp12 accumulator for an ate loop circuit (zkp0-5).

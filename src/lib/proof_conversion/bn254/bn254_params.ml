@@ -5,6 +5,7 @@
 
     Reference: nori-proof-conversion/src/towers/consts.ts *)
 
+open! Core_kernel
 open Bignum_bigint
 
 (** BN254 base field modulus (Fp).

@@ -1,5 +1,6 @@
 (** Line coefficients for BN254 pairing computation. *)
 
+open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
 
 module G2Line = struct
@@ -16,7 +17,7 @@ let eval_line (line : G2Line.t) (cache : AffineCache.t) :
   let c11 = Fp2.mul_by_fp line.neg_mu cache.y_inv in
   (c01, c11)
 
-let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t)
-    (cache : AffineCache.t) : Fp12.Circuit.t =
+let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t) (cache : AffineCache.t) :
+    Fp12.Circuit.t =
   let c01, c11 = eval_line line cache in
   Fp12.mul_by_line f ~c01 ~c11

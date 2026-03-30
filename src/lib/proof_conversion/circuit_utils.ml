@@ -1,5 +1,6 @@
 (** Shared circuit utilities for proof conversion. *)
 
+open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
@@ -11,8 +12,7 @@ let dummy_constraints () =
   let module Inner_curve = Pickles.Step_main_inputs.Inner_curve in
   let module Ops = Pickles.Step_main_inputs.Ops in
   let inner_curve_typ : (Field.t * Field.t, Kimchi_pasta.Pasta.Pallas.t) Typ.t =
-    Typ.transport Inner_curve.typ
-      ~there:Kimchi_pasta.Pasta.Pallas.to_affine_exn
+    Typ.transport Inner_curve.typ ~there:Kimchi_pasta.Pasta.Pallas.to_affine_exn
       ~back:Kimchi_pasta.Pasta.Pallas.of_affine
   in
   let x = exists Field.typ ~compute:(fun () -> Field.Constant.of_int 3) in
