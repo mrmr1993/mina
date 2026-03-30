@@ -36,9 +36,28 @@ let ate_iterations_per_circuit =
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits — stub: empty body for now *)
+      (* Ate loop circuits — witness Fp12, perform one mul as placeholder *)
       fun () ->
-        ignore (ate_iterations_per_circuit.(circuit_index) : int)
+        let _iters = ate_iterations_per_circuit.(circuit_index) in
+        (* Witness two Fp12 values and multiply them.
+           This exercises the full tower field arithmetic in-circuit. *)
+        let module FF = Snarky_foreign_field.Foreign_field in
+        let witness_fp12 () : Fp12.Circuit.t =
+          let w () : Fp2.Circuit.t =
+            let w1 () =
+              FF.Field3.of_constant FF.Bignum_bigint.zero
+            in
+            { Fp2.Circuit.c0 = w1 (); c1 = w1 () }
+          in
+          let w6 () : Fp6.Circuit.t =
+            { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
+          in
+          { Fp12.Circuit.c0 = w6 (); c1 = w6 () }
+        in
+        let a = witness_fp12 () in
+        let b = witness_fp12 () in
+        let _c = Fp12.mul a b in
+        ()
   | 6 ->
       (* Final ate loop + Frobenius — stub *)
       fun () -> ()
