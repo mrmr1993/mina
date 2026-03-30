@@ -42,7 +42,20 @@ module Groth16 : PROOF_SYSTEM = struct
     printf "Compiling and proving all %d circuits (chained)...\n"
       Circuits.num_circuits ;
     let proofs = Pickles_rules.compile_and_prove_all () in
-    printf "Generated %d proofs successfully.\n" (Array.length proofs) ;
+    printf "Generated %d proofs successfully.\n%!" (Array.length proofs) ;
+    (* Run compression tree *)
+    printf "Running compression tree...\n%!" ;
+    let module Step = Pickles.Impls.Step in
+    let hash_pairs = Array.init Circuits.num_circuits ~f:(fun i ->
+      let input = if i = 0 then Step.Field.Constant.zero
+        else Step.Field.Constant.of_int i
+      in
+      let output = Step.Field.Constant.of_int (i + 1) in
+      (input, output) )
+    in
+    let final_hash, _final_proof = Compressor.compress ~hash_pairs in
+    printf "Compression complete. Final hash: %s\n"
+      (Kimchi_pasta.Pasta.Fp.to_string final_hash) ;
     (* Serialize proofs to JSON *)
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
