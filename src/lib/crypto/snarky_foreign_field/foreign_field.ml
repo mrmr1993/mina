@@ -315,3 +315,239 @@ let compact_multi_range_check (xy : Circuit.Field.t) (z : Circuit.Field.t) :
     let x64, x76 = range_check0 x ~compact:true in
     range_check1 ~x64:z64 ~x76:z76 ~y64:x64 ~y76:x76 ~z:y ~yz:xy ;
     (x, y, z)
+
+(* ------------------------------------------------------------------ *)
+(* Almost-reduced assertion                                            *)
+(* ------------------------------------------------------------------ *)
+
+(** Compute a bound value for the high limb that proves x < f
+    (or x <= f depending on the modulus structure). *)
+let weak_bound (x2 : Circuit.Field.t) ~(f : Bignum_bigint.t) :
+    Circuit.Field.t =
+  let l2_mask = Bignum_bigint.(two_to_2limb - one) in
+  if Bignum_bigint.(f land l2_mask = zero) then
+    let bound =
+      Bignum_bigint.(
+        two_to_limb - shift_right f (Int.( * ) 2 limb_bits))
+    in
+    Circuit.Field.(x2 + constant (bignum_to_field_const bound))
+  else
+    let bound =
+      Bignum_bigint.(
+        limb_mask - shift_right f (Int.( * ) 2 limb_bits))
+    in
+    Circuit.Field.(x2 + constant (bignum_to_field_const bound))
+
+(** Assert that each Field3 in the list is almost-reduced modulo [f],
+    meaning its high limb is bounded. *)
+let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
+    ~(skip_mrc : bool) : unit =
+  let bounds = ref [] in
+  let flush_bounds () =
+    match !bounds with
+    | [ b1; b2; b3 ] ->
+        multi_range_check (b1, b2, b3) ;
+        bounds := []
+    | _ ->
+        ()
+  in
+  List.iter xs ~f:(fun ((_, _, x2) as x) ->
+      if not skip_mrc then multi_range_check x ;
+      bounds := !bounds @ [ weak_bound x2 ~f ] ;
+      if List.length !bounds = 3 then flush_bounds () ) ;
+  ( match !bounds with
+  | [ b1 ] ->
+      multi_range_check
+        ( b1
+        , Circuit.Field.constant Circuit.Field.Constant.zero
+        , Circuit.Field.constant Circuit.Field.Constant.zero )
+  | [ b1; b2 ] ->
+      multi_range_check
+        ( b1
+        , b2
+        , Circuit.Field.constant Circuit.Field.Constant.zero )
+  | _ ->
+      () )
+
+(* ------------------------------------------------------------------ *)
+(* Foreign field addition / subtraction                                *)
+(* ------------------------------------------------------------------ *)
+
+type sign = Add | Sub
+
+let sign_to_bigint = function
+  | Add ->
+      Bignum_bigint.one
+  | Sub ->
+      Bignum_bigint.(neg one)
+
+(** Single foreign field addition/subtraction using ForeignFieldAdd gate. *)
+let single_add (x : Field3.t) (y : Field3.t) ~(sign : sign)
+    ~(f : Bignum_bigint.t) : Field3.t * Circuit.Field.t =
+  let f0, f1, f2 = Field3.Constant.split f in
+  let compute_add () =
+    let x0, x1, x2 = x in
+    let y0, y1, y2 = y in
+    let xv0 = field_const_to_bignum (Circuit.As_prover.read_var x0) in
+    let xv1 = field_const_to_bignum (Circuit.As_prover.read_var x1) in
+    let xv2 = field_const_to_bignum (Circuit.As_prover.read_var x2) in
+    let yv0 = field_const_to_bignum (Circuit.As_prover.read_var y0) in
+    let yv1 = field_const_to_bignum (Circuit.As_prover.read_var y1) in
+    let yv2 = field_const_to_bignum (Circuit.As_prover.read_var y2) in
+    let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
+    let y_big = Field3.Constant.combine (yv0, yv1, yv2) in
+    let s = sign_to_bigint sign in
+    let r = Bignum_bigint.(x_big + (s * y_big)) in
+    let overflow =
+      if Bignum_bigint.(f = zero) then Bignum_bigint.zero
+      else if Bignum_bigint.(s = one) && Bignum_bigint.(r >= f) then
+        Bignum_bigint.one
+      else if Bignum_bigint.(s = neg one) && Bignum_bigint.(r < zero) then
+        Bignum_bigint.(neg one)
+      else Bignum_bigint.zero
+    in
+    let l2_mask = Bignum_bigint.(two_to_2limb - one) in
+    let x01 = Bignum_bigint.(xv0 + (xv1 * two_to_limb)) in
+    let y01 = Bignum_bigint.(yv0 + (yv1 * two_to_limb)) in
+    let f01 = Bignum_bigint.(f0 + (f1 * two_to_limb)) in
+    let r01 =
+      Bignum_bigint.(x01 + (s * y01) - (overflow * f01))
+    in
+    let carry =
+      Bignum_bigint.(shift_right r01 (Int.( * ) 2 limb_bits))
+    in
+    let r01_masked = Bignum_bigint.(r01 land l2_mask) in
+    let r0_val = Bignum_bigint.(r01_masked land limb_mask) in
+    let r1_val =
+      Bignum_bigint.(shift_right r01_masked limb_bits)
+    in
+    let r2_val =
+      Bignum_bigint.(xv2 + (s * yv2) - (overflow * f2) + carry)
+    in
+    (r0_val, r1_val, r2_val, overflow, carry)
+  in
+  let cache = ref None in
+  let get_cached () =
+    match !cache with
+    | Some v ->
+        v
+    | None ->
+        let v = compute_add () in
+        cache := Some v ;
+        v
+  in
+  let r0 =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let r0, _, _, _, _ = get_cached () in
+        bignum_to_field_const r0 )
+  in
+  let r1 =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let _, r1, _, _, _ = get_cached () in
+        bignum_to_field_const r1 )
+  in
+  let r2 =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let _, _, r2, _, _ = get_cached () in
+        bignum_to_field_const r2 )
+  in
+  let overflow =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let _, _, _, overflow, _ = get_cached () in
+        bignum_to_field_const overflow )
+  in
+  let carry =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let _, _, _, _, carry = get_cached () in
+        bignum_to_field_const carry )
+  in
+  let x0, x1, x2 = x in
+  let y0, y1, y2 = y in
+  let sign_const =
+    match sign with
+    | Add ->
+        Circuit.Field.Constant.one
+    | Sub ->
+        Circuit.Field.Constant.(zero - one)
+  in
+  Circuit.assert_
+    (ForeignFieldAdd
+       { left_input_lo = x0
+       ; left_input_mi = x1
+       ; left_input_hi = x2
+       ; right_input_lo = y0
+       ; right_input_mi = y1
+       ; right_input_hi = y2
+       ; field_overflow = overflow
+       ; carry
+       ; foreign_field_modulus0 = bignum_to_field_const f0
+       ; foreign_field_modulus1 = bignum_to_field_const f1
+       ; foreign_field_modulus2 = bignum_to_field_const f2
+       ; sign = sign_const
+       } ) ;
+  ((r0, r1, r2), overflow)
+
+(** Sum a list of Field3 values with given signs.
+    [xs] has one more element than [signs]:
+    result = xs[0] +/- xs[1] +/- xs[2] ... *)
+let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
+    Field3.t =
+  assert (List.length xs = List.length signs + 1) ;
+  if List.for_all xs ~f:Field3.is_constant then
+    let x_bigs = List.map xs ~f:Field3.to_constant in
+    let s = sign_to_bigint in
+    let result =
+      List.fold2_exn (List.tl_exn x_bigs) signs ~init:(List.hd_exn x_bigs)
+        ~f:(fun acc xi sign_i -> Bignum_bigint.(acc + (s sign_i * xi)))
+    in
+    let result_mod = Bignum_bigint.(((result % f) + f) % f) in
+    Field3.of_constant result_mod
+  else
+    let xs =
+      List.map xs ~f:(fun (l0, l1, l2) ->
+          let v0 = to_var l0 in
+          let v1 = to_var l1 in
+          let v2 = to_var l2 in
+          (v0, v1, v2) )
+    in
+    let result = ref (List.hd_exn xs) in
+    List.iter2_exn (List.tl_exn xs) signs ~f:(fun xi sign_i ->
+        let r, _overflow = single_add !result xi ~sign:sign_i ~f in
+        result := r ) ;
+    let r0, r1, r2 = !result in
+    Circuit.assert_
+      (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
+    (* Indirect range check matching o1js *)
+    let r0, r1, r2 = !result in
+    let r0_trunc =
+      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+          let v = Circuit.As_prover.read_var r0 in
+          bignum_to_field_const
+            Bignum_bigint.(field_const_to_bignum v land limb_mask) )
+    in
+    let r1_trunc =
+      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+          let v = Circuit.As_prover.read_var r1 in
+          bignum_to_field_const
+            Bignum_bigint.(field_const_to_bignum v land limb_mask) )
+    in
+    let r2_trunc =
+      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+          let v = Circuit.As_prover.read_var r2 in
+          bignum_to_field_const
+            Bignum_bigint.(field_const_to_bignum v land limb_mask) )
+    in
+    multi_range_check (r0_trunc, r1_trunc, r2_trunc) ;
+    Circuit.assert_ (Equal (r0, r0_trunc)) ;
+    Circuit.assert_ (Equal (r1, r1_trunc)) ;
+    Circuit.assert_ (Equal (r2, r2_trunc)) ;
+    !result
+
+let add (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
+  sum [ x; y ] [ Add ] ~f
+
+let sub (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
+  sum [ x; y ] [ Sub ] ~f
+
+let negate (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
+  sub (Field3.of_constant Bignum_bigint.zero) x ~f
