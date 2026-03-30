@@ -913,3 +913,66 @@ let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
 let field_equal (x : Circuit.Field.t) (c : Bignum_bigint.t) :
     Circuit.Boolean.var =
   field_var_equal x (Circuit.Field.constant (bignum_to_field_const c))
+
+(* ------------------------------------------------------------------ *)
+(* Sum accumulator                                                     *)
+(* ------------------------------------------------------------------ *)
+
+(** Lazy accumulator for chaining additions/subtractions.
+    Operations are collected and materialized at once when [finish]
+    is called, matching o1js Sum API. *)
+module Sum = struct
+  type t =
+    { summands : Field3.t list
+    ; ops : sign list
+    ; mutable result : Field3.t option
+    }
+
+  let of_field3 (x : Field3.t) : t =
+    { summands = [ x ]; ops = []; result = None }
+
+  let add (t : t) (y : Field3.t) : t =
+    assert (Option.is_none t.result) ;
+    { t with summands = t.summands @ [ y ]; ops = t.ops @ [ Add ] }
+
+  let sub (t : t) (y : Field3.t) : t =
+    assert (Option.is_none t.result) ;
+    { t with summands = t.summands @ [ y ]; ops = t.ops @ [ Sub ] }
+
+  let length (t : t) : int = List.length t.summands
+
+  let is_constant (t : t) : bool =
+    List.for_all t.summands ~f:Field3.is_constant
+
+  (** Materialize the accumulated sum, producing all ForeignFieldAdd
+      gates at once. *)
+  let finish (t : t) ~(f : Bignum_bigint.t) : Field3.t =
+    assert (Option.is_none t.result) ;
+    if List.length t.ops = 0 then (
+      let r = List.hd_exn t.summands in
+      t.result <- Some r ;
+      r )
+    else (
+      let r = sum t.summands t.ops ~f in
+      t.result <- Some r ;
+      r )
+end
+
+(** Input type for assert_mul_sum: either a Sum accumulator or a
+    plain Field3 value. *)
+type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
+
+(** Assert x * y = xy (mod f), accepting Sum accumulators as inputs.
+    Finishes any pending sums before performing the multiplication check. *)
+let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
+    ~(f : Bignum_bigint.t) : unit =
+  let finish_input = function
+    | Sum_input s ->
+        Sum.finish s ~f
+    | Field3_input f3 ->
+        f3
+  in
+  let x_val = finish_input x in
+  let y_val = finish_input y in
+  let xy_val = finish_input xy in
+  assert_mul x_val y_val xy_val ~f
