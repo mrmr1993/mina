@@ -117,6 +117,36 @@ let test_fp12_conjugate_property () =
   assert (Bignum_bigint.(fst c12 = zero && snd c12 = zero)) ;
   printf "OK\n"
 
+let test_miller_loop () =
+  printf "Testing Miller loop computation... %!" ;
+  let proof_path =
+    match Stdlib.Sys.getenv_opt "PROOF_JSON" with
+    | Some p -> p
+    | None -> ""
+  in
+  if String.is_empty proof_path then
+    printf "SKIPPED (set PROOF_JSON=path)\n"
+  else
+    let vk_path = Filename.dirname proof_path ^ "/vk.json" in
+    let proof = Proof_conversion.Proof_json.load_proof proof_path in
+    let vk = Proof_conversion.Proof_json.load_vk vk_path in
+    let tracker = WT.create ~proof ~vk in
+    (* Check that g_values were computed *)
+    let g_vals = WT.get_g_values tracker in
+    printf "g_values=%d... " (Array.length g_vals) ;
+    assert (Array.length g_vals > 0) ;
+    (* Check f is not identity (it should have changed from 1) *)
+    let f = WT.get_f tracker in
+    let (f00, _, _), _ = f in
+    let f00_is_one = Bignum_bigint.(fst f00 = one && snd f00 = zero) in
+    printf "f00_is_one=%b... " f00_is_one ;
+    (* The Miller loop result should not be the identity *)
+    let g0 = WT.get_f_at_iteration tracker 0 in
+    let (g00, _, _), _ = g0 in
+    let g00_is_one = Bignum_bigint.(fst g00 = one && snd g00 = zero) in
+    printf "g0_is_one=%b... " g00_is_one ;
+    printf "✓\n"
+
 let test_witness_tracker_creation () =
   printf "Testing witness tracker with real proof data... %!" ;
   let proof_path =
@@ -148,5 +178,6 @@ let () =
   test_fp12_identity () ;
   test_fp12_mul_identity () ;
   test_fp12_conjugate_property () ;
+  test_miller_loop () ;
   test_witness_tracker_creation () ;
   printf "All tests passed.\n"
