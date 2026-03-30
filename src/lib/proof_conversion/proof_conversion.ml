@@ -88,7 +88,38 @@ module Plonk : PROOF_SYSTEM = struct
     printf "Compiling and proving %d PLONK circuits...\n"
       Plonk_circuits.num_circuits ;
     let proofs = Plonk_pickles_rules.compile_and_prove_all () in
-    printf "Generated %d PLONK proofs.\n" (Array.length proofs) ;
+    printf "Generated %d PLONK proofs.\n%!" (Array.length proofs) ;
+    (* Run compression tree *)
+    printf "Running PLONK compression tree...\n%!" ;
+    let module Step = Pickles.Impls.Step in
+    let hash_pairs = Array.init Plonk_circuits.num_circuits ~f:(fun i ->
+      let input = if i = 0 then Step.Field.Constant.zero
+        else Step.Field.Constant.of_int i in
+      let output = Step.Field.Constant.of_int (i + 1) in
+      (input, output) ) in
+    (* PLONK has 24 circuits — pad to 32 for binary tree (next power of 2) *)
+    let padded = Array.init 32 ~f:(fun i ->
+      if i < Array.length hash_pairs then hash_pairs.(i)
+      else (Step.Field.Constant.zero, Step.Field.Constant.zero) ) in
+    (* Layer 1: 16 nodes *)
+    Printf.printf "  Layer 1 (16 nodes)... %!" ;
+    let layer1 = Array.init 16 ~f:(fun i ->
+      let left_in, left_out = padded.(i * 2) in
+      let right_in, right_out = padded.(i * 2 + 1) in
+      fst (Compressor.prove_layer1 ~left_in ~left_out ~right_in ~right_out) ) in
+    Printf.printf "done\n%!" ;
+    let current = ref layer1 in
+    for layer = 2 to 5 do
+      let n = Array.length !current in
+      Printf.printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
+      current := Array.init (n / 2) ~f:(fun i ->
+        fst (Compressor.prove_merge
+          ~left:(!current).(i * 2)
+          ~right:(!current).(i * 2 + 1)
+          ~layer) ) ;
+      Printf.printf "done\n%!"
+    done ;
+    Printf.printf "  PLONK compression complete.\n%!" ;
     let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
