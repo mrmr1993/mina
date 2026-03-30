@@ -83,7 +83,7 @@ let prove_layer1 ~(left_in : Step.Field.Constant.t)
         )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:"groth16-layer1" ~o1js_compatible_mode:true
+      ~name:"groth16-layer1" ~o1js_compatible_mode:false
       ~choices:(fun ~self:_ -> [ layer1_rule ])
       ()
   in
@@ -107,7 +107,7 @@ let prove_merge ~(left : Step.Field.Constant.t) ~(right : Step.Field.Constant.t)
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-merge-l%d" layer)
-      ~o1js_compatible_mode:true
+      ~o1js_compatible_mode:false
       ~choices:(fun ~self:_ -> [ merge_rule ])
       ()
   in

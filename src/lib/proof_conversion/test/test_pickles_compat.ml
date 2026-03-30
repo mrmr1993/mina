@@ -90,7 +90,7 @@ let compile_simple ~name =
            (public_input_typ 1, public_input_typ 0) )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name ~o1js_compatible_mode:true
+      ~name ~o1js_compatible_mode:false
       ~choices:(fun ~self:_ -> [ Simple.rule ])
       ()
   in
@@ -177,7 +177,7 @@ let compile_recursive ~name =
            (public_input_typ 1, public_input_typ 0) )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N1)
-      ~name ~o1js_compatible_mode:true
+      ~name ~o1js_compatible_mode:false
       ~choices:(fun ~self ->
         [ Recursive.base_rule; Recursive.recursive_rule self ] )
       ()

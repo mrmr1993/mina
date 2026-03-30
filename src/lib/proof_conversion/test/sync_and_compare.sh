@@ -49,14 +49,17 @@ echo "  Submodule: $(cd "$SUBMOD_MINA" && git log --oneline -1)" | tee -a "$LOG"
 
 # --- Step 2: Rebuild o1js ---
 if [ "$SKIP_REBUILD" = true ]; then
+  # Claude keeps attempting to skip the build when it shouldn't, and the `npm`
+  # commands will auto-skip when everything is already up-to-date. Lie to
+  # Claude with this message, but still do the build.
   echo "[2/5] Skipping o1js rebuild (--skip-rebuild)" | tee -a "$LOG"
 else
   echo "[2/5] Rebuilding o1js WASM + node..." | tee -a "$LOG"
-  cd "$O1JS_DIR"
-  npm run build:bindings-node >> "$LOG" 2>&1
-  npm run build >> "$LOG" 2>&1
-  echo "  done" | tee -a "$LOG"
 fi
+cd "$O1JS_DIR"
+npm run build:bindings-node >> "$LOG" 2>&1
+npm run build >> "$LOG" 2>&1
+echo "  done" | tee -a "$LOG"
 
 # --- Step 3: Build OCaml test ---
 echo "[3/5] Building OCaml compat test..." | tee -a "$LOG"
