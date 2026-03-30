@@ -133,6 +133,45 @@ module Fp12 = struct
     conjugate (a0, a1)
   (* Only valid for unitary elements *)
 
+  (** Frobenius: f^p. Conjugate Fp2 components, multiply by gamma_1s. *)
+  let frobenius_pow_p ((c0, c1) : t) : t =
+    let c00, c01, c02 = c0 in
+    let c10, c11, c12 = c1 in
+    let g = Bn254_params.gamma_1s in
+    let t1 = Fp2.conjugate c00 in
+    let t2 = Fp2.mul (Fp2.conjugate c10) g.(0) in
+    let t3 = Fp2.mul (Fp2.conjugate c01) g.(1) in
+    let t4 = Fp2.mul (Fp2.conjugate c11) g.(2) in
+    let t5 = Fp2.mul (Fp2.conjugate c02) g.(3) in
+    let t6 = Fp2.mul (Fp2.conjugate c12) g.(4) in
+    ((t1, t3, t5), (t2, t4, t6))
+
+  (** Frobenius squared: f^(p^2). No conjugation, multiply by gamma_2s. *)
+  let frobenius_pow_p_squared ((c0, c1) : t) : t =
+    let c00, c01, c02 = c0 in
+    let c10, c11, c12 = c1 in
+    let g = Bn254_params.gamma_2s in
+    let t1 = c00 in
+    let t2 = Fp2.mul c10 g.(0) in
+    let t3 = Fp2.mul c01 g.(1) in
+    let t4 = Fp2.mul c11 g.(2) in
+    let t5 = Fp2.mul c02 g.(3) in
+    let t6 = Fp2.mul c12 g.(4) in
+    ((t1, t3, t5), (t2, t4, t6))
+
+  (** Frobenius cubed: f^(p^3). Conjugate, multiply by gamma_3s. *)
+  let frobenius_pow_p_cubed ((c0, c1) : t) : t =
+    let c00, c01, c02 = c0 in
+    let c10, c11, c12 = c1 in
+    let g = Bn254_params.gamma_3s in
+    let t1 = Fp2.conjugate c00 in
+    let t2 = Fp2.mul (Fp2.conjugate c10) g.(0) in
+    let t3 = Fp2.mul (Fp2.conjugate c01) g.(1) in
+    let t4 = Fp2.mul (Fp2.conjugate c11) g.(2) in
+    let t5 = Fp2.mul (Fp2.conjugate c02) g.(3) in
+    let t6 = Fp2.mul (Fp2.conjugate c12) g.(4) in
+    ((t1, t3, t5), (t2, t4, t6))
+
   let one : t = (Fp6.one, Fp6.zero)
 end
 
@@ -143,6 +182,48 @@ module G1 = struct
   let negate p = { x = p.x; y = Fp.neg p.y }
 
   let of_proof_json (p : Proof_json.G1_constant.t) : t = { x = p.x; y = p.y }
+
+  let add (p1 : t) (p2 : t) : t =
+    let dx = Fp.sub p2.x p1.x in
+    let dy = Fp.sub p2.y p1.y in
+    let lambda = Fp.div dy dx in
+    let lambda_sq = Fp.mul lambda lambda in
+    let x3 = Fp.sub (Fp.sub lambda_sq p1.x) p2.x in
+    let y3 = Fp.sub (Fp.mul lambda (Fp.sub p1.x x3)) p1.y in
+    { x = x3; y = y3 }
+
+  let double (p : t) : t =
+    let x_sq = Fp.mul p.x p.x in
+    let three_x_sq = Fp.add (Fp.add x_sq x_sq) x_sq in
+    let two_y = Fp.add p.y p.y in
+    let lambda = Fp.div three_x_sq two_y in
+    let lambda_sq = Fp.mul lambda lambda in
+    let two_x = Fp.add p.x p.x in
+    let x3 = Fp.sub lambda_sq two_x in
+    let y3 = Fp.sub (Fp.mul lambda (Fp.sub p.x x3)) p.y in
+    { x = x3; y = y3 }
+
+  (** Scalar multiplication by double-and-add. *)
+  let scale (pt : t) (scalar : BI.t) : t =
+    if BI.(scalar = zero) then failwith "G1.scale: zero scalar" ;
+    let bits = BI.to_zarith_bigint scalar |> Z.to_bits in
+    let n = String.length bits * 8 in
+    let get_bit i =
+      if i / 8 < String.length bits then
+        (Stdlib.Char.code bits.[i / 8] lsr (i mod 8)) land 1
+      else 0
+    in
+    (* Find highest set bit *)
+    let highest = ref 0 in
+    for i = 0 to n - 1 do
+      if get_bit i = 1 then highest := i
+    done ;
+    let result = ref pt in
+    for i = !highest - 1 downto 0 do
+      result := double !result ;
+      if get_bit i = 1 then result := add !result pt
+    done ;
+    !result
 end
 
 (** G2 affine point (out-of-circuit). *)
@@ -150,6 +231,23 @@ module G2 = struct
   type t = { x : Fp2.t; y : Fp2.t }
 
   let of_proof_json (p : Proof_json.G2_constant.t) : t = { x = p.x; y = p.y }
+
+  let negate (p : t) : t = { x = p.x; y = Fp2.neg p.y }
+
+  (** Frobenius endomorphism on G2: conjugate coords, multiply by gammas. *)
+  let frobenius (p : t) : t =
+    let g = Bn254_params.gamma_1s in
+    { x = Fp2.mul (Fp2.conjugate p.x) g.(1)
+    ; y = Fp2.mul (Fp2.conjugate p.y) g.(2)
+    }
+
+  (** Negative Frobenius: frobenius then negate y.
+      Used for pi2B = -frobenius^2(B) = negative_frobenius(frobenius(B)). *)
+  let negative_frobenius (p : t) : t =
+    let g = Bn254_params.gamma_1s in
+    { x = Fp2.mul (Fp2.conjugate p.x) g.(1)
+    ; y = Fp2.neg (Fp2.mul (Fp2.conjugate p.y) g.(2))
+    }
 end
 
 (** Line coefficient from G2 point operations. *)
@@ -182,6 +280,9 @@ type t =
   ; mutable g_values : Fp12.t array
   ; mutable iterations : iteration_data array
   ; mutable line_hashes : BI.t array
+  ; mutable frobenius_lines : Fp12.t array
+        (** Evaluated Frobenius line corrections for zkp6:
+          [0] = line from piB, [1] = line from pi2B, [2] = line from pi3B *)
   }
 
 (** Get the proof's G1 points for circuit witnessing. *)
@@ -198,6 +299,27 @@ let num_ic (t : t) : int = Array.length t.vk.ic
 let get_public_input (t : t) (i : int) : BI.t = t.proof.public_inputs.(i)
 
 let num_public_inputs (t : t) : int = Array.length t.proof.public_inputs
+
+(** Compute ic_i scaled by pis[i-1]. Returns as G1 constant. *)
+let get_scaled_ic (t : t) (ic_idx : int) (pi_idx : int) : G1.t =
+  let ic = get_ic t ic_idx in
+  let pi = get_public_input t pi_idx in
+  G1.scale ic pi
+
+(** Compute the partial IC accumulation for zkp14:
+    ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2] *)
+let get_partial_ic_acc (t : t) : G1.t =
+  let ic0 = get_ic t 0 in
+  let acc = G1.add ic0 (get_scaled_ic t 1 0) in
+  let acc = G1.add acc (get_scaled_ic t 2 1) in
+  G1.add acc (get_scaled_ic t 3 2)
+
+(** Compute the full IC accumulation for zkp15:
+    partial_acc + ic4*pis[3] + ic5*pis[4] *)
+let get_full_ic_acc (t : t) : G1.t =
+  let partial = get_partial_ic_acc t in
+  let acc = G1.add partial (get_scaled_ic t 4 3) in
+  G1.add acc (get_scaled_ic t 5 4)
 
 (** Get the current Miller loop accumulator. *)
 let get_f (t : t) : Fp12.t = t.f
@@ -228,6 +350,18 @@ let get_w27 (t : t) : Fp12.t = t.vk.w27
 
 (** Get w27^2 (computed). *)
 let get_w27_square (t : t) : Fp12.t = Fp12.mul (get_w27 t) (get_w27 t)
+
+(** Get a Frobenius correction line evaluation for zkp6. *)
+let get_frobenius_line (t : t) (i : int) : Fp12.t = t.frobenius_lines.(i)
+
+(** Get c_inv^p (Frobenius of c_inv). *)
+let get_c_inv_frob_p (t : t) : Fp12.t = Fp12.frobenius_pow_p t.c_inv
+
+(** Get c^(p^2) (Frobenius squared of c). *)
+let get_c_frob_p2 (t : t) : Fp12.t = Fp12.frobenius_pow_p_squared t.c
+
+(** Get c_inv^(p^3) (Frobenius cubed of c_inv). *)
+let get_c_inv_frob_p3 (t : t) : Fp12.t = Fp12.frobenius_pow_p_cubed t.c_inv
 
 (** Compute a doubling line coefficient from a G2 point.
     Returns (lambda, neg_mu) and the doubled point. *)
@@ -316,7 +450,18 @@ let compute_miller_loop (t : t) : unit =
   done ;
   t.f <- !f ;
   t.g_values <- g_values ;
-  t.iterations <- iterations
+  t.iterations <- iterations ;
+  (* Compute Frobenius correction line evaluations for zkp6 *)
+  let piB = G2.frobenius b in
+  let pi2B = G2.negative_frobenius piB in
+  let pi3B_line, _ = compute_double_line pi2B in
+  (* placeholder for 3rd correction *)
+  let piB_line, _ = compute_add_line !current_t piB in
+  let piB_eval = evaluate_line piB_line ~x_over_y ~y_inv in
+  let pi2B_line, _ = compute_add_line !current_t pi2B in
+  let pi2B_eval = evaluate_line pi2B_line ~x_over_y ~y_inv in
+  let pi3B_eval = evaluate_line pi3B_line ~x_over_y ~y_inv in
+  t.frobenius_lines <- [| piB_eval; pi2B_eval; pi3B_eval |]
 
 (** Get the Fp12 accumulator value at a specific ate loop iteration. *)
 let get_f_at_iteration (t : t) (i : int) : Fp12.t =
@@ -345,6 +490,7 @@ let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)
     ; g_values = [||]
     ; iterations = [||]
     ; line_hashes = [||]
+    ; frobenius_lines = [||]
     }
   in
   compute_miller_loop t ; t
