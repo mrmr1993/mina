@@ -5,6 +5,10 @@
 
 module BI = Bignum_bigint
 
+(** Re-export constant types for witness_tracker access. *)
+module G1_constant = G1.Constant
+module G2_constant = G2.Constant
+
 (** Parse a bignum from a JSON string value. *)
 let bignum_of_json (j : Yojson.Safe.t) : Bignum_bigint.t =
   match j with
