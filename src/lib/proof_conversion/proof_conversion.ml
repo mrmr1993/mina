@@ -14,6 +14,8 @@ let public_input_typ = Circuit_utils.public_input_typ
 module Witness_tracker = Witness_tracker
 module Bn254_params = Bn254_params
 module Proof_json = Proof_json
+module Circuit_info = Circuit_info
+module Plonk_circuits = Plonk_circuits
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
