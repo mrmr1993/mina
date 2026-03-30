@@ -2,6 +2,7 @@
 
 (executable
  (name test_pickles_compat)
+ (modules test_pickles_compat)
  (libraries
   core_kernel
   pickles
@@ -11,6 +12,19 @@
   mina_base
   promise
   snarky.backendless)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
+
+(executable
+ (name test_tower_field)
+ (modules test_tower_field)
+ (libraries
+  core_kernel
+  proof_conversion
+  snarky_foreign_field
+  bignum.bigint)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

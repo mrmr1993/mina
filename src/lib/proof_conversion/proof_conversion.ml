@@ -10,6 +10,10 @@ let dummy_constraints = Circuit_utils.dummy_constraints
 
 let public_input_typ = Circuit_utils.public_input_typ
 
+(** Re-export key modules for external access. *)
+module Witness_tracker = Witness_tracker
+module Bn254_params = Bn254_params
+
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
   (** Human-readable name of the proof system (e.g. "groth16", "plonk"). *)
