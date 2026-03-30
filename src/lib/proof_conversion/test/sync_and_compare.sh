@@ -80,9 +80,10 @@ echo "[4/5] Dumping gate JSONs..."
 rm -rf "$OCAML_GATES" "$O1JS_GATES"
 mkdir -p "$OCAML_GATES" "$O1JS_GATES"
 
-# OCaml side
+# OCaml side (only run simple test by setting env to skip recursive)
 cd "$MINA_DIR"
-DUMP_PCS_GATES="$OCAML_GATES" dune exec src/lib/proof_conversion/test/test_pickles_compat.exe 2>&1 | grep "PCS" | head -6
+DUMP_PCS_GATES="$OCAML_GATES" SKIP_RECURSIVE=1 \
+  dune exec src/lib/proof_conversion/test/test_pickles_compat.exe 2>&1 | grep "PCS" | head -6
 
 # o1js side
 cd "$O1JS_DIR"

@@ -230,15 +230,19 @@ let () =
   then all_pass := false ;
 
   (* --- Recursive program (N1) --- *)
-  printf "\n[recursive-compat-test]\n" ;
-  printf "  Compiling... %!" ;
-  let recursive_hash = compile_recursive ~name:"recursive-compat-test" in
-  printf "done\n" ;
-  if
-    not
-      (check_vk ~name:"recursive" ~expected:expected_recursive_vk_hash
-         ~actual:recursive_hash )
-  then all_pass := false ;
+  ( match Stdlib.Sys.getenv_opt "SKIP_RECURSIVE" with
+  | Some _ ->
+      printf "\n[recursive-compat-test] SKIPPED (SKIP_RECURSIVE set)\n"
+  | None ->
+      printf "\n[recursive-compat-test]\n" ;
+      printf "  Compiling... %!" ;
+      let recursive_hash = compile_recursive ~name:"recursive-compat-test" in
+      printf "done\n" ;
+      if
+        not
+          (check_vk ~name:"recursive" ~expected:expected_recursive_vk_hash
+             ~actual:recursive_hash )
+      then all_pass := false ) ;
 
   if not !all_pass then (printf "\nFAILED\n" ; exit 1)
   else printf "\nAll compatibility checks passed.\n"
