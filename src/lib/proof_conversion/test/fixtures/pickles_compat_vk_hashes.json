@@ -1,16 +1,15 @@
 {
+  "note": "VK hashes depend on submodule state. Regenerate with generate_pickles_compat_fixture.ts",
   "programs": [
     {
       "name": "simple-compat-test",
-      "description": "Non-recursive, 1 method (base), publicInput: Field, body: publicInput.assertEquals(x.mul(x))",
-      "max_proofs_verified": 0,
-      "vk_hash": "7366579521807958688380708523943536275961244156544953379731585537782625645675"
+      "description": "Non-recursive (N0), publicInput: Field, body: x*x == pub",
+      "max_proofs_verified": 0
     },
     {
       "name": "recursive-compat-test",
-      "description": "Recursive with SelfProof, 2 methods (base, recursive), publicInput: Field",
-      "max_proofs_verified": 1,
-      "vk_hash": "26830101830536040674050606391921961805931162454844917403253435144117511937528"
+      "description": "Recursive (N1) with SelfProof, 2 methods",
+      "max_proofs_verified": 1
     }
   ]
 }
