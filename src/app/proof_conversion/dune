@@ -3,7 +3,7 @@
  (name main)
  (public_name mina-proof-conversion)
  (modes native)
- (libraries core core_unix)
+ (libraries core core_unix proof_conversion)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

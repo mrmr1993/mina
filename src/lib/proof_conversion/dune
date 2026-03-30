@@ -1,0 +1,19 @@
+(library
+ (name proof_conversion)
+ (public_name proof_conversion)
+ (libraries
+  core_kernel
+  pickles
+  pickles_types
+  kimchi_pasta
+  kimchi_pasta.basic
+  mina_base
+  promise
+  snarky.backendless
+  kimchi_backend_common
+  yojson
+  bignum.bigint)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))

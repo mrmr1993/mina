@@ -24,12 +24,15 @@ let () =
   if String.is_empty !output_path then (
     Arg.usage spec "Missing --output" ;
     exit 1 ) ;
-  ( match !proof_type with
-  | "groth16" ->
-      eprintf "Groth16 proof conversion: not yet implemented\n"
-  | "plonk" ->
-      eprintf "PLONK proof conversion: not yet implemented\n"
-  | other ->
-      eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
-      exit 1 ) ;
-  exit 1
+  let (module System : Proof_conversion.PROOF_SYSTEM) =
+    match !proof_type with
+    | "groth16" ->
+        (module Proof_conversion.Groth16)
+    | "plonk" ->
+        (module Proof_conversion.Plonk)
+    | other ->
+        eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
+        exit 1
+  in
+  printf "Converting %s proof: %s -> %s\n" System.name !input_path !output_path ;
+  System.convert ~input_path:!input_path ~output_path:!output_path
