@@ -1309,7 +1309,7 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
         f3
   in
   (* Match nori's assertMul order: finish y, finish xy, finish x (chained), assert_mul. *)
-  if !_ams_trace then _fmfi_trace := true ;
+  (* if !_ams_trace then _fmfi_trace := true ; *)
   ams_marker_ 4000 ;
   let y_val = finish_for_mul y in
   ams_marker_ 4001 ;
