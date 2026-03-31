@@ -5,6 +5,17 @@ module FF = Snarky_foreign_field.Foreign_field
 
 module G2Line = struct
   type t = { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
+
+  type constant = Fp2.Constant.t * Fp2.Constant.t
+
+  let typ : (t, constant) Pickles.Impls.Step.Typ.t =
+    Pickles.Impls.Step.Typ.transport
+      (Pickles.Impls.Step.Typ.tuple2 Fp2.Circuit.typ Fp2.Circuit.typ)
+      ~there:(fun (l, m) -> (l, m))
+      ~back:(fun (l, m) -> (l, m))
+    |> Pickles.Impls.Step.Typ.transport_var
+         ~there:(fun { lambda; neg_mu } -> (lambda, neg_mu))
+         ~back:(fun (lambda, neg_mu) -> { lambda; neg_mu })
 end
 
 module AffineCache = struct

@@ -80,12 +80,28 @@ let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits: witness accumulator, run iterations, output hash.
-         Tracks T point, verifies line assertions, updates g_digest. *)
+      (* Ate loop circuits: witness all private inputs up front (matching
+         nori's privateInputs: [Accumulator, Array(Field, N), Array(G2Line, 91)]),
+         then run iterations and output hash. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
+       let n_total = Array.length Bn254_params.ate_loop_count in
+       let lines_hashes =
+         Array.init n_total ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
+       let all_b_lines =
+         Array.init Ate_circuit.total_b_lines ~f:(fun i ->
+             Step.exists Lines.G2Line.typ ~compute:(fun () ->
+                 let line =
+                   (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
+                 in
+                 (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
+       in
        let f_updated, new_g_digest, t_updated =
-         Ate_circuit.build_from_acc acc ~circuit_index
+         Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
+           ~circuit_index
        in
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof
@@ -102,9 +118,24 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Matches nori's zkp6.ts. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
+       let n_total = Array.length Bn254_params.ate_loop_count in
+       let lines_hashes =
+         Array.init n_total ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
+       let all_b_lines =
+         Array.init Ate_circuit.total_b_lines ~f:(fun i ->
+             Step.exists Lines.G2Line.typ ~compute:(fun () ->
+                 let line =
+                   (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
+                 in
+                 (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
+       in
        (* Run ate loop iterations [59,65) with g_digest verification *)
        let f_after_ate, new_g_digest, t_after_ate =
-         Ate_circuit.build_from_acc acc ~circuit_index:6
+         Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
+           ~circuit_index:6
        in
        (* Verify c * c_inv = 1 *)
        let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
