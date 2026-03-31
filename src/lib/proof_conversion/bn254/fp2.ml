@@ -33,17 +33,31 @@ end
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =
   { c0 = FF.Field3.of_constant c0; c1 = FF.Field3.of_constant c1 }
 
+(** Fp2 add/sub: each component uses FF.add/sub (ForeignFieldAdd gate + RC),
+    then assertAlmostReduced for the weak bound check.
+    Matches nori's Fp2.fromUnreduced(FpA.assertAlmostReduced(c0, c1)). *)
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = FF.add a.c0 b.c0 ~f:p; c1 = FF.add a.c1 b.c1 ~f:p }
+  let c0 = FF.add a.c0 b.c0 ~f:p in
+  let c1 = FF.add a.c1 b.c1 ~f:p in
+  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
+  { c0; c1 }
 
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = FF.sub a.c0 b.c0 ~f:p; c1 = FF.sub a.c1 b.c1 ~f:p }
+  let c0 = FF.sub a.c0 b.c0 ~f:p in
+  let c1 = FF.sub a.c1 b.c1 ~f:p in
+  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
+  { c0; c1 }
 
 let neg (a : Circuit.t) : Circuit.t =
-  { c0 = FF.negate a.c0 ~f:p; c1 = FF.negate a.c1 ~f:p }
+  let c0 = FF.negate a.c0 ~f:p in
+  let c1 = FF.negate a.c1 ~f:p in
+  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
+  { c0; c1 }
 
 let conjugate (a : Circuit.t) : Circuit.t =
-  { c0 = a.c0; c1 = FF.negate a.c1 ~f:p }
+  let c1 = FF.negate a.c1 ~f:p in
+  FF.assert_almost_reduced [ c1 ] ~f:p ~skip_mrc:true ;
+  { c0 = a.c0; c1 }
 
 let _fp2_mul_trace = ref false
 
