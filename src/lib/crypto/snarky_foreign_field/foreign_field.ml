@@ -1426,6 +1426,10 @@ module FpC = struct
   let mul ~f (x : t) (y : t) : FpU.t = FpA.mul ~f (x :> FpA.t) (y :> FpA.t)
 
   (** Assert a value is canonical (< f) and return as FpC. *)
+  let assert_canonical_ (x : FpU.t) ~(f : Bignum_bigint.t) : t =
+    assert_less_than (FpU.to_field3 x) ~bound:f ;
+    of_fpa_unsafe (FpA.of_field3_unsafe (FpU.to_field3 x))
+
   let assert_canonical (x : FpA.t) ~(f : Bignum_bigint.t) : t =
     assert_less_than (FpA.to_field3 x) ~bound:f ;
     of_fpa_unsafe x

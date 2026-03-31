@@ -35,14 +35,7 @@ module AffineCache = struct
       (FF.FpA.mul ~f (y_inv :> FF.FpA.t) p.y :> FF.Field3.t)
       (FF.Field3.of_constant Bigint.one) ;
     let x_over_y = FF.FpC.mul ~f x_neg y_inv in
-    let x_over_y =
-      match FF.FpA.assert_almost_reduced [ x_over_y ] ~f ~skip_mrc:true () with
-      | [ a ] ->
-          a
-      | _ ->
-          failwith "make_cache"
-    in
-    let x_over_y = FF.FpC.assert_canonical x_over_y ~f in
+    let x_over_y = FF.FpC.assert_canonical_ x_over_y ~f in
     { y_inv; x_over_y }
 end
 
