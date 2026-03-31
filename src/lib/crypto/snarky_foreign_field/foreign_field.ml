@@ -7,6 +7,9 @@
     debugging artifacts removed. *)
 
 open Core_kernel
+
+(* Debug: set to true to inject Zero gate markers inside finish_for_mul_input *)
+let _fmfi_trace = ref false
 module Bignum_bigint = Bigint
 module Circuit = Kimchi_pasta_snarky_backend.Step_impl
 
@@ -1165,6 +1168,12 @@ module Sum = struct
               (fst c, snd c)
             in
             overflows.(i) <- overflow ;
+            if !_fmfi_trace then
+              Circuit.assert_
+                (Raw
+                   { kind = Zero ; values = [||]
+                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8001;1;2;3;4;5;6|]
+                   } ) ;
             (* Constrain carry to {0, 1, -1}: carry*(carry²-1) = 0.
                Emit a single Generic gate with both half-generics:
                Left: carry * carry - carry = z  (bilinear)
@@ -1198,6 +1207,12 @@ module Sum = struct
                       ; Circuit.Field.Constant.zero
                      |]
                  } ) ;
+            if !_fmfi_trace then
+              Circuit.assert_
+                (Raw
+                   { kind = Zero ; values = [||]
+                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8002;1;2;3;4;5;6|]
+                   } ) ;
             (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
             let sign_field = bignum_to_field_const sign_bi in
             let f0_field = bignum_to_field_const f0 in
@@ -1210,7 +1225,19 @@ module Sum = struct
                 - (carry * constant two_l_field))
             in
             x0 := to_var x0_expr ;
-            x0s.(i) <- !x0 ) ;
+            x0s.(i) <- !x0 ;
+            if !_fmfi_trace then
+              Circuit.assert_
+                (Raw
+                   { kind = Zero ; values = [||]
+                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8003;1;2;3;4;5;6|]
+                   } ) ) ;
+        if !_fmfi_trace then
+          Circuit.assert_
+            (Raw
+               { kind = Zero ; values = [||]
+               ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8004;1;2;3;4;5;6|]
+               } ) ;
         (* ForeignFieldAdd chain — assert equality via wiring.
            The assertEqual calls produce half-generics that pair with
            each other and with the toVar half-generic above. *)
@@ -1221,7 +1248,13 @@ module Sum = struct
             let r0, _, _ = r in
             Circuit.assert_ (Equal (r0, x0s.(i))) ;
             Circuit.assert_ (Equal (overflow, overflows.(i))) ;
-            result := r ) ;
+            result := r ;
+            if !_fmfi_trace then
+              Circuit.assert_
+                (Raw
+                   { kind = Zero ; values = [||]
+                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8005;1;2;3;4;5;6|]
+                   } ) ) ;
         ( if not t.chained then
           let r0, r1, r2 = !result in
           Circuit.assert_
@@ -1275,9 +1308,8 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     | Field3_input f3 ->
         f3
   in
-  (* Match nori's assertMul order: finish y, finish xy, finish x (chained), assert_mul.
-     x is chained: its last FFAdd connects directly to the FFMul gate
-     without an intervening Zero gate. *)
+  (* Match nori's assertMul order: finish y, finish xy, finish x (chained), assert_mul. *)
+  if !_ams_trace then _fmfi_trace := true ;
   ams_marker_ 4000 ;
   let y_val = finish_for_mul y in
   ams_marker_ 4001 ;
