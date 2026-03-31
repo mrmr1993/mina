@@ -6,6 +6,15 @@ module Step = Pickles.Impls.Step
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
 let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
 
+let marker id =
+  Step.assert_
+    (Raw
+       { kind = Zero
+       ; values = [||]
+       ; coeffs =
+           Array.map ~f:Step.Field.Constant.of_int [| id; 1; 2; 3; 4; 5; 6 |]
+       } )
+
 let mark_typ before after (Typ typ : _ Step.Typ.t) : _ Step.Typ.t =
   Typ
     { typ with
