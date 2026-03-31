@@ -106,25 +106,60 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Verify c * c_inv = 1 *)
        let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
        Fp12.assert_one product ;
-       (* Frobenius corrections: line evaluations from piB, pi2B, pi3B *)
-       let frobenius_line_piB =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_frobenius_line (Circuit_config.get_tracker ()) 0 )
+       (* Frobenius corrections: compute piB and pi2B in-circuit from B.
+          Matches nori's zkp6: piB = B.frobenius(), pi2B = piB.negative_frobenius() *)
+       let piB = G2.frobenius acc.proof.b in
+       let pi2B = G2.negative_frobenius piB in
+       (* Witness the Frobenius b_lines (lambda, neg_mu) and assert they
+          pass through the correct points. The T point comes from the
+          ate loop state (carried in accumulator). *)
+       let t_point = acc.state.t_point in
+       let frob_b_line1 =
+         { Lines.G2Line.lambda =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 (WT.get_frobenius_b_line tracker 0).lambda )
+         ; neg_mu =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 (WT.get_frobenius_b_line tracker 0).neg_mu )
+         }
        in
-       let frobenius_g = frobenius_line_piB in
-       let f = Fp12.mul f_after_ate frobenius_line_piB in
-       let frobenius_line_pi2B =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_frobenius_line (Circuit_config.get_tracker ()) 1 )
+       Lines.assert_is_line frob_b_line1 t_point piB ;
+       let cache : Lines.AffineCache.t =
+         { x_over_y =
+             Step.exists FF.Field3.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 let neg_a = WT.get_neg_a tracker in
+                 fst (WT.compute_affine_cache neg_a) )
+         ; y_inv =
+             Step.exists FF.Field3.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 let neg_a = WT.get_neg_a tracker in
+                 snd (WT.compute_affine_cache neg_a) )
+         }
        in
-       let frobenius_g = Fp12.mul frobenius_g frobenius_line_pi2B in
-       let f = Fp12.mul f frobenius_line_pi2B in
-       let frobenius_line_pi3B =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_frobenius_line (Circuit_config.get_tracker ()) 2 )
+       let frobenius_g = Lines.eval_to_fp12 frob_b_line1 cache in
+       let f = Fp12.mul f_after_ate frobenius_g in
+       let t_point =
+         Lines.add_from_line t_point ~lambda:frob_b_line1.lambda piB
        in
-       let frobenius_g = Fp12.mul frobenius_g frobenius_line_pi3B in
-       let f = Fp12.mul f frobenius_line_pi3B in
+       let frob_b_line2 =
+         { Lines.G2Line.lambda =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 (WT.get_frobenius_b_line tracker 1).lambda )
+         ; neg_mu =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 let tracker = Circuit_config.get_tracker () in
+                 (WT.get_frobenius_b_line tracker 1).neg_mu )
+         }
+       in
+       Lines.assert_is_line frob_b_line2 t_point pi2B ;
+       let frobenius_g2 = Lines.eval_to_fp12 frob_b_line2 cache in
+       let frobenius_g = Fp12.mul frobenius_g frobenius_g2 in
+       let f = Fp12.mul f frobenius_g2 in
+       ignore (t_point : G2.Circuit.t) ;
        (* Update g_digest: hash frobenius_g into position 64.
           The ate loop already updated positions [58..63] via build_from_acc.
           We need to re-witness lines_hashes to add the frobenius hash. *)

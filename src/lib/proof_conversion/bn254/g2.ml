@@ -33,6 +33,24 @@ let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
   let y3 = Fp2.sub (Fp2.mul lambda (Fp2.sub p1.x x3)) p1.y in
   { x = x3; y = y3 }
 
+(** Frobenius endomorphism on G2: conjugate coords, multiply by gammas.
+    piB = (conj(B.x) * gamma_1s[1], conj(B.y) * gamma_1s[2])
+    Matches nori's G2Affine.frobenius(). *)
+let frobenius (pt : Circuit.t) : Circuit.t =
+  let g = Bn254_params.gamma_1s in
+  { x = Fp2.mul (Fp2.conjugate pt.x) (Fp2.of_constant g.(1))
+  ; y = Fp2.mul (Fp2.conjugate pt.y) (Fp2.of_constant g.(2))
+  }
+
+(** Negative Frobenius: frobenius then negate y.
+    pi2B = (conj(piB.x) * gamma_1s[1], -conj(piB.y) * gamma_1s[2])
+    Matches nori's G2Affine.negative_frobenius(). *)
+let negative_frobenius (pt : Circuit.t) : Circuit.t =
+  let g = Bn254_params.gamma_1s in
+  { x = Fp2.mul (Fp2.conjugate pt.x) (Fp2.of_constant g.(1))
+  ; y = Fp2.neg (Fp2.mul (Fp2.conjugate pt.y) (Fp2.of_constant g.(2)))
+  }
+
 let double (pt : Circuit.t) : Circuit.t =
   let x_sq = Fp2.square pt.x in
   let three_x_sq = Fp2.add (Fp2.add x_sq x_sq) x_sq in
