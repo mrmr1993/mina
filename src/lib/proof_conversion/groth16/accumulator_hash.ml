@@ -9,7 +9,8 @@ module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 module Sponge = Pickles.Step_main_inputs.Sponge
 
-(** Hash a list of field elements using Poseidon sponge. *)
+(** Hash a list of field elements using Poseidon sponge.
+    Uses Poseidon.update (batch absorb) matching o1js Poseidon.hash(). *)
 let poseidon_hash (fields : Step.Field.t array) : Step.Field.t =
   let sponge = Sponge.create Pickles.Step_main_inputs.sponge_params in
   Array.iter fields ~f:(fun x -> Sponge.absorb sponge (`Field x)) ;

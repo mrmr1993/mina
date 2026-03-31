@@ -134,35 +134,56 @@ let typ : (Circuit.t, Constant.t) Step.Typ.t =
                            (unit, _) Snarky_backendless.H_list.t ) ->
       { proof; state } )
 
-(** Collect all field elements from the accumulator in nori's packing order.
-    This must exactly match the order that o1js's Provable.toFields produces
-    for the Accumulator struct. *)
-let to_fields (acc : Circuit.t) : Step.Field.t list =
-  let field3 (x : FF.Field3.t) =
+(** Convert the accumulator to a Random_oracle Chunked input,
+    matching o1js's Provable.toInput() for the Accumulator struct.
+
+    ForeignField limbs (88 bits each) are packed entries, not full fields.
+    This allows packToFields to combine two 88-bit limbs into one field,
+    reducing the hash input size from ~152 to ~102 fields. *)
+let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
+  let l = 88 in
+  (* Each Field3 limb becomes a packed (field, 88) entry *)
+  let field3_packed (x : FF.Field3.t) =
     let l0, l1, l2 = x in
-    [ l0; l1; l2 ]
+    [| (l0, l); (l1, l); (l2, l) |]
   in
-  let fp2 (x : Fp2.Circuit.t) = field3 x.c0 @ field3 x.c1 in
-  let g1 (x : G1.Circuit.t) = field3 x.x @ field3 x.y in
-  let g2 (x : G2.Circuit.t) = fp2 x.x @ fp2 x.y in
-  let fp6 (x : Fp6.Circuit.t) = fp2 x.c0 @ fp2 x.c1 @ fp2 x.c2 in
-  let fp12 (x : Fp12.Circuit.t) = fp6 x.c0 @ fp6 x.c1 in
+  let fp2_packed (x : Fp2.Circuit.t) =
+    Array.concat [ field3_packed x.c0; field3_packed x.c1 ]
+  in
+  let g1_packed (x : G1.Circuit.t) =
+    Array.concat [ field3_packed x.x; field3_packed x.y ]
+  in
+  let g2_packed (x : G2.Circuit.t) =
+    Array.concat [ fp2_packed x.x; fp2_packed x.y ]
+  in
+  let fp6_packed (x : Fp6.Circuit.t) =
+    Array.concat [ fp2_packed x.c0; fp2_packed x.c1; fp2_packed x.c2 ]
+  in
+  let fp12_packed (x : Fp12.Circuit.t) =
+    Array.concat [ fp6_packed x.c0; fp6_packed x.c1 ]
+  in
   let p = acc.proof in
   let s = acc.state in
-  List.concat
-    [ g1 p.neg_a
-    ; g2 p.b
-    ; g1 p.c
-    ; g1 p.pi
-    ; fp12 p.c_fp12
-    ; fp12 p.c_inv
-    ; [ p.shift_power ]
-    ; g2 s.t_point
-    ; fp12 s.f
-    ; [ s.g_digest ]
-    ]
+  let packeds =
+    Array.concat
+      [ g1_packed p.neg_a
+      ; g2_packed p.b
+      ; g1_packed p.c
+      ; g1_packed p.pi
+      ; fp12_packed p.c_fp12
+      ; fp12_packed p.c_inv
+      ; [| (p.shift_power, Step.Field.size_in_bits) |]
+      ; g2_packed s.t_point
+      ; fp12_packed s.f
+      ; [| (s.g_digest, Step.Field.size_in_bits) |]
+      ]
+  in
+  { field_elements = [||]; packeds }
 
-(** Hash the accumulator using Poseidon, matching nori's
-    Poseidon.hashPacked(Accumulator, acc). *)
+(** Hash the accumulator using Poseidon with packing, matching nori's
+    Poseidon.hashPacked(Accumulator, acc).
+    Uses Random_oracle.Checked.pack_input + hash. *)
 let hash (acc : Circuit.t) : Step.Field.t =
-  Accumulator_hash.poseidon_hash (Array.of_list (to_fields acc))
+  let input = to_input acc in
+  let packed_fields = Random_oracle.Checked.pack_input input in
+  Random_oracle.Checked.hash packed_fields
