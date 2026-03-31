@@ -126,37 +126,59 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          }
        in
        Lines.assert_is_line frob_b_line1 t_point piB ;
-       let cache : Lines.AffineCache.t =
+       (* Witness all 3 affine caches *)
+       let witness_cache get_pt : Lines.AffineCache.t =
          { x_over_y =
              Step.exists FF.Field3.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 let neg_a = WT.get_neg_a tracker in
-                 fst (WT.compute_affine_cache neg_a) )
+                 fst
+                   (WT.compute_affine_cache
+                      (get_pt (Circuit_config.get_tracker ())) ) )
          ; y_inv =
              Step.exists FF.Field3.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 let neg_a = WT.get_neg_a tracker in
-                 snd (WT.compute_affine_cache neg_a) )
+                 snd
+                   (WT.compute_affine_cache
+                      (get_pt (Circuit_config.get_tracker ())) ) )
          }
        in
-       let frobenius_g = Lines.eval_to_fp12 frob_b_line1 cache in
+       let a_cache = witness_cache WT.get_neg_a in
+       let c_cache = witness_cache WT.get_c in
+       let pi_cache = witness_cache (fun t -> WT.get_pi t) in
+       (* Witness delta and gamma Frobenius lines *)
+       let witness_frob_line get i : Lines.G2Line.t =
+         { lambda =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 (get (Circuit_config.get_tracker ()) i).WT.Line.lambda )
+         ; neg_mu =
+             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+                 (get (Circuit_config.get_tracker ()) i).WT.Line.neg_mu )
+         }
+       in
+       let frob_delta1 = witness_frob_line WT.get_frobenius_delta_line 0 in
+       let frob_gamma1 = witness_frob_line WT.get_frobenius_gamma_line 0 in
+       (* 3-party evaluation: b at negA, delta at C, gamma at PI *)
+       let frobenius_g = Lines.eval_to_fp12 frob_b_line1 a_cache in
+       let frobenius_g =
+         Fp12.mul frobenius_g (Lines.eval_to_fp12 frob_delta1 c_cache)
+       in
+       let frobenius_g =
+         Fp12.mul frobenius_g (Lines.eval_to_fp12 frob_gamma1 pi_cache)
+       in
        let f = Fp12.mul f_after_ate frobenius_g in
        let t_point =
          Lines.add_from_line t_point ~lambda:frob_b_line1.lambda piB
        in
-       let frob_b_line2 =
-         { Lines.G2Line.lambda =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 (WT.get_frobenius_b_line tracker 1).lambda )
-         ; neg_mu =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 (WT.get_frobenius_b_line tracker 1).neg_mu )
-         }
-       in
+       (* Second Frobenius correction: pi2B *)
+       let frob_b_line2 = witness_frob_line WT.get_frobenius_b_line 1 in
+       let frob_delta2 = witness_frob_line WT.get_frobenius_delta_line 1 in
+       let frob_gamma2 = witness_frob_line WT.get_frobenius_gamma_line 1 in
        Lines.assert_is_line frob_b_line2 t_point pi2B ;
-       let frobenius_g2 = Lines.eval_to_fp12 frob_b_line2 cache in
+       let frobenius_g2 = Lines.eval_to_fp12 frob_b_line2 a_cache in
+       let frobenius_g2 =
+         Fp12.mul frobenius_g2 (Lines.eval_to_fp12 frob_delta2 c_cache)
+       in
+       let frobenius_g2 =
+         Fp12.mul frobenius_g2 (Lines.eval_to_fp12 frob_gamma2 pi_cache)
+       in
        let frobenius_g = Fp12.mul frobenius_g frobenius_g2 in
        let f = Fp12.mul f frobenius_g2 in
        ignore (t_point : G2.Circuit.t) ;

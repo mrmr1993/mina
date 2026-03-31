@@ -291,8 +291,12 @@ type t =
         (** Evaluated Frobenius line corrections for zkp6:
           [0] = line from piB, [1] = line from pi2B, [2] = line from pi3B *)
   ; mutable frobenius_b_lines : Line.t array
-        (** Line coefficients (lambda, neg_mu) for Frobenius corrections:
+        (** B-line coefficients for Frobenius:
           [0] = line through (T, piB), [1] = line through (T', pi2B) *)
+  ; mutable frobenius_delta_lines : Line.t array
+        (** Delta-line coefficients for Frobenius (from VK delta G2 point) *)
+  ; mutable frobenius_gamma_lines : Line.t array
+        (** Gamma-line coefficients for Frobenius (from VK gamma G2 point) *)
   }
 
 (** Get the proof's G1 points for circuit witnessing. *)
@@ -458,6 +462,14 @@ let get_frobenius_line (t : t) (i : int) : Fp12.t = t.frobenius_lines.(i)
 (** Get a Frobenius b_line (lambda, neg_mu) for zkp6 in-circuit computation. *)
 let get_frobenius_b_line (t : t) (i : int) : Line.t = t.frobenius_b_lines.(i)
 
+(** Get a Frobenius delta_line for zkp6. *)
+let get_frobenius_delta_line (t : t) (i : int) : Line.t =
+  t.frobenius_delta_lines.(i)
+
+(** Get a Frobenius gamma_line for zkp6. *)
+let get_frobenius_gamma_line (t : t) (i : int) : Line.t =
+  t.frobenius_gamma_lines.(i)
+
 (** Get c_inv^p (Frobenius of c_inv). *)
 let get_c_inv_frob_p (t : t) : Fp12.t = Fp12.frobenius_pow_p t.c_inv
 
@@ -609,15 +621,28 @@ let compute_miller_loop (t : t) : unit =
   t.t_point <- !current_t ;
   t.g_values <- g_values ;
   t.iterations <- iterations ;
-  (* Compute Frobenius correction line evaluations for zkp6 *)
+  (* Compute Frobenius correction line evaluations for zkp6.
+     Each of the 3 G2 trajectories (B, delta, gamma) gets Frobenius-mapped. *)
   let piB = G2.frobenius b in
   let pi2B = G2.negative_frobenius piB in
   let piB_line, t_after_piB = compute_add_line !current_t piB in
   let piB_eval = evaluate_line piB_line ~x_over_y ~y_inv in
   let pi2B_line, _t_after_pi2B = compute_add_line t_after_piB pi2B in
   let pi2B_eval = evaluate_line pi2B_line ~x_over_y ~y_inv in
+  (* Delta Frobenius lines *)
+  let pi_delta = G2.frobenius delta in
+  let pi2_delta = G2.negative_frobenius pi_delta in
+  let pi_delta_line, d_after = compute_add_line !current_delta pi_delta in
+  let pi2_delta_line, _ = compute_add_line d_after pi2_delta in
+  (* Gamma Frobenius lines *)
+  let pi_gamma = G2.frobenius gamma in
+  let pi2_gamma = G2.negative_frobenius pi_gamma in
+  let pi_gamma_line, g_after = compute_add_line !current_gamma pi_gamma in
+  let pi2_gamma_line, _ = compute_add_line g_after pi2_gamma in
   t.frobenius_lines <- [| piB_eval; pi2B_eval |] ;
-  t.frobenius_b_lines <- [| piB_line; pi2B_line |]
+  t.frobenius_b_lines <- [| piB_line; pi2B_line |] ;
+  t.frobenius_delta_lines <- [| pi_delta_line; pi2_delta_line |] ;
+  t.frobenius_gamma_lines <- [| pi_gamma_line; pi2_gamma_line |]
 
 (** Get the Fp12 accumulator value at a specific ate loop iteration. *)
 let get_f_at_iteration (t : t) (i : int) : Fp12.t =
@@ -648,6 +673,8 @@ let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)
     ; g_values = [||]
     ; iterations = [||]
     ; frobenius_b_lines = [||]
+    ; frobenius_delta_lines = [||]
+    ; frobenius_gamma_lines = [||]
     ; line_hashes = [||]
     ; frobenius_lines = [||]
     }
