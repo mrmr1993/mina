@@ -52,6 +52,16 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
     Array_list_hasher.open_ ~lhs:lhs_hashes ~opening:g_chunk ~rhs:rhs_hashes
   in
   Step.Field.Assert.equal acc.state.g_digest opening ;
+  Fp12._marker_fn :=
+    (fun x ->
+      Step.assert_
+        (Raw
+           { kind = Zero
+           ; values = [| Step.Field.zero; Step.Field.zero; Step.Field.zero |]
+           ; coeffs =
+               Array.map ~f:Step.Field.Constant.of_int
+                 [| x; 1; 2; 3; 4; 5; 6 |]
+           } ) ) ;
   let f = if circuit_index = 7 then acc.proof.c_inv else acc.state.f in
   let result = ref f in
   for i = 0 to n_iters - 1 do
