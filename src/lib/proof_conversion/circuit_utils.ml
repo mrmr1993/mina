@@ -6,6 +6,33 @@ module Step = Pickles.Impls.Step
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
 let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
 
+let mark_typ before after (Typ typ : _ Step.Typ.t) : _ Step.Typ.t =
+  Typ
+    { typ with
+      check =
+        (fun x ->
+          let open Step.Internal_Basic in
+          let%bind () =
+            assert_
+              (Raw
+                 { kind = Zero
+                 ; values = [||]
+                 ; coeffs =
+                     Array.map ~f:Step.Field.Constant.of_int
+                       [| before; 1; 2; 3; 4; 5; 6 |]
+                 } )
+          in
+          let%bind () = typ.check x in
+          assert_
+            (Raw
+               { kind = Zero
+               ; values = [||]
+               ; coeffs =
+                   Array.map ~f:Step.Field.Constant.of_int
+                     [| after; 1; 2; 3; 4; 5; 6 |]
+               } ) )
+    }
+
 (** Replicates the [dummy_constraints] function from o1js's pickles_bindings.ml. *)
 let dummy_constraints () =
   let open Step in
