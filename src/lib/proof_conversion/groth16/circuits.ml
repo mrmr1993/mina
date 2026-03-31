@@ -78,16 +78,16 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
       (* Ate loop circuits: witness accumulator, run iterations, output hash.
-         Verifies g_digest on entry, updates it with computed g values. *)
+         Tracks T point, verifies line assertions, updates g_digest. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
-       let f_updated, new_g_digest =
+       let f_updated, new_g_digest, t_updated =
          Ate_circuit.build_from_acc acc ~circuit_index
        in
-       (* TODO: update acc.state.T *)
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof
-         ; state = { acc.state with f = f_updated; g_digest = new_g_digest }
+         ; state =
+             { f = f_updated; g_digest = new_g_digest; t_point = t_updated }
          }
        in
        Accumulator.hash updated
@@ -100,7 +100,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
        (* Run ate loop iterations [59,65) with g_digest verification *)
-       let f_after_ate, new_g_digest =
+       let f_after_ate, new_g_digest, t_after_ate =
          Ate_circuit.build_from_acc acc ~circuit_index:6
        in
        (* Verify c * c_inv = 1 *)
@@ -113,7 +113,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Witness the Frobenius b_lines (lambda, neg_mu) and assert they
           pass through the correct points. The T point comes from the
           ate loop state (carried in accumulator). *)
-       let t_point = acc.state.t_point in
+       let t_point = t_after_ate in
        let frob_b_line1 =
          { Lines.G2Line.lambda =
              Step.exists Fp2.Circuit.typ ~compute:(fun () ->
