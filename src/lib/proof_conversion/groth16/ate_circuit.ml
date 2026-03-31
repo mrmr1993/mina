@@ -100,8 +100,8 @@ let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
     Returns (final_f, g_values, final_T). *)
 let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
     ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(begin_idx : int)
-    ~(end_idx : int) ~(b_lines : Lines.G2Line.t array) ~(caches : three_cache)
-    : Fp12.Circuit.t * Fp12.Circuit.t array * G2.Circuit.t =
+    ~(end_idx : int) ~(b_lines : Lines.G2Line.t array) ~(caches : three_cache) :
+    Fp12.Circuit.t * Fp12.Circuit.t array * G2.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
   let n = end_idx - begin_idx in
   let g_values = Array.create ~len:n Fp12.one in
@@ -120,12 +120,12 @@ let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
       witness_line (fun d -> d.WT.gamma_double_line) iter_idx
     in
     let add_line, delta_add, gamma_add =
-      if bit <> 0 then
+      if bit <> 0 then (
         let add_l = b_lines.(!line_cnt) in
         incr line_cnt ;
         ( Some add_l
         , Some (witness_opt_line (fun d -> d.WT.delta_add_line) iter_idx)
-        , Some (witness_opt_line (fun d -> d.WT.gamma_add_line) iter_idx) )
+        , Some (witness_opt_line (fun d -> d.WT.gamma_add_line) iter_idx) ) )
       else (None, None, None)
     in
     let new_f, g, new_t =
@@ -150,13 +150,14 @@ let b_line_count ~from ~to_ =
   let ate = Bn254_params.ate_loop_count in
   let n = ref 0 in
   for i = from to to_ - 1 do
-    n := !n + (if ate.(i) <> 0 then 2 else 1)
+    n := !n + if ate.(i) <> 0 then 2 else 1
   done ;
   !n
 
 (** Total B-lines across all ate iterations [1,65).
     Matches nori's Provable.Array(G2Line, 91). *)
-let total_b_lines = b_line_count ~from:1 ~to_:(Array.length Bn254_params.ate_loop_count)
+let total_b_lines =
+  b_line_count ~from:1 ~to_:(Array.length Bn254_params.ate_loop_count)
 
 (** B-line start offset in the flat array for a given circuit range. *)
 let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
@@ -166,40 +167,41 @@ let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
     (matching nori's privateInputs pattern).
     Returns (updated_f, updated_g_digest, updated_T). *)
 let build_from_acc (acc : Accumulator.Circuit.t)
-    ~(lines_hashes : Step.Field.t array)
-    ~(all_b_lines : Lines.G2Line.t array) ~(circuit_index : int) :
-    Fp12.Circuit.t * Step.Field.t * G2.Circuit.t =
+    ~(lines_hashes : Step.Field.t array) ~(all_b_lines : Lines.G2Line.t array)
+    ~(circuit_index : int) : Fp12.Circuit.t * Step.Field.t * G2.Circuit.t =
   assert (circuit_index >= 0 && circuit_index <= 6) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
   let f = acc.state.f in
   let t_point = acc.state.t_point in
   let b_point = acc.proof.b in
-  let neg_b = G2.negate b_point in
-  let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
-  let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
-    { x_over_y =
-        Step.exists fpa_typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            fst (WT.compute_affine_cache (get_pt tracker)) )
-    ; y_inv =
-        Step.exists fpa_typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            snd (WT.compute_affine_cache (get_pt tracker)) )
-    }
-  in
+  (* Verify lines_hashes against g_digest *)
+  let digest = Array_list_hasher.hash lines_hashes in
+  Step.Field.Assert.equal acc.state.g_digest digest ;
+  (* Slice the b_lines for this circuit's range *)
   let caches : three_cache =
+    let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
+    let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
+      { x_over_y =
+          Step.exists fpa_typ ~compute:(fun () ->
+              let tracker = Circuit_config.get_tracker () in
+              fst (WT.compute_affine_cache (get_pt tracker)) )
+      ; y_inv =
+          Step.exists fpa_typ ~compute:(fun () ->
+              let tracker = Circuit_config.get_tracker () in
+              snd (WT.compute_affine_cache (get_pt tracker)) )
+      }
+    in
     { a_cache = witness_cache WT.get_neg_a
     ; c_cache = witness_cache WT.get_c
     ; pi_cache = witness_cache (fun t -> WT.get_pi t)
     }
   in
-  (* Verify lines_hashes against g_digest *)
-  let digest = Array_list_hasher.hash lines_hashes in
-  Step.Field.Assert.equal acc.state.g_digest digest ;
-  (* Slice the b_lines for this circuit's range *)
-  let offset = b_line_offset ~begin_idx in
-  let count = b_line_count ~from:begin_idx ~to_:end_idx in
-  let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
+  let neg_b = G2.negate b_point in
+  let b_lines =
+    let offset = b_line_offset ~begin_idx in
+    let count = b_line_count ~from:begin_idx ~to_:end_idx in
+    Array.sub all_b_lines ~pos:offset ~len:count
+  in
   (* Run the ate loop chunk with T tracking *)
   let f_updated, g_values, t_updated =
     run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines ~caches
