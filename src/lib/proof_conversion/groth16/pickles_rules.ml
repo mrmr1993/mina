@@ -14,7 +14,9 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
   ; prevs = []
   ; main =
       (fun { public_input = pub } ->
-        Circuit_utils.dummy_constraints () ;
+        (* No dummy_constraints — nori's ZkProgram circuits don't inject them.
+           The EC gates (EndoMulScalar, VarBaseMul, EndoMul, CompleteAdd)
+           would add ~12 extra gates not present in the reference. *)
         (* pub is Field.t array of length 1 = [input_hash] *)
         let input_hash = pub.(0) in
         let output_hash = body input_hash in
