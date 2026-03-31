@@ -1010,10 +1010,13 @@ module Sum = struct
     { summands : Field3.t list
     ; ops : sign list
     ; mutable result : Field3.t option
+    ; chained : bool
+          (** When true, finish_for_mul_input skips the final Zero gate,
+            allowing the FFAdd to chain directly into the next FFMul. *)
     }
 
   let of_field3 (x : Field3.t) : t =
-    { summands = [ x ]; ops = []; result = None }
+    { summands = [ x ]; ops = []; result = None; chained = false }
 
   let add (t : t) (y : Field3.t) : t =
     assert (Option.is_none t.result) ;
@@ -1183,19 +1186,24 @@ module Sum = struct
                  ( z
                  , Circuit.Field.(carry + constant Circuit.Field.Constant.one)
                  , Circuit.Field.zero ) ) ;
-            (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
+            (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l
+               Use to_var to seal the linear combination, matching o1js toVar.
+               The seal + assertEqual calls produce half-generics that pair. *)
             let sign_field = bignum_to_field_const sign_bi in
             let f0_field = bignum_to_field_const f0 in
             let two_l_field = bignum_to_field_const two_to_limb in
-            x0 :=
-              seal
-                Circuit.Field.(
-                  !x0
-                  + (xi0 * constant sign_field)
-                  - (overflow * constant f0_field)
-                  - (carry * constant two_l_field)) ;
+            let x0_expr =
+              Circuit.Field.(
+                !x0
+                + (xi0 * constant sign_field)
+                - (overflow * constant f0_field)
+                - (carry * constant two_l_field))
+            in
+            x0 := to_var x0_expr ;
             x0s.(i) <- !x0 ) ;
-        (* ForeignFieldAdd chain with wired assertEquals *)
+        (* ForeignFieldAdd chain — assert equality via wiring.
+           The assertEqual calls produce half-generics that pair with
+           each other and with the toVar half-generic above. *)
         let result = ref (List.hd_exn xs) in
         List.iteri (List.tl_exn xs) ~f:(fun i xi ->
             let sign_i = List.nth_exn signs i in
@@ -1204,9 +1212,10 @@ module Sum = struct
             Circuit.assert_ (Equal (r0, x0s.(i))) ;
             Circuit.assert_ (Equal (overflow, overflows.(i))) ;
             result := r ) ;
-        let r0, r1, r2 = !result in
-        Circuit.assert_
-          (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
+        ( if not t.chained then
+          let r0, r1, r2 = !result in
+          Circuit.assert_
+            (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ) ;
         t.result <- Some !result ;
         !result
 end
@@ -1250,13 +1259,21 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     | Field3_input f3 ->
         f3
   in
-  (* Match nori's assertMul order: finish y, finish xy, then x+assert_mul *)
+  let finish_chained = function
+    | Sum_input s ->
+        Sum.finish_for_mul_input { s with chained = true } ~f
+    | Field3_input f3 ->
+        f3
+  in
+  (* Match nori's assertMul order: finish y, finish xy, finish x (chained), assert_mul.
+     x is chained: its last FFAdd connects directly to the FFMul gate
+     without an intervening Zero gate. *)
   ams_marker_ 4000 ;
   let y_val = finish_for_mul y in
   ams_marker_ 4001 ;
   let xy_val = finish_simple xy in
   ams_marker_ 4002 ;
-  let x_val = finish_for_mul x in
+  let x_val = finish_chained x in
   ams_marker_ 4003 ;
   assert_mul x_val y_val xy_val ~f ;
   ams_marker_ 4004 ;
