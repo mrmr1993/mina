@@ -55,32 +55,22 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
 (** Squaring using the Chung-Hasan SQ2 formula.
     More efficient than mul(a, a): uses 2 Fp6.mul instead of 3.
     Matches nori's Fp12.square(). *)
-let _marker_fn : (int -> unit) ref = ref (fun _ -> ())
-
 let square (a : Circuit.t) : Circuit.t =
-  !_marker_fn 7000 ;
   let c0 = Fp6.sub a.c0 a.c1 in
-  !_marker_fn 7001 ;
   let v1_shifted : Fp6.Circuit.t =
     { c0 = Fp6.mul_by_non_residue a.c1.c2; c1 = a.c1.c0; c2 = a.c1.c1 }
   in
-  !_marker_fn 7002 ;
   let c3 = Fp6.sub a.c0 v1_shifted in
-  !_marker_fn 7003 ;
   let c2 = Fp6.mul a.c0 a.c1 in
-  !_marker_fn 7004 ;
   let c0 = Fp6.add (Fp6.mul c0 c3) c2 in
-  !_marker_fn 7005 ;
   let two =
     Snarky_foreign_field.Foreign_field.FpA.of_constant (Bignum_bigint.of_int 2)
   in
   let c1 = Fp6.mul_by_fp c2 two in
-  !_marker_fn 7006 ;
   let c2_shifted : Fp6.Circuit.t =
     { c0 = Fp6.mul_by_non_residue c2.c2; c1 = c2.c0; c2 = c2.c1 }
   in
   let c0 = Fp6.add c0 c2_shifted in
-  !_marker_fn 7007 ;
   { c0; c1 }
 
 (** Conjugate: (a0 + a1*w)* = a0 - a1*w *)

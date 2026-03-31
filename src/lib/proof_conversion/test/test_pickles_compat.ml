@@ -44,18 +44,6 @@ let dummy_constraints () =
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
 let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
 
-(** Inject a Zero gate marker with coefficients [x, 1, 2, 3, 4, 5, 6]
-    where x is a unique identifier. These markers show up in gate dumps
-    and make it easy to locate corresponding positions between OCaml and
-    o1js circuit compilations. *)
-let _marker (x : int) =
-  Step.assert_
-    (Raw
-       { kind = Zero
-       ; values = [||]
-       ; coeffs =
-           Array.map ~f:Step.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
-       } )
 
 (* ------------------------------------------------------------------ *)
 (* Test 1: Non-recursive program (max_proofs_verified = N0)            *)
