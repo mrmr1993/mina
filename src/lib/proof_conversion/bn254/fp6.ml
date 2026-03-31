@@ -38,28 +38,39 @@ let neg (a : Circuit.t) : Circuit.t =
 
 (** Fp6 multiplication using Karatsuba (6 Fp2.mul instead of 9).
     Matches nori's Fp6.mul exactly. *)
+let _marker_fn : (int -> unit) ref = ref (fun _ -> ())
+
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+  !_marker_fn 7200 ;
   let t0 = Fp2.mul a.c0 b.c0 in
+  !_marker_fn 7201 ;
   let t1 = Fp2.mul a.c1 b.c1 in
+  !_marker_fn 7202 ;
   let t2 = Fp2.mul a.c2 b.c2 in
+  !_marker_fn 7203 ;
   let a1_a2 = Fp2.add a.c1 a.c2 in
   let a0_a1 = Fp2.add a.c0 a.c1 in
   let a0_a2 = Fp2.add a.c0 a.c2 in
   let b1_b2 = Fp2.add b.c1 b.c2 in
   let b0_b1 = Fp2.add b.c0 b.c1 in
   let b0_b2 = Fp2.add b.c0 b.c2 in
+  !_marker_fn 7204 ;
   let open Snarky_foreign_field.Foreign_field in
   (* c0 = ((a1+a2)(b1+b2) - t1 - t2) * xi + t0 *)
   let c0_inner = Fp2.sum [ Fp2.mul a1_a2 b1_b2; t1; t2 ] [ Sub; Sub ] in
+  !_marker_fn 7205 ;
   let c0 = Fp2.add (mul_by_non_residue c0_inner) t0 in
+  !_marker_fn 7206 ;
   (* c1 = (a0+a1)(b0+b1) - t0 - t1 + t2*xi *)
   let c1 =
     Fp2.sum
       [ Fp2.mul a0_a1 b0_b1; t0; t1; mul_by_non_residue t2 ]
       [ Sub; Sub; Add ]
   in
+  !_marker_fn 7207 ;
   (* c2 = (a0+a2)(b0+b2) - t0 - t2 + t1 *)
   let c2 = Fp2.sum [ Fp2.mul a0_a2 b0_b2; t0; t2; t1 ] [ Sub; Sub; Add ] in
+  !_marker_fn 7208 ;
   { c0; c1; c2 }
 
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =

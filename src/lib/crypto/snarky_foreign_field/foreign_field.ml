@@ -589,13 +589,6 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
           bignum_to_field_const
             Bignum_bigint.(field_const_to_bignum v land limb_mask) )
     in
-    (* Zero gate matching o1js exists(3, ...) padding row *)
-    Circuit.assert_
-      (Raw
-         { kind = Zero
-         ; values = [| r0_trunc; r1_trunc; r2_trunc |]
-         ; coeffs = [||]
-         } ) ;
     multi_range_check (r0_trunc, r1_trunc, r2_trunc) ;
     Circuit.assert_ (Equal (r0, r0_trunc)) ;
     Circuit.assert_ (Equal (r1, r1_trunc)) ;
