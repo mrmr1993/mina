@@ -36,19 +36,32 @@ let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
 let neg (a : Circuit.t) : Circuit.t =
   { c0 = Fp2.neg a.c0; c1 = Fp2.neg a.c1; c2 = Fp2.neg a.c2 }
 
+(** Fp6 multiplication using Karatsuba (6 Fp2.mul instead of 9).
+    Matches nori's Fp6.mul exactly. *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  let a0b0 = Fp2.mul a.c0 b.c0 in
-  let a0b1 = Fp2.mul a.c0 b.c1 in
-  let a0b2 = Fp2.mul a.c0 b.c2 in
-  let a1b0 = Fp2.mul a.c1 b.c0 in
-  let a1b1 = Fp2.mul a.c1 b.c1 in
-  let a1b2 = Fp2.mul a.c1 b.c2 in
-  let a2b0 = Fp2.mul a.c2 b.c0 in
-  let a2b1 = Fp2.mul a.c2 b.c1 in
-  let a2b2 = Fp2.mul a.c2 b.c2 in
-  let c0 = Fp2.add a0b0 (mul_by_non_residue (Fp2.add a1b2 a2b1)) in
-  let c1 = Fp2.add (Fp2.add a0b1 a1b0) (mul_by_non_residue a2b2) in
-  let c2 = Fp2.add (Fp2.add a0b2 a1b1) a2b0 in
+  let t0 = Fp2.mul a.c0 b.c0 in
+  let t1 = Fp2.mul a.c1 b.c1 in
+  let t2 = Fp2.mul a.c2 b.c2 in
+  let a1_a2 = Fp2.add a.c1 a.c2 in
+  let a0_a1 = Fp2.add a.c0 a.c1 in
+  let a0_a2 = Fp2.add a.c0 a.c2 in
+  let b1_b2 = Fp2.add b.c1 b.c2 in
+  let b0_b1 = Fp2.add b.c0 b.c1 in
+  let b0_b2 = Fp2.add b.c0 b.c2 in
+  (* c0 = ((a1+a2)(b1+b2) - t1 - t2) * xi + t0 *)
+  let c0 =
+    Fp2.add
+      (mul_by_non_residue (Fp2.sub (Fp2.sub (Fp2.mul a1_a2 b1_b2) t1) t2))
+      t0
+  in
+  (* c1 = (a0+a1)(b0+b1) - t0 - t1 + t2*xi *)
+  let c1 =
+    Fp2.add
+      (Fp2.sub (Fp2.sub (Fp2.mul a0_a1 b0_b1) t0) t1)
+      (mul_by_non_residue t2)
+  in
+  (* c2 = (a0+a2)(b0+b2) - t0 - t2 + t1 *)
+  let c2 = Fp2.add (Fp2.sub (Fp2.sub (Fp2.mul a0_a2 b0_b2) t0) t2) t1 in
   { c0; c1; c2 }
 
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
