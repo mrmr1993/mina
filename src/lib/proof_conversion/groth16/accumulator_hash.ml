@@ -22,22 +22,27 @@ let hash_field3_list (xs : FF.Field3.t list) : Step.Field.t =
   let fields = List.concat_map xs ~f:(fun (l0, l1, l2) -> [ l0; l1; l2 ]) in
   poseidon_hash (Array.of_list fields)
 
-(** Hash an Fp12 value (12 Fp2 components = 36 field elements). *)
+(** Hash an Fp12 value using packed Poseidon, matching
+    o1js Poseidon.hashPacked(Fp12, x).
+    Each Field3 limb (88 bits) is a packed entry; two pack into one field. *)
 let hash_fp12 (x : Fp12.Circuit.t) : Step.Field.t =
-  hash_field3_list
-    [ x.c0.c0.c0
-    ; x.c0.c0.c1
-    ; x.c0.c1.c0
-    ; x.c0.c1.c1
-    ; x.c0.c2.c0
-    ; x.c0.c2.c1
-    ; x.c1.c0.c0
-    ; x.c1.c0.c1
-    ; x.c1.c1.c0
-    ; x.c1.c1.c1
-    ; x.c1.c2.c0
-    ; x.c1.c2.c1
-    ]
+  let l = 88 in
+  let field3_packed (f3 : FF.Field3.t) =
+    let l0, l1, l2 = f3 in
+    [| (l0, l); (l1, l); (l2, l) |]
+  in
+  let fp2_packed (fp2 : Fp2.Circuit.t) =
+    Array.concat [ field3_packed fp2.c0; field3_packed fp2.c1 ]
+  in
+  let fp6_packed (fp6 : Fp6.Circuit.t) =
+    Array.concat [ fp2_packed fp6.c0; fp2_packed fp6.c1; fp2_packed fp6.c2 ]
+  in
+  let packeds = Array.concat [ fp6_packed x.c0; fp6_packed x.c1 ] in
+  let input : Step.Field.t Random_oracle_input.Chunked.t =
+    { field_elements = [||]; packeds }
+  in
+  let packed_fields = Random_oracle.Checked.pack_input input in
+  Random_oracle.Checked.hash packed_fields
 
 (** Combine multiple hashes into a single hash. *)
 let combine_hashes (hashes : Step.Field.t list) : Step.Field.t =
