@@ -245,29 +245,27 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Accumulator_hash.poseidon_hash
            (Array.concat_map pis ~f:(fun (l0, l1, l2) -> [| l0; l1; l2 |]))
        in
-       (* Witness ic0 (base point) *)
+       (* Witness IC points from VK (constants) *)
        let ic0 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
              g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 0) )
        in
-       (* Witness each scaled IC point: ic_i * pis[i-1] *)
-       let scaled1 =
+       let ic1 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker
-               (WT.get_scaled_ic (Circuit_config.get_tracker ()) 1 0) )
+             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 1) )
        in
-       let scaled2 =
+       let ic2 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker
-               (WT.get_scaled_ic (Circuit_config.get_tracker ()) 2 1) )
+             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 2) )
        in
-       let scaled3 =
+       let ic3 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker
-               (WT.get_scaled_ic (Circuit_config.get_tracker ()) 3 2) )
+             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 3) )
        in
-       (* TODO: constrain scaled points via G1.scale(ic_i, pis[i-1]) *)
-       ignore (pis : FF.Field3.t array) ;
+       (* In-circuit scalar multiplication: ic_i * pis[i-1] *)
+       let scaled1 = G1.scale ic1 pis.(0) in
+       let scaled2 = G1.scale ic2 pis.(1) in
+       let scaled3 = G1.scale ic3 pis.(2) in
        (* In-circuit accumulation: ic0 + scaled1 + scaled2 + scaled3 *)
        let partial_acc = G1.add_nonzero ic0 scaled1 in
        let partial_acc = G1.add_nonzero partial_acc scaled2 in
@@ -308,17 +306,17 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Accumulator_hash.poseidon_hash [| pi_hash; pis_hash; acc_hash_input |]
        in
        Step.Field.Assert.equal input_hash expected_input ;
-       (* Witness remaining scaled IC points *)
-       let scaled4 =
+       (* In-circuit scalar multiplication for remaining IC points *)
+       let ic4 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker
-               (WT.get_scaled_ic (Circuit_config.get_tracker ()) 4 3) )
+             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 4) )
        in
-       let scaled5 =
+       let ic5 =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker
-               (WT.get_scaled_ic (Circuit_config.get_tracker ()) 5 4) )
+             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 5) )
        in
+       let scaled4 = G1.scale ic4 pis.(3) in
+       let scaled5 = G1.scale ic5 pis.(4) in
        (* Complete accumulation *)
        let full_acc = G1.add_nonzero partial_acc scaled4 in
        let full_acc = G1.add_nonzero full_acc scaled5 in
