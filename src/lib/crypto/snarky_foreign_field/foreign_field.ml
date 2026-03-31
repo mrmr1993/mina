@@ -1166,38 +1166,26 @@ module Sum = struct
             in
             overflows.(i) <- overflow ;
             (* Constrain carry to {0, 1, -1}: carry*(carry²-1) = 0.
-               Emit a single Generic gate with both half-generics:
-               Left: carry * carry - carry = z  (bilinear)
-               Right: z * (carry + 1) = 0       (assertBilinear)
-               Matching o1js bilinear + assertBilinear in one gate. *)
+               Two R1CS half-generics that enter the PCS pairing queue:
+               1. carry*(carry-1) = z
+               2. z*(carry+1) = 0
+               These pair with OTHER half-generics (e.g. weakBound),
+               matching nori's pairing behavior. *)
             let z =
               Circuit.exists Circuit.Field.typ ~compute:(fun () ->
                   let c = Circuit.As_prover.read_var carry in
                   Circuit.Field.Constant.(c * (c - one)) )
             in
-            (* Emit raw Generic gate: ql*l + qr*r + qo*o + qm*l*r + qc = 0
-               Left half: 1*carry*carry + (-1)*carry + (-1)*z = 0
-               Right half: 1*z*carry + 1*z = 0
-               Coefficients: [ql=-1, qr=0, qo=-1, qm=1, qc=0, ql'=1, qr'=0, qo'=0, qm'=1, qc'=0]
-               Wires: left=(carry, carry, z), right=(z, carry, 0) *)
-            let neg_one = Circuit.Field.Constant.(negate one) in
             Circuit.assert_
-              (Raw
-                 { kind = Generic
-                 ; values = [| carry; carry; z; z; carry; Circuit.Field.zero |]
-                 ; coeffs =
-                     [| neg_one
-                      ; Circuit.Field.Constant.zero
-                      ; neg_one
-                      ; Circuit.Field.Constant.one
-                      ; Circuit.Field.Constant.zero
-                      ; Circuit.Field.Constant.one
-                      ; Circuit.Field.Constant.zero
-                      ; Circuit.Field.Constant.zero
-                      ; Circuit.Field.Constant.one
-                      ; Circuit.Field.Constant.zero
-                     |]
-                 } ) ;
+              (R1CS
+                 ( carry
+                 , Circuit.Field.(carry - constant Circuit.Field.Constant.one)
+                 , z ) ) ;
+            Circuit.assert_
+              (R1CS
+                 ( z
+                 , Circuit.Field.(carry + constant Circuit.Field.Constant.one)
+                 , Circuit.Field.zero ) ) ;
             (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
             let sign_field = bignum_to_field_const sign_bi in
             let f0_field = bignum_to_field_const f0 in
