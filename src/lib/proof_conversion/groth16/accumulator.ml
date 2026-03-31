@@ -145,46 +145,46 @@ let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
   (* Each Field3 limb becomes a packed (field, 88) entry *)
   let field3_packed (x : FF.Field3.t) =
     let l0, l1, l2 = x in
-    [| (l0, l); (l1, l); (l2, l) |]
+    Random_oracle_input.Chunked.packeds [| (l0, l); (l1, l); (l2, l) |]
   in
   let fp2_packed (x : Fp2.Circuit.t) =
-    Array.concat
-      [ field3_packed (FF.FpA.to_field3 x.c0)
-      ; field3_packed (FF.FpA.to_field3 x.c1)
-      ]
+    Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+      [| field3_packed (FF.FpA.to_field3 x.c0)
+       ; field3_packed (FF.FpA.to_field3 x.c1)
+      |]
   in
   let g1_packed (x : G1.Circuit.t) =
-    Array.concat
-      [ field3_packed (FF.FpA.to_field3 x.x)
-      ; field3_packed (FF.FpA.to_field3 x.y)
-      ]
+    Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+      [| field3_packed (FF.FpA.to_field3 x.x)
+       ; field3_packed (FF.FpA.to_field3 x.y)
+      |]
   in
   let g2_packed (x : G2.Circuit.t) =
-    Array.concat [ fp2_packed x.x; fp2_packed x.y ]
+    Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+      [| fp2_packed x.x; fp2_packed x.y |]
   in
   let fp6_packed (x : Fp6.Circuit.t) =
-    Array.concat [ fp2_packed x.c0; fp2_packed x.c1; fp2_packed x.c2 ]
+    Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+      [| fp2_packed x.c0; fp2_packed x.c1; fp2_packed x.c2 |]
   in
   let fp12_packed (x : Fp12.Circuit.t) =
-    Array.concat [ fp6_packed x.c0; fp6_packed x.c1 ]
+    Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+      [| fp6_packed x.c0; fp6_packed x.c1 |]
   in
   let p = acc.proof in
   let s = acc.state in
-  let packeds =
-    Array.concat
-      [ g1_packed p.neg_a
-      ; g2_packed p.b
-      ; g1_packed p.c
-      ; g1_packed p.pi
-      ; fp12_packed p.c_fp12
-      ; fp12_packed p.c_inv
-      ; [| (p.shift_power, Step.Field.size_in_bits) |]
-      ; g2_packed s.t_point
-      ; fp12_packed s.f
-      ; [| (s.g_digest, Step.Field.size_in_bits) |]
-      ]
-  in
-  { field_elements = [||]; packeds }
+  Array.reduce_exn ~f:Random_oracle_input.Chunked.append
+    [| g1_packed p.neg_a
+     ; g2_packed p.b
+     ; g1_packed p.c
+     ; g1_packed p.pi
+     ; fp12_packed p.c_fp12
+     ; fp12_packed p.c_inv
+     ; Random_oracle_input.Chunked.field p.shift_power
+     ; g2_packed s.t_point
+     ; fp12_packed s.f
+     ; Random_oracle_input.Chunked.field s.g_digest
+    |]
 
 (** Hash the accumulator using Poseidon with packing, matching nori's
     Poseidon.hashPacked(Accumulator, acc).
