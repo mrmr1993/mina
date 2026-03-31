@@ -15,7 +15,8 @@
   kimchi_backend_common
   yojson
   bignum.bigint
-  snarky_foreign_field)
+  snarky_foreign_field
+  random_oracle)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

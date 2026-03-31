@@ -129,13 +129,25 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
        let f = acc.state.f in
-       (* Last g value *)
+       (* Last g value — opened from g_digest *)
+       let n_total = Array.length Bn254_params.ate_loop_count in
+       let g_idx = n_total - 1 in
        let g =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              let tracker = Circuit_config.get_tracker () in
              let gs = WT.get_g_values tracker in
              gs.(Array.length gs - 1) )
        in
+       (* Verify g_digest: open(lhs_64, [g], []) *)
+       let lhs_hashes =
+         Array.init g_idx ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
+       let opening =
+         Array_list_hasher.open_ ~lhs:lhs_hashes ~opening:[| g |] ~rhs:[||]
+       in
+       Step.Field.Assert.equal acc.state.g_digest opening ;
        let f = Fp12.mul f g in
        (* Frobenius powers of c_inv and c *)
        let c_inv_frob_p =

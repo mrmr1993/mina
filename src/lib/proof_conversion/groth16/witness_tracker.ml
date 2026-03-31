@@ -403,6 +403,48 @@ let get_w27 (t : t) : Fp12.t = t.vk.w27
 (** Get w27^2 (computed). *)
 let get_w27_square (t : t) : Fp12.t = Fp12.mul (get_w27 t) (get_w27 t)
 
+(** Compute the out-of-circuit Poseidon hash of an Fp12 value.
+    Uses Random_oracle which wraps the same sponge params as the
+    in-circuit Poseidon (Kimchi_pasta_basic.poseidon_params_fp). *)
+let hash_fp12_out_of_circuit (x : Fp12.t) : Kimchi_pasta.Pasta.Fp.t =
+  let module FF = Snarky_foreign_field.Foreign_field in
+  let to_fp bi = FF.bignum_to_field_const bi in
+  let fp2_fields ((c0, c1) : Fp2.t) = [| to_fp c0; to_fp c1 |] in
+  let fp6_fields ((c0, c1, c2) : Fp6.t) =
+    Array.concat [ fp2_fields c0; fp2_fields c1; fp2_fields c2 ]
+  in
+  let c0, c1 = x in
+  let fields = Array.concat [ fp6_fields c0; fp6_fields c1 ] in
+  Random_oracle.hash fields
+
+(** Get the line hashes array (65 elements).
+    Each element is the Poseidon hash of the corresponding g value.
+    The last element (index 64) is the Frobenius correction g. *)
+let get_line_hashes (t : t) : Kimchi_pasta.Pasta.Fp.t array =
+  if Array.length t.line_hashes > 0 then
+    Array.map t.line_hashes ~f:(fun bi ->
+        Snarky_foreign_field.Foreign_field.bignum_to_field_const bi )
+  else
+    let n = Array.length Bn254_params.ate_loop_count in
+    Array.init n ~f:(fun i ->
+        if i < Array.length t.g_values then
+          hash_fp12_out_of_circuit t.g_values.(i)
+        else Kimchi_pasta.Pasta.Fp.zero )
+
+(** Get the g_chunk (Fp12 values) and lhs/rhs hashes for a specific
+    f-update circuit's ArrayListHasher.open call.
+    Returns (lhs_hashes, g_chunk, rhs_hashes). *)
+let get_g_digest_opening (t : t) ~(g_start : int) ~(n_iters : int) :
+    Kimchi_pasta.Pasta.Fp.t array * Fp12.t array * Kimchi_pasta.Pasta.Fp.t array
+    =
+  let all_hashes = get_line_hashes t in
+  let n = Array.length all_hashes in
+  let lhs = Array.sub all_hashes ~pos:0 ~len:g_start in
+  let g_chunk = Array.sub t.g_values ~pos:g_start ~len:n_iters in
+  let rhs_start = g_start + n_iters in
+  let rhs = Array.sub all_hashes ~pos:rhs_start ~len:(n - rhs_start) in
+  (lhs, g_chunk, rhs)
+
 (** Get a Frobenius correction line evaluation for zkp6. *)
 let get_frobenius_line (t : t) (i : int) : Fp12.t = t.frobenius_lines.(i)
 
