@@ -180,21 +180,21 @@ let build_from_acc (acc : Accumulator.Circuit.t)
   (* Slice the b_lines for this circuit's range *)
   let caches : three_cache =
     let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
-    let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
+    let witness_cache (p : G1.Circuit.t) : Lines.AffineCache.t =
       { x_over_y =
           Step.exists fpa_typ ~compute:(fun () ->
-              let tracker = Circuit_config.get_tracker () in
-              fst (WT.compute_affine_cache (get_pt tracker)) )
+              let p = Step.As_prover.read G1.Circuit.typ p in
+              fst (WT.compute_affine_cache { x = p.x; y = p.y }) )
       ; y_inv =
           Step.exists fpa_typ ~compute:(fun () ->
-              let tracker = Circuit_config.get_tracker () in
-              snd (WT.compute_affine_cache (get_pt tracker)) )
+              let p = Step.As_prover.read G1.Circuit.typ p in
+              snd (WT.compute_affine_cache { x = p.x; y = p.y }) )
       }
     in
-    { a_cache = witness_cache WT.get_neg_a
-    ; c_cache = witness_cache WT.get_c
-    ; pi_cache = witness_cache (fun t -> WT.get_pi t)
-    }
+    let a_cache = witness_cache acc.proof.neg_a in
+    let c_cache = witness_cache acc.proof.c in
+    let pi_cache = witness_cache acc.proof.pi in
+    { a_cache; c_cache; pi_cache }
   in
   let neg_b = G2.negate b_point in
   let b_lines =
