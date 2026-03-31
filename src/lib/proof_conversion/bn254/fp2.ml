@@ -45,14 +45,55 @@ let neg (a : Circuit.t) : Circuit.t =
 let conjugate (a : Circuit.t) : Circuit.t =
   { c0 = a.c0; c1 = FF.negate a.c1 ~f:p }
 
+let _fp2_mul_trace = ref false
+
+let marker_ (x : int) =
+  let module Step = Pickles.Impls.Step in
+  Step.assert_
+    (Raw
+       { kind = Zero
+       ; values = [||]
+       ; coeffs =
+           Array.map ~f:Step.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
+       } )
+
+(** Fp2 multiplication using witness-and-assertMul pattern.
+    Instead of computing (a0+a1)*(b0+b1) with a 3rd FF.mul,
+    witnesses c1 directly and verifies via assert_mul_sum:
+      (a0 + a1) * (b0 + b1) = c1 + a0*b0 + a1*b1
+    Saves 1 FF.mul and its range checks per Fp2.mul. *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  let v0 = FF.mul a.c0 b.c0 ~f:p in
-  let v1 = FF.mul a.c1 b.c1 ~f:p in
-  let c0 = FF.sub v0 v1 ~f:p in
-  let a01 = FF.add a.c0 a.c1 ~f:p in
-  let b01 = FF.add b.c0 b.c1 ~f:p in
-  let t = FF.mul a01 b01 ~f:p in
-  let c1 = FF.sub (FF.sub t v0 ~f:p) v1 ~f:p in
+  let trace = !_fp2_mul_trace in
+  if trace then marker_ 3000 ;
+  let a0b0 = FF.mul a.c0 b.c0 ~f:p in
+  if trace then marker_ 3001 ;
+  let a1b1 = FF.mul a.c1 b.c1 ~f:p in
+  if trace then marker_ 3002 ;
+  let c0 = FF.sub a0b0 a1b1 ~f:p in
+  if trace then marker_ 3003 ;
+  (* Witness c1 = a0*b1 + a1*b0 directly *)
+  let module Step = Pickles.Impls.Step in
+  let c1 =
+    Step.exists FF.Field3.typ ~compute:(fun () ->
+        let read (l0, l1, l2) =
+          let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
+          let open Bignum_bigint in
+          r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
+        in
+        let a0 = read a.c0 in
+        let a1 = read a.c1 in
+        let b0 = read b.c0 in
+        let b1 = read b.c1 in
+        Bignum_bigint.(((a0 * b1) + (a1 * b0)) % p) )
+  in
+  (* Assert: (a0 + a1) * (b0 + b1) = c1 + a0b0 + a1b1 *)
+  let lhs_x = FF.Sum.add (FF.Sum.of_field3 a.c0) a.c1 in
+  let lhs_y = FF.Sum.add (FF.Sum.of_field3 b.c0) b.c1 in
+  let rhs = FF.Sum.add (FF.Sum.add (FF.Sum.of_field3 c1) a0b0) a1b1 in
+  FF.assert_mul_sum (FF.Sum_input lhs_x) (FF.Sum_input lhs_y) (FF.Sum_input rhs)
+    ~f:p ;
+  if trace then marker_ 3005 ;
+  _fp2_mul_trace := false ;
   { c0; c1 }
 
 let square (a : Circuit.t) : Circuit.t =
