@@ -81,14 +81,21 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   let f = if circuit_index = 7 then acc.proof.c_inv else acc.state.f in
   let result = ref f in
   for i = 0 to n_iters - 1 do
+    if i = 0 then marker 2000 ;
     result := Fp12.cyclotomic_square !result ;
+    if i = 0 then marker 2001 ;
+    (* after first square *)
     result := Fp12.mul !result g_chunk.(i) ;
+    if i = 0 then marker 2002 ;
+    (* after first mul *)
     (* Conditional multiply by c_inv (bit=1) or c (bit=-1) *)
     let ate_idx = g_start + i + 1 in
     if ate_idx < Array.length ate then
       let bit = ate.(ate_idx) in
       if bit = 1 then result := Fp12.mul !result acc.proof.c_inv
-      else if bit = -1 then result := Fp12.mul !result acc.proof.c_fp12
+      else if bit = -1 then result := Fp12.mul !result acc.proof.c_fp12 ;
+    if i = 0 then marker 2003
+    (* after first conditional mul *)
   done ;
   marker 1006 ;
   (* after f-update loop *)
