@@ -2,18 +2,19 @@
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
+module Step = Pickles.Impls.Step
 
 module G2Line = struct
   type t = { lambda : Fp2.Circuit.t; neg_mu : Fp2.Circuit.t }
 
   type constant = Fp2.Constant.t * Fp2.Constant.t
 
-  let typ : (t, constant) Pickles.Impls.Step.Typ.t =
-    Pickles.Impls.Step.Typ.transport
-      (Pickles.Impls.Step.Typ.tuple2 Fp2.Circuit.typ Fp2.Circuit.typ)
+  let typ : (t, constant) Step.Typ.t =
+    Step.Typ.transport
+      (Step.Typ.tuple2 Fp2.Circuit.typ Fp2.Circuit.typ)
       ~there:(fun (l, m) -> (l, m))
       ~back:(fun (l, m) -> (l, m))
-    |> Pickles.Impls.Step.Typ.transport_var
+    |> Step.Typ.transport_var
          ~there:(fun { lambda; neg_mu } -> (lambda, neg_mu))
          ~back:(fun (lambda, neg_mu) -> { lambda; neg_mu })
 end
@@ -24,19 +25,27 @@ module AffineCache = struct
   let make (p : G1.Circuit.t) : t =
     let f = Bn254_params.p in
     let x_neg = FF.FpA.neg p.x ~f in
-    let _x_neg_c = FF.FpC.assert_canonical x_neg ~f in
+    let x_neg = FF.FpC.assert_canonical x_neg ~f in
     let y_inv = FF.FpA.inv p.y ~f in
-    let y_inv_c = FF.FpC.assert_canonical y_inv ~f in
-    let x_over_y = FF.FpA.mul x_neg y_inv ~f in
-    let x_over_y_a =
+    let _y_inv = FF.FpC.assert_canonical y_inv ~f in
+    let y_inv =
+      Step.exists (FF.FpC.typ ~f) ~compute:(fun () ->
+          let p_y = Step.As_prover.read (FF.FpA.typ ~f) p.y in
+          Option.value_exn @@ FF.bignum_mod_inverse p_y ~f )
+    in
+    FF.assert_equal
+      (FF.FpA.mul ~f (y_inv :> FF.FpA.t) p.y :> FF.Field3.t)
+      (FF.Field3.of_constant Bigint.one) ;
+    let x_over_y = FF.FpC.mul ~f x_neg y_inv in
+    let x_over_y =
       match FF.FpA.assert_almost_reduced [ x_over_y ] ~f ~skip_mrc:true () with
       | [ a ] ->
           a
       | _ ->
           failwith "make_cache"
     in
-    let x_over_y_c = FF.FpC.assert_canonical x_over_y_a ~f in
-    { y_inv = y_inv_c; x_over_y = x_over_y_c }
+    let x_over_y = FF.FpC.assert_canonical x_over_y ~f in
+    { y_inv; x_over_y }
 end
 
 (** Compute the addition line through two G2 points in-circuit.

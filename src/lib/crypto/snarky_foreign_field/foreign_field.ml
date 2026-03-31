@@ -1414,16 +1414,18 @@ end
     Mirrors o1js CanonicalForeignField.
     check = multiRangeCheck + assertCanonical (assertLessThan(f)). *)
 module FpC = struct
-  type t = private Field3.t
+  type t = private FpA.t
 
   let of_fpa_unsafe (x : FpA.t) : t = (Obj.magic x : t)
 
   let to_field3 (x : t) : Field3.t = (x :> Field3.t)
 
-  let to_fpa (x : t) : FpA.t = FpA.of_field3_unsafe (to_field3 x)
+  let to_fpa (x : t) : FpA.t = (x :> FpA.t)
 
   let of_constant (x : Bignum_bigint.t) : t =
     of_fpa_unsafe (FpA.of_constant x)
+
+  let mul ~f (x : t) (y : t) : FpU.t = FpA.mul ~f (x :> FpA.t) (y :> FpA.t)
 
   (** Assert a value is canonical (< f) and return as FpC. *)
   let assert_canonical (x : FpA.t) ~(f : Bignum_bigint.t) : t =
