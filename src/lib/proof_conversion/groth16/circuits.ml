@@ -19,8 +19,9 @@ let g1_of_tracker (p : WT.G1.t) : G1.Constant.t =
     The hash links this circuit to its predecessor/successor. *)
 type circuit_body = Step.Field.t -> Step.Field.t
 
-(** Number of ate loop iterations per circuit for zkp0-5. *)
-let ate_iterations_per_circuit = [| 12; 11; 11; 12; 12; 6 |]
+(** Number of ate loop iterations per circuit for zkp0-6.
+    Matches nori: [1,10), [10,20), [20,30), [30,40), [40,50), [50,59), [59,65) *)
+let ate_iterations_per_circuit = [| 9; 10; 10; 10; 10; 9; 6 |]
 
 (** Total number of circuits. *)
 let num_circuits = 16
@@ -91,31 +92,17 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        in
        Accumulator.hash updated
   | 6 ->
-      (* Final ate loop + Frobenius correction.
-         Witnesses the last g value, verifies c * c_inv = 1,
-         and applies Frobenius line evaluations from B, piB, pi2B.
-         Updates g_digest with the Frobenius g hash at position 64. *)
+      (* Ate loop [59,65) + Frobenius correction.
+         Runs the final 6 ate iterations, then applies Frobenius line
+         evaluations. Verifies c * c_inv = 1. Updates g_digest with
+         both ate g values and the Frobenius g hash.
+         Matches nori's zkp6.ts. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
-       let n_total = Array.length Bn254_params.ate_loop_count in
-       (* Verify g_digest *)
-       let lines_hashes =
-         Array.init n_total ~f:(fun i ->
-             Step.exists Step.Field.typ ~compute:(fun () ->
-                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       (* Run ate loop iterations [59,65) with g_digest verification *)
+       let f_after_ate, new_g_digest =
+         Ate_circuit.build_from_acc acc ~circuit_index:6
        in
-       let digest = Array_list_hasher.hash lines_hashes in
-       Step.Field.Assert.equal acc.state.g_digest digest ;
-       (* f: accumulated Miller loop result from zkp5 *)
-       let f = acc.state.f in
-       (* Last g value from line accumulation *)
-       let g =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             let tracker = Circuit_config.get_tracker () in
-             let gs = WT.get_g_values tracker in
-             gs.(Array.length gs - 1) )
-       in
-       let f = Fp12.mul (Fp12.square f) g in
        (* Verify c * c_inv = 1 *)
        let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
        Fp12.assert_one product ;
@@ -125,7 +112,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
              WT.get_frobenius_line (Circuit_config.get_tracker ()) 0 )
        in
        let frobenius_g = frobenius_line_piB in
-       let f = Fp12.mul f frobenius_line_piB in
+       let f = Fp12.mul f_after_ate frobenius_line_piB in
        let frobenius_line_pi2B =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              WT.get_frobenius_line (Circuit_config.get_tracker ()) 1 )
@@ -138,12 +125,24 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        in
        let frobenius_g = Fp12.mul frobenius_g frobenius_line_pi3B in
        let f = Fp12.mul f frobenius_line_pi3B in
-       (* Update g_digest: hash frobenius_g into the last position *)
+       (* Update g_digest: hash frobenius_g into position 64.
+          The ate loop already updated positions [58..63] via build_from_acc.
+          We need to re-witness lines_hashes to add the frobenius hash. *)
+       let n_total = Array.length Bn254_params.ate_loop_count in
+       let lines_hashes =
+         Array.init n_total ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
+       (* Verify the updated g_digest from ate loop matches *)
+       let ate_digest = Array_list_hasher.hash lines_hashes in
+       Step.Field.Assert.equal new_g_digest ate_digest ;
+       (* Now add frobenius_g hash at last position *)
        lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 frobenius_g ;
-       let new_g_digest = Array_list_hasher.hash lines_hashes in
+       let final_g_digest = Array_list_hasher.hash lines_hashes in
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof
-         ; state = { acc.state with f; g_digest = new_g_digest }
+         ; state = { acc.state with f; g_digest = final_g_digest }
          }
        in
        Accumulator.hash updated

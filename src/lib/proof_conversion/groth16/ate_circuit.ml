@@ -75,15 +75,17 @@ let run_chunk (f : Fp12.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
   done ;
   (!result, g_values)
 
+(** Ate loop iteration ranges per circuit, matching nori exactly.
+    zkp0: [1,10), zkp1: [10,20), ..., zkp5: [50,59), zkp6: [59,65) *)
 let circuit_ranges =
-  [| (1, 13); (13, 24); (24, 35); (35, 47); (47, 59); (59, 65) |]
+  [| (1, 10); (10, 20); (20, 30); (30, 40); (40, 50); (50, 59); (59, 65) |]
 
 (** Build the circuit body for an ate loop circuit from a witnessed
     accumulator. Handles g_digest verification and update.
     Returns (updated_f, updated_g_digest). *)
 let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
     Fp12.Circuit.t * Step.Field.t =
-  assert (circuit_index >= 0 && circuit_index <= 5) ;
+  assert (circuit_index >= 0 && circuit_index <= 6) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
   let n_total = Array.length Bn254_params.ate_loop_count in
   let f = acc.state.f in
