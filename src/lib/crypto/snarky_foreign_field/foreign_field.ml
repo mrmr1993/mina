@@ -7,7 +7,6 @@
     debugging artifacts removed. *)
 
 open Core_kernel
-
 module Bignum_bigint = Bigint
 module Circuit = Kimchi_pasta_snarky_backend.Step_impl
 
@@ -39,7 +38,8 @@ let bignum_to_field_const (x : Bignum_bigint.t) : Circuit.Field.Constant.t =
         to_bignum_bigint (of_field Circuit.Field.Constant.(zero - one)))
     in
     let p = Bignum_bigint.(p + one) in
-    Circuit.Bigint.(to_field (of_bignum_bigint Bignum_bigint.((x % p + p) % p)))
+    Circuit.Bigint.(
+      to_field (of_bignum_bigint Bignum_bigint.(((x % p) + p) % p)))
   else Circuit.Bigint.(to_field (of_bignum_bigint x))
 
 let bit_slice (x : Bignum_bigint.t) ~(start : int) ~(length : int) :
@@ -71,8 +71,7 @@ module Field3 = struct
       (l0, l1, l2)
 
     let combine
-        ((l0, l1, l2) :
-          Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t ) :
+        ((l0, l1, l2) : Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t) :
         Bignum_bigint.t =
       let open Bignum_bigint in
       l0 + (l1 * two_to_limb) + (l2 * two_to_2limb)
@@ -95,8 +94,7 @@ module Field3 = struct
     , Circuit.Field.constant (bignum_to_field_const l2) )
 
   let of_limbs
-      ((l0, l1, l2) :
-        Circuit.Field.t * Circuit.Field.t * Circuit.Field.t ) : t =
+      ((l0, l1, l2) : Circuit.Field.t * Circuit.Field.t * Circuit.Field.t) : t =
     (l0, l1, l2)
 
   let limbs ((l0, l1, l2) : t) :
@@ -153,8 +151,7 @@ module Field3 = struct
             let l1 = field_const_to_bignum fields.(1) in
             let l2 = field_const_to_bignum fields.(2) in
             Constant.combine (l0, l1, l2) )
-      ; var_to_fields =
-          (fun (l0, l1, l2) -> ([| l0; l1; l2 |], ()))
+      ; var_to_fields = (fun (l0, l1, l2) -> ([| l0; l1; l2 |], ()))
       ; var_of_fields =
           (fun (fields, ()) -> (fields.(0), fields.(1), fields.(2)))
       ; check =
@@ -188,11 +185,24 @@ let range_check0 (v0 : Circuit.Field.t) ~(compact : bool) :
   let v0p0 = ws ~start:76 ~length:12 in
   Circuit.assert_
     (RangeCheck0
-       { v0; v0p0; v0p1; v0p2; v0p3; v0p4; v0p5
-       ; v0c0; v0c1; v0c2; v0c3; v0c4; v0c5; v0c6; v0c7
+       { v0
+       ; v0p0
+       ; v0p1
+       ; v0p2
+       ; v0p3
+       ; v0p4
+       ; v0p5
+       ; v0c0
+       ; v0c1
+       ; v0c2
+       ; v0c3
+       ; v0c4
+       ; v0c5
+       ; v0c6
+       ; v0c7
        ; compact =
            ( if compact then Circuit.Field.Constant.one
-             else Circuit.Field.Constant.zero )
+           else Circuit.Field.Constant.zero )
        } ) ;
   (v0p1, v0p0)
 
@@ -228,11 +238,36 @@ let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
   let v2c9 = ws ~start:20 ~length:2 in
   Circuit.assert_
     (RangeCheck1
-       { v2 = z; v12 = yz; v2c0; v2p0; v2p1; v2p2; v2p3
-       ; v2c1; v2c2; v2c3; v2c4; v2c5; v2c6; v2c7; v2c8
-       ; v2c9; v2c10; v2c11
-       ; v0p0 = x76; v0p1 = x64; v1p0 = y76; v1p1 = y64
-       ; v2c12; v2c13; v2c14; v2c15; v2c16; v2c17; v2c18; v2c19
+       { v2 = z
+       ; v12 = yz
+       ; v2c0
+       ; v2p0
+       ; v2p1
+       ; v2p2
+       ; v2p3
+       ; v2c1
+       ; v2c2
+       ; v2c3
+       ; v2c4
+       ; v2c5
+       ; v2c6
+       ; v2c7
+       ; v2c8
+       ; v2c9
+       ; v2c10
+       ; v2c11
+       ; v0p0 = x76
+       ; v0p1 = x64
+       ; v1p0 = y76
+       ; v1p1 = y64
+       ; v2c12
+       ; v2c13
+       ; v2c14
+       ; v2c15
+       ; v2c16
+       ; v2c17
+       ; v2c18
+       ; v2c19
        } )
 
 (* ------------------------------------------------------------------ *)
@@ -285,8 +320,7 @@ let multi_range_check ((x, y, z) : Field3.t) : unit =
   if Field3.is_constant (x, y, z) then (
     let check v name =
       let v_bignum =
-        field_const_to_bignum
-          (Option.value_exn (Circuit.Field.to_constant v))
+        field_const_to_bignum (Option.value_exn (Circuit.Field.to_constant v))
       in
       if Bignum_bigint.(v_bignum >= two_to_limb) then
         failwith (sprintf "multi_range_check: %s >= 2^%d" name limb_bits)
@@ -296,9 +330,7 @@ let multi_range_check ((x, y, z) : Field3.t) : unit =
     let x = to_var x in
     let y = to_var y in
     let z = to_var z in
-    let zero =
-      to_var (Circuit.Field.constant Circuit.Field.Constant.zero)
-    in
+    let zero = to_var (Circuit.Field.constant Circuit.Field.Constant.zero) in
     let x64, x76 = range_check0 x ~compact:false in
     let y64, y76 = range_check0 y ~compact:false in
     range_check1 ~x64 ~x76 ~y64 ~y76 ~z ~yz:zero
@@ -313,14 +345,12 @@ let compact_multi_range_check (xy : Circuit.Field.t) (z : Circuit.Field.t) :
   if
     Option.is_some (Circuit.Field.to_constant xy)
     && Option.is_some (Circuit.Field.to_constant z)
-  then
+  then (
     let xy_bignum =
-      field_const_to_bignum
-        (Option.value_exn (Circuit.Field.to_constant xy))
+      field_const_to_bignum (Option.value_exn (Circuit.Field.to_constant xy))
     in
     let z_bignum =
-      field_const_to_bignum
-        (Option.value_exn (Circuit.Field.to_constant z))
+      field_const_to_bignum (Option.value_exn (Circuit.Field.to_constant z))
     in
     if Bignum_bigint.(xy_bignum >= two_to_2limb) then
       failwith "compact_multi_range_check: xy >= 2^176" ;
@@ -330,7 +360,7 @@ let compact_multi_range_check (xy : Circuit.Field.t) (z : Circuit.Field.t) :
     let y = Bignum_bigint.(shift_right xy_bignum limb_bits) in
     ( Circuit.Field.constant (bignum_to_field_const x)
     , Circuit.Field.constant (bignum_to_field_const y)
-    , z )
+    , z ) )
   else
     let xy = to_var xy in
     let z = to_var z in
@@ -344,8 +374,7 @@ let compact_multi_range_check (xy : Circuit.Field.t) (z : Circuit.Field.t) :
       Circuit.exists Circuit.Field.typ ~compute:(fun () ->
           let xy_v = Circuit.As_prover.read_var xy in
           let xy_bignum = field_const_to_bignum xy_v in
-          bignum_to_field_const
-            Bignum_bigint.(shift_right xy_bignum limb_bits) )
+          bignum_to_field_const Bignum_bigint.(shift_right xy_bignum limb_bits) )
     in
     let z64, z76 = range_check0 z ~compact:false in
     let x64, x76 = range_check0 x ~compact:true in
@@ -358,19 +387,16 @@ let compact_multi_range_check (xy : Circuit.Field.t) (z : Circuit.Field.t) :
 
 (** Compute a bound value for the high limb that proves x < f
     (or x <= f depending on the modulus structure). *)
-let weak_bound (x2 : Circuit.Field.t) ~(f : Bignum_bigint.t) :
-    Circuit.Field.t =
+let weak_bound (x2 : Circuit.Field.t) ~(f : Bignum_bigint.t) : Circuit.Field.t =
   let l2_mask = Bignum_bigint.(two_to_2limb - one) in
   if Bignum_bigint.(f land l2_mask = zero) then
     let bound =
-      Bignum_bigint.(
-        two_to_limb - shift_right f (Int.( * ) 2 limb_bits))
+      Bignum_bigint.(two_to_limb - shift_right f (Int.( * ) 2 limb_bits))
     in
     Circuit.Field.(x2 + constant (bignum_to_field_const bound))
   else
     let bound =
-      Bignum_bigint.(
-        limb_mask - shift_right f (Int.( * ) 2 limb_bits))
+      Bignum_bigint.(limb_mask - shift_right f (Int.( * ) 2 limb_bits))
     in
     Circuit.Field.(x2 + constant (bignum_to_field_const bound))
 
@@ -391,7 +417,7 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
       if not skip_mrc then multi_range_check x ;
       bounds := !bounds @ [ weak_bound x2 ~f ] ;
       if List.length !bounds = 3 then flush_bounds () ) ;
-  ( match !bounds with
+  match !bounds with
   | [ b1 ] ->
       multi_range_check
         ( b1
@@ -399,11 +425,9 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
         , Circuit.Field.constant Circuit.Field.Constant.zero )
   | [ b1; b2 ] ->
       multi_range_check
-        ( b1
-        , b2
-        , Circuit.Field.constant Circuit.Field.Constant.zero )
+        (b1, b2, Circuit.Field.constant Circuit.Field.Constant.zero)
   | _ ->
-      () )
+      ()
 
 (* ------------------------------------------------------------------ *)
 (* Foreign field addition / subtraction                                *)
@@ -446,20 +470,12 @@ let single_add (x : Field3.t) (y : Field3.t) ~(sign : sign)
     let x01 = Bignum_bigint.(xv0 + (xv1 * two_to_limb)) in
     let y01 = Bignum_bigint.(yv0 + (yv1 * two_to_limb)) in
     let f01 = Bignum_bigint.(f0 + (f1 * two_to_limb)) in
-    let r01 =
-      Bignum_bigint.(x01 + (s * y01) - (overflow * f01))
-    in
-    let carry =
-      Bignum_bigint.(shift_right r01 (Int.( * ) 2 limb_bits))
-    in
+    let r01 = Bignum_bigint.(x01 + (s * y01) - (overflow * f01)) in
+    let carry = Bignum_bigint.(shift_right r01 (Int.( * ) 2 limb_bits)) in
     let r01_masked = Bignum_bigint.(r01 land l2_mask) in
     let r0_val = Bignum_bigint.(r01_masked land limb_mask) in
-    let r1_val =
-      Bignum_bigint.(shift_right r01_masked limb_bits)
-    in
-    let r2_val =
-      Bignum_bigint.(xv2 + (s * yv2) - (overflow * f2) + carry)
-    in
+    let r1_val = Bignum_bigint.(shift_right r01_masked limb_bits) in
+    let r2_val = Bignum_bigint.(xv2 + (s * yv2) - (overflow * f2) + carry) in
     (r0_val, r1_val, r2_val, overflow, carry)
   in
   let cache = ref None in
@@ -594,9 +610,8 @@ let negate (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
 
 (** Multiply two Field3 values using ForeignFieldMul gate, without
     range-checking the result. Returns (quotient, remainder01, remainder2). *)
-let multiply_no_range_check (a : Field3.t) (b : Field3.t)
-    ~(f : Bignum_bigint.t) :
-    Field3.t * Circuit.Field.t * Circuit.Field.t =
+let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
+    : Field3.t * Circuit.Field.t * Circuit.Field.t =
   let f_ =
     Bignum_bigint.(pow (of_int 2) (of_int (Int.( * ) 3 limb_bits)) - f)
   in
@@ -627,17 +642,16 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t)
         let r01 =
           Bignum_bigint.(
             (r land limb_mask)
-            + (shift_right r limb_bits land limb_mask) * two_to_limb )
+            + (shift_right r limb_bits land limb_mask * two_to_limb))
         in
-        let p0 = Bignum_bigint.(av0 * bv0 + (q0 * f_0)) in
+        let p0 = Bignum_bigint.((av0 * bv0) + (q0 * f_0)) in
         let p1 =
-          Bignum_bigint.(
-            av0 * bv1 + (av1 * bv0) + (q0 * f_1) + (q1 * f_0))
+          Bignum_bigint.((av0 * bv1) + (av1 * bv0) + (q0 * f_1) + (q1 * f_0))
         in
         let p2 =
           Bignum_bigint.(
-            av0 * bv2 + (av1 * bv1) + (av2 * bv0) + (q0 * f_2)
-            + (q1 * f_1) + (q2 * f_0))
+            (av0 * bv2) + (av1 * bv1) + (av2 * bv0) + (q0 * f_2) + (q1 * f_1)
+            + (q2 * f_0))
         in
         let p10 = Bignum_bigint.(p1 land limb_mask) in
         let p1_shifted = Bignum_bigint.(shift_right p1 limb_bits) in
@@ -646,13 +660,9 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t)
         let _p11 = Bignum_bigint.(p110 + (p111 * two_to_limb)) in
         let c0 =
           Bignum_bigint.(
-            shift_right
-              (p0 + (p10 * two_to_limb) - r01)
-              (Int.( * ) 2 limb_bits))
+            shift_right (p0 + (p10 * two_to_limb) - r01) (Int.( * ) 2 limb_bits))
         in
-        let c1 =
-          Bignum_bigint.(shift_right (p2 - r2 + _p11 + c0) limb_bits)
-        in
+        let c1 = Bignum_bigint.(shift_right (p2 - r2 + _p11 + c0) limb_bits) in
         let c1_00 = bit_slice c1 ~start:0 ~length:12 in
         let c1_12 = bit_slice c1 ~start:12 ~length:12 in
         let c1_24 = bit_slice c1 ~start:24 ~length:12 in
@@ -666,8 +676,26 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t)
         let c1_90 = bit_slice c1 ~start:90 ~length:1 in
         let q2_bound = Bignum_bigint.(q2 + f2_bound) in
         let v =
-          ( r01, r2, q0, q1, q2, q2_bound, p10, p110, p111, c0, c1_00
-          , c1_12, c1_24, c1_36, c1_48, c1_60, c1_72, c1_84, c1_86, c1_88
+          ( r01
+          , r2
+          , q0
+          , q1
+          , q2
+          , q2_bound
+          , p10
+          , p110
+          , p111
+          , c0
+          , c1_00
+          , c1_12
+          , c1_24
+          , c1_36
+          , c1_48
+          , c1_60
+          , c1_72
+          , c1_84
+          , c1_86
+          , c1_88
           , c1_90 )
         in
         cache := Some v ;
@@ -675,15 +703,51 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t)
   in
   let w i =
     Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-        let ( r01, r2, q0, q1, q2, q2_bound, p10, p110, p111, c0, c1_00
-            , c1_12, c1_24, c1_36, c1_48, c1_60, c1_72, c1_84, c1_86
-            , c1_88, c1_90 ) =
+        let ( r01
+            , r2
+            , q0
+            , q1
+            , q2
+            , q2_bound
+            , p10
+            , p110
+            , p111
+            , c0
+            , c1_00
+            , c1_12
+            , c1_24
+            , c1_36
+            , c1_48
+            , c1_60
+            , c1_72
+            , c1_84
+            , c1_86
+            , c1_88
+            , c1_90 ) =
           get_cached ()
         in
         let vals =
-          [| r01; r2; q0; q1; q2; q2_bound; p10; p110; p111; c0; c1_00
-           ; c1_12; c1_24; c1_36; c1_48; c1_60; c1_72; c1_84; c1_86
-           ; c1_88; c1_90
+          [| r01
+           ; r2
+           ; q0
+           ; q1
+           ; q2
+           ; q2_bound
+           ; p10
+           ; p110
+           ; p111
+           ; c0
+           ; c1_00
+           ; c1_12
+           ; c1_24
+           ; c1_36
+           ; c1_48
+           ; c1_60
+           ; c1_72
+           ; c1_84
+           ; c1_86
+           ; c1_88
+           ; c1_90
           |]
         in
         bignum_to_field_const vals.(i) )
@@ -750,7 +814,7 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t)
 
 (** Multiply two Field3 values mod f, returning the result as Field3. *)
 let mul (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
-  assert Bignum_bigint.(f < shift_left one 259) ;
+  assert (Bignum_bigint.(f < shift_left one 259)) ;
   if Field3.is_constant a && Field3.is_constant b then
     let a_big = Field3.to_constant a in
     let b_big = Field3.to_constant b in
@@ -775,9 +839,7 @@ let assert_mul_field2 (x : Field3.t) (y : Field3.t) (xy : field2)
 (** Assert that x * y = xy mod f. *)
 let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
     ~(f : Bignum_bigint.t) : unit =
-  if
-    Field3.is_constant x && Field3.is_constant y && Field3.is_constant xy
-  then (
+  if Field3.is_constant x && Field3.is_constant y && Field3.is_constant xy then (
     let x_big = Field3.to_constant x in
     let y_big = Field3.to_constant y in
     let xy_big = Field3.to_constant xy in
@@ -787,8 +849,7 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
   else
     let xy0, xy1, xy2 = xy in
     let xy01 =
-      Circuit.Field.(
-        xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
+      Circuit.Field.(xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
     in
     let q, r01, r2 = multiply_no_range_check x y ~f in
     multi_range_check q ;
@@ -803,8 +864,7 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
 let bignum_mod_inverse (x : Bignum_bigint.t) ~(f : Bignum_bigint.t) :
     Bignum_bigint.t option =
   let rec gcd_ext a b =
-    if Bignum_bigint.(b = zero) then
-      (a, Bignum_bigint.one, Bignum_bigint.zero)
+    if Bignum_bigint.(b = zero) then (a, Bignum_bigint.one, Bignum_bigint.zero)
     else
       let q, r = Bignum_bigint.(a / b, a % b) in
       let g, s, t = gcd_ext b r in
@@ -830,15 +890,9 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     let x0, x1, x2 = x in
     let w i =
       Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-          let xv0 =
-            field_const_to_bignum (Circuit.As_prover.read_var x0)
-          in
-          let xv1 =
-            field_const_to_bignum (Circuit.As_prover.read_var x1)
-          in
-          let xv2 =
-            field_const_to_bignum (Circuit.As_prover.read_var x2)
-          in
+          let xv0 = field_const_to_bignum (Circuit.As_prover.read_var x0) in
+          let xv1 = field_const_to_bignum (Circuit.As_prover.read_var x1) in
+          let xv2 = field_const_to_bignum (Circuit.As_prover.read_var x2) in
           let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
           let x_inv =
             match bignum_mod_inverse x_big ~f with
@@ -888,16 +942,11 @@ let assert_less_than (x : Field3.t) ~(bound : Bignum_bigint.t) : unit =
   else failwith "assert_less_than: bound must be positive"
 
 (** Assert two Field3 values are equal limb-wise. *)
-let assert_equal ((x0, x1, x2) : Field3.t) ((y0, y1, y2) : Field3.t) :
-    unit =
-  if
-    Field3.is_constant (x0, x1, x2)
-    && Field3.is_constant (y0, y1, y2)
-  then (
+let assert_equal ((x0, x1, x2) : Field3.t) ((y0, y1, y2) : Field3.t) : unit =
+  if Field3.is_constant (x0, x1, x2) && Field3.is_constant (y0, y1, y2) then (
     let x_big = Field3.to_constant (x0, x1, x2) in
     let y_big = Field3.to_constant (y0, y1, y2) in
-    if not Bignum_bigint.(x_big = y_big) then
-      failwith "assert_equal: x != y" )
+    if not Bignum_bigint.(x_big = y_big) then failwith "assert_equal: x != y" )
   else (
     Circuit.assert_ (Equal (x0, y0)) ;
     Circuit.assert_ (Equal (x1, y1)) ;
@@ -939,8 +988,7 @@ let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
             else Circuit.Field.Constant.(inv dv) )
       in
       (* b * diff = 0 (if b=true then diff must be 0) *)
-      Circuit.assert_
-        (R1CS ((r :> Circuit.Field.t), diff, Circuit.Field.zero)) ;
+      Circuit.assert_ (R1CS ((r :> Circuit.Field.t), diff, Circuit.Field.zero)) ;
       (* z * diff = 1 - b (if diff != 0 then b must be false) *)
       Circuit.assert_
         (R1CS (z, diff, Circuit.Field.(constant Constant.one - (r :> t)))) ;
@@ -977,8 +1025,7 @@ module Sum = struct
 
   let length (t : t) : int = List.length t.summands
 
-  let is_constant (t : t) : bool =
-    List.for_all t.summands ~f:Field3.is_constant
+  let is_constant (t : t) : bool = List.for_all t.summands ~f:Field3.is_constant
 
   (** Materialize the accumulated sum, producing all ForeignFieldAdd
       gates at once. *)
@@ -988,10 +1035,170 @@ module Sum = struct
       let r = List.hd_exn t.summands in
       t.result <- Some r ;
       r )
-    else (
+    else
       let r = sum t.summands t.ops ~f in
       t.result <- Some r ;
+      r
+
+  (** Simple finish: FFAdd chain + Zero gate only.
+      No range check, no generic-gate low-limb constraints.
+      Matches nori's Sum.finish() used for the xy (result) operand
+      in assertMul. *)
+  let finish_simple (t : t) ~(f : Bignum_bigint.t) : Field3.t =
+    assert (Option.is_none t.result) ;
+    if List.length t.ops = 0 then (
+      let r = List.hd_exn t.summands in
+      t.result <- Some r ;
       r )
+    else if List.for_all t.summands ~f:Field3.is_constant then (
+      let x_bigs = List.map t.summands ~f:Field3.to_constant in
+      let result =
+        List.fold2_exn (List.tl_exn x_bigs) t.ops ~init:(List.hd_exn x_bigs)
+          ~f:(fun acc xi sign_i ->
+            Bignum_bigint.(acc + (sign_to_bigint sign_i * xi)) )
+      in
+      let result_mod = Bignum_bigint.(((result % f) + f) % f) in
+      let r = Field3.of_constant result_mod in
+      t.result <- Some r ;
+      r )
+    else
+      let xs =
+        List.map t.summands ~f:(fun (l0, l1, l2) ->
+            (to_var l0, to_var l1, to_var l2) )
+      in
+      let result = ref (List.hd_exn xs) in
+      List.iter2_exn (List.tl_exn xs) t.ops ~f:(fun xi sign_i ->
+          let r, _overflow = single_add !result xi ~sign:sign_i ~f in
+          result := r ) ;
+      let r0, r1, r2 = !result in
+      Circuit.assert_
+        (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
+      t.result <- Some !result ;
+      !result
+
+  (** Materialize the sum for use as a multiplication input.
+      Produces ForeignFieldAdd gates + Zero gate + Generic gates for
+      low-limb tracking, but skips the multi_range_check.
+      Matches o1js finishForMulInput — uses Generic gates to constrain
+      the lowest limb individually, since FFAdd only constrains the
+      low+middle limbs together. *)
+  let finish_for_mul_input (t : t) ~(f : Bignum_bigint.t) : Field3.t =
+    assert (Option.is_none t.result) ;
+    if List.length t.ops = 0 then (
+      let r = List.hd_exn t.summands in
+      t.result <- Some r ;
+      r )
+    else
+      let xs = t.summands in
+      let signs = t.ops in
+      if List.for_all xs ~f:Field3.is_constant then (
+        let x_bigs = List.map xs ~f:Field3.to_constant in
+        let result =
+          List.fold2_exn (List.tl_exn x_bigs) signs ~init:(List.hd_exn x_bigs)
+            ~f:(fun acc xi sign_i ->
+              Bignum_bigint.(acc + (sign_to_bigint sign_i * xi)) )
+        in
+        let result_mod = Bignum_bigint.(((result % f) + f) % f) in
+        let r = Field3.of_constant result_mod in
+        t.result <- Some r ;
+        r )
+      else
+        let xs =
+          List.map xs ~f:(fun (l0, l1, l2) ->
+              (to_var l0, to_var l1, to_var l2) )
+        in
+        let f0 = Bignum_bigint.(f land limb_mask) in
+        let n = List.length signs in
+        (* Generic gates for low limbs — mirrors o1js finishForMulInput *)
+        let x0 =
+          ref
+            (let l0, _, _ = List.hd_exn xs in
+             l0 )
+        in
+        let x0s = Array.create ~len:n Circuit.Field.zero in
+        let overflows = Array.create ~len:n Circuit.Field.zero in
+        List.iteri (List.tl_exn xs) ~f:(fun i xi ->
+            let xi0, _, _ = xi in
+            let sign_i = List.nth_exn signs i in
+            let sign_bi = sign_to_bigint sign_i in
+            let carry, overflow =
+              let c =
+                Circuit.exists
+                  (Circuit.Typ.tuple2 Circuit.Field.typ Circuit.Field.typ)
+                  ~compute:(fun () ->
+                    let x0v =
+                      field_const_to_bignum (Circuit.As_prover.read_var !x0)
+                    in
+                    let xi_full =
+                      let l0, l1, l2 = xi in
+                      let rl v =
+                        field_const_to_bignum (Circuit.As_prover.read_var v)
+                      in
+                      Bignum_bigint.(
+                        rl l0 + (rl l1 * two_to_limb) + (rl l2 * two_to_2limb))
+                    in
+                    let full =
+                      Bignum_bigint.(
+                        x0v
+                        + sign_bi
+                          * field_const_to_bignum
+                              (Circuit.As_prover.read_var xi0))
+                    in
+                    let overflow =
+                      if
+                        Bignum_bigint.(sign_bi > zero)
+                        && Bignum_bigint.(x0v + (sign_bi * xi_full) >= f)
+                      then Bignum_bigint.one
+                      else if
+                        Bignum_bigint.(sign_bi < zero)
+                        && Bignum_bigint.(x0v + (sign_bi * xi_full) < zero)
+                      then Bignum_bigint.(neg one)
+                      else Bignum_bigint.zero
+                    in
+                    let x0_new = Bignum_bigint.(full - (overflow * f0)) in
+                    let carry = Bignum_bigint.(shift_right x0_new limb_bits) in
+                    (bignum_to_field_const carry, bignum_to_field_const overflow) )
+              in
+              (fst c, snd c)
+            in
+            overflows.(i) <- overflow ;
+            (* Constrain carry to {0, 1, -1} via (carry)(carry-1)(carry+1) = 0.
+               This uses 2 generic gates matching o1js assertOneOf. *)
+            let carry_m1 =
+              Circuit.Field.(carry - constant (Circuit.Field.Constant.of_int 1))
+            in
+            let carry_p1 =
+              Circuit.Field.(carry + constant (Circuit.Field.Constant.of_int 1))
+            in
+            let t1 = Circuit.Field.(carry * carry_m1) in
+            Circuit.assert_
+              (Equal (Circuit.Field.(t1 * carry_p1), Circuit.Field.zero)) ;
+            (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
+            let sign_field = bignum_to_field_const sign_bi in
+            let f0_field = bignum_to_field_const f0 in
+            let two_l_field = bignum_to_field_const two_to_limb in
+            x0 :=
+              seal
+                Circuit.Field.(
+                  !x0
+                  + (xi0 * constant sign_field)
+                  - (overflow * constant f0_field)
+                  - (carry * constant two_l_field)) ;
+            x0s.(i) <- !x0 ) ;
+        (* ForeignFieldAdd chain *)
+        let result = ref (List.hd_exn xs) in
+        List.iteri (List.tl_exn xs) ~f:(fun i xi ->
+            let sign_i = List.nth_exn signs i in
+            let r, overflow = single_add !result xi ~sign:sign_i ~f in
+            let r0, _, _ = r in
+            Circuit.assert_ (Equal (r0, x0s.(i))) ;
+            Circuit.assert_ (Equal (overflow, overflows.(i))) ;
+            result := r ) ;
+        let r0, r1, r2 = !result in
+        Circuit.assert_
+          (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
+        t.result <- Some !result ;
+        !result
 end
 
 (** Input type for assert_mul_sum: either a Sum accumulator or a
@@ -999,16 +1206,48 @@ end
 type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
 
 (** Assert x * y = xy (mod f), accepting Sum accumulators as inputs.
-    Finishes any pending sums before performing the multiplication check. *)
+    Finishes pending sums before performing the multiplication check.
+
+    Note: nori uses finishForMulInput which replaces the range check
+    with generic-gate low-limb constraints. Our Sum.finish uses the
+    standard range check approach. Matching nori's exact gate sequence
+    requires implementing the generic-gate low-limb tracking from o1js. *)
+let _ams_trace = ref false
+
+let ams_marker_ (id : int) =
+  if !_ams_trace then
+    Circuit.assert_
+      (Raw
+         { kind = Zero
+         ; values = [||]
+         ; coeffs =
+             Array.map
+               ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x))
+               [| id; 1; 2; 3; 4; 5; 6 |]
+         } )
+
 let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     ~(f : Bignum_bigint.t) : unit =
-  let finish_input = function
+  let finish_for_mul = function
     | Sum_input s ->
-        Sum.finish s ~f
+        Sum.finish_for_mul_input s ~f
     | Field3_input f3 ->
         f3
   in
-  let x_val = finish_input x in
-  let y_val = finish_input y in
-  let xy_val = finish_input xy in
-  assert_mul x_val y_val xy_val ~f
+  let finish_simple = function
+    | Sum_input s ->
+        Sum.finish_simple s ~f
+    | Field3_input f3 ->
+        f3
+  in
+  (* Match nori's assertMul order: finish y, finish xy, then x+assert_mul *)
+  ams_marker_ 4000 ;
+  let y_val = finish_for_mul y in
+  ams_marker_ 4001 ;
+  let xy_val = finish_simple xy in
+  ams_marker_ 4002 ;
+  let x_val = finish_for_mul x in
+  ams_marker_ 4003 ;
+  assert_mul x_val y_val xy_val ~f ;
+  ams_marker_ 4004 ;
+  _ams_trace := false

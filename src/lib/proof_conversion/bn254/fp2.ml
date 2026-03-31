@@ -90,6 +90,7 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let lhs_x = FF.Sum.add (FF.Sum.of_field3 a.c0) a.c1 in
   let lhs_y = FF.Sum.add (FF.Sum.of_field3 b.c0) b.c1 in
   let rhs = FF.Sum.add (FF.Sum.add (FF.Sum.of_field3 c1) a0b0) a1b1 in
+  if trace then FF._ams_trace := true ;
   FF.assert_mul_sum (FF.Sum_input lhs_x) (FF.Sum_input lhs_y) (FF.Sum_input rhs)
     ~f:p ;
   if trace then marker_ 3005 ;
