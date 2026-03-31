@@ -56,6 +56,23 @@ let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
   Fp2.assert_equal a.c1 b.c1 ;
   Fp2.assert_equal a.c2 b.c2
 
+(** Multiply Fp6 by a single Fp2 element (scalar multiply each component). *)
+let mul_by_fp2 (a : Circuit.t) (b : Fp2.Circuit.t) : Circuit.t =
+  { c0 = Fp2.mul a.c0 b; c1 = Fp2.mul a.c1 b; c2 = Fp2.mul a.c2 b }
+
+(** Multiply Fp6 by a sparse Fp6 element (b0, b1, 0).
+    Matches nori's Fp6.mul_by_sparse_fp6(rhs) where rhs.c2 = 0. *)
+let mul_by_sparse (a : Circuit.t) (b0 : Fp2.Circuit.t) (b1 : Fp2.Circuit.t) :
+    Circuit.t =
+  let t0 = Fp2.mul a.c0 b0 in
+  let t1 = Fp2.mul a.c1 b1 in
+  let c0 = Fp2.add t0 (mul_by_non_residue (Fp2.mul a.c2 b1)) in
+  let c1 =
+    Fp2.sub (Fp2.mul (Fp2.add a.c0 a.c1) (Fp2.add b0 b1)) (Fp2.add t0 t1)
+  in
+  let c2 = Fp2.add (Fp2.mul a.c2 b0) t1 in
+  { c0; c1; c2 }
+
 let mul_by_01 (a : Circuit.t) (b0 : Fp2.Circuit.t) (b1 : Fp2.Circuit.t) :
     Circuit.t =
   let a0b0 = Fp2.mul a.c0 b0 in

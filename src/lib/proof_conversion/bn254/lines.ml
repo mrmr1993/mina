@@ -79,17 +79,21 @@ let eval_line (line : G2Line.t) (cache : AffineCache.t) :
   let c11 = Fp2.mul_by_fp line.neg_mu cache.y_inv in
   (c01, c11)
 
-(** Evaluate a line into a full (sparse) Fp12 element.
-    The result has the form (1, c01, 0; c11, 0, 0) in Fp12. *)
+(** Evaluate a line into a sparse Fp12 element matching nori's psi().
+    The result has the form c0=(1,0,0), c1=(h0,h1,0) in Fp12
+    where h0 = lambda * x_over_y, h1 = neg_mu * y_inv. *)
 let eval_to_fp12 (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
-  let c01, c11 = eval_line line cache in
+  let h0, h1 = eval_line line cache in
   let one_fp2 = Fp2.of_constant Fp2.Constant.one in
   let zero_fp2 = Fp2.of_constant Fp2.Constant.zero in
-  { Fp12.Circuit.c0 = { Fp6.Circuit.c0 = one_fp2; c1 = c01; c2 = zero_fp2 }
-  ; c1 = { Fp6.Circuit.c0 = c11; c1 = zero_fp2; c2 = zero_fp2 }
+  { Fp12.Circuit.c0 = { Fp6.Circuit.c0 = one_fp2; c1 = zero_fp2; c2 = zero_fp2 }
+  ; c1 = { Fp6.Circuit.c0 = h0; c1 = h1; c2 = zero_fp2 }
   }
 
+(** Multiply f by a line evaluation using sparse multiplication.
+    The line evaluates to c0=(1,0,0), c1=(h0,h1,0) in nori's convention.
+    This matches nori's Fp12.sparse_mul(psi_result). *)
 let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t) (cache : AffineCache.t) :
     Fp12.Circuit.t =
-  let c01, c11 = eval_line line cache in
-  Fp12.mul_by_line f ~c01 ~c11
+  let h0, h1 = eval_line line cache in
+  Fp12.sparse_mul f ~b00:Fp2.Constant.one ~b10:h0 ~b11:h1

@@ -495,11 +495,11 @@ let compute_add_line (p1 : G2.t) (p2 : G2.t) : Line.t * G2.t =
 (** Evaluate a line at a G1 point using the affine cache.
     Produces an Fp12 value with sparse structure. *)
 let evaluate_line (line : Line.t) ~(x_over_y : BI.t) ~(y_inv : BI.t) : Fp12.t =
-  let c01 = Fp2.mul_by_fp line.lambda x_over_y in
-  let c11 = Fp2.mul_by_fp line.neg_mu y_inv in
-  (* The sparse Fp12 element: (1, c01, 0, c11, 0, 0) *)
-  let c0 : Fp6.t = (Fp2.one, c01, Fp2.zero) in
-  let c1 : Fp6.t = (c11, Fp2.zero, Fp2.zero) in
+  let h0 = Fp2.mul_by_fp line.lambda x_over_y in
+  let h1 = Fp2.mul_by_fp line.neg_mu y_inv in
+  (* Sparse Fp12 matching nori's psi(): c0=(1,0,0), c1=(h0,h1,0) *)
+  let c0 : Fp6.t = (Fp2.one, Fp2.zero, Fp2.zero) in
+  let c1 : Fp6.t = (h0, h1, Fp2.zero) in
   (c0, c1)
 
 (** Run the full Miller loop computation out-of-circuit.
