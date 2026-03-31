@@ -100,22 +100,47 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
     ~f:p ;
   from_unreduced c0 c1
 
+(** Fp2 squaring using witness-and-assertMul pattern.
+    Matches nori's Fp2.square:
+      c0 = (a0+a1)(a0-a1) = a0^2-a1^2
+      c1 = (a0+a0)*a1     = 2*a0*a1
+    Witnesses c0,c1 directly, uses Sum accumulators for assertMul. *)
 let square (a : Circuit.t) : Circuit.t =
-  let sum_ = FpA.add a.c0 a.c1 ~f:p in
-  let diff = FpA.sub a.c0 a.c1 ~f:p in
-  let two_a0 = FpA.add a.c0 a.c0 ~f:p in
-  (* All three are unreduced → assertAlmostReduced before mul *)
-  let sum_a, diff_a, two_a0_a =
-    match
-      FpA.assert_almost_reduced [ sum_; diff; two_a0 ] ~f:p ~skip_mrc:true ()
-    with
-    | [ s; d; t ] ->
-        (s, d, t)
-    | _ ->
-        failwith "square: unexpected"
+  let module Step = Pickles.Impls.Step in
+  let c0, c1 =
+    let c =
+      Step.exists (Step.Typ.tuple2 FF.FpU.typ FF.FpU.typ) ~compute:(fun () ->
+          let read (l0, l1, l2) =
+            let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
+            let open Bignum_bigint in
+            r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
+          in
+          let a0 = read (FpA.to_field3 a.c0) in
+          let a1 = read (FpA.to_field3 a.c1) in
+          Bignum_bigint.
+            ( ((((a0 * a0) - (a1 * a1)) % p) + p) % p
+            , ((a0 * a1 * of_int 2 % p) + p) % p ) )
+    in
+    (fst c, snd c)
   in
-  let c0 = FpA.mul sum_a diff_a ~f:p in
-  let c1 = FpA.mul two_a0_a a.c1 ~f:p in
+  (* c0 = (a0+a1)*(a0-a1) *)
+  let sum_a0_a1 =
+    FF.Sum.add (FF.Sum.of_field3 (FpA.to_field3 a.c0)) (FpA.to_field3 a.c1)
+  in
+  let diff_a0_a1 =
+    FF.Sum.sub (FF.Sum.of_field3 (FpA.to_field3 a.c0)) (FpA.to_field3 a.c1)
+  in
+  FF.assert_mul_sum (FF.Sum_input sum_a0_a1) (FF.Sum_input diff_a0_a1)
+    (FF.Field3_input (FF.FpU.to_field3 c0))
+    ~f:p ;
+  (* c1 = (a0+a0)*a1 *)
+  let sum_a0_a0 =
+    FF.Sum.add (FF.Sum.of_field3 (FpA.to_field3 a.c0)) (FpA.to_field3 a.c0)
+  in
+  FF.assert_mul_sum (FF.Sum_input sum_a0_a0)
+    (FF.Field3_input (FpA.to_field3 a.c1))
+    (FF.Field3_input (FF.FpU.to_field3 c1))
+    ~f:p ;
   from_unreduced c0 c1
 
 (** Multiply by an Fp scalar. The scalar should already be FpA. *)
