@@ -1405,7 +1405,6 @@ end = struct
                   , Circuit.Field.constant Circuit.Field.Constant.zero
                   , Circuit.Field.constant Circuit.Field.Constant.zero ) ) )
       }
-
 end
 
 (** Canonical foreign field element.  Limbs are range-checked (< 2^88)
@@ -1422,8 +1421,7 @@ module FpC = struct
 
   let to_fpa (x : t) : FpA.t = (x :> FpA.t)
 
-  let of_constant (x : Bignum_bigint.t) : t =
-    of_fpa_unsafe (FpA.of_constant x)
+  let of_constant (x : Bignum_bigint.t) : t = of_fpa_unsafe (FpA.of_constant x)
 
   let mul ~f (x : t) (y : t) : FpU.t = FpA.mul ~f (x :> FpA.t) (y :> FpA.t)
 
@@ -1438,9 +1436,8 @@ module FpC = struct
       { base with
         check =
           (fun x ->
-            let open Circuit.Internal_Basic in
-            let%bind () = base.check x in
             Circuit.make_checked (fun () ->
+                multi_range_check (FpA.to_field3 x) ;
                 assert_less_than (FpA.to_field3 x) ~bound:f ) )
       }
     |> Circuit.Typ.transport_var
