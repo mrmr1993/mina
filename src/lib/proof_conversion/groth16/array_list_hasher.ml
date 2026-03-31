@@ -27,9 +27,21 @@ let hash (arr : Step.Field.t array) : Step.Field.t =
 
     Returns the hash of [lhs; map hash_fp12 opening; rhs].
     The caller asserts this equals acc.state.g_digest. *)
+let _alh_marker (x : int) =
+  Step.assert_
+    (Raw
+       { kind = Zero
+       ; values = [||]
+       ; coeffs =
+           Array.map ~f:Step.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
+       } )
+
 let open_ ~(lhs : Step.Field.t array) ~(opening : Fp12.Circuit.t array)
     ~(rhs : Step.Field.t array) : Step.Field.t =
+  _alh_marker 7000 ;
   let opening_hashes = Array.map opening ~f:Accumulator_hash.hash_fp12 in
+  _alh_marker 7001 ;
   let combined = Array.concat [ lhs; opening_hashes; rhs ] in
   assert (Array.length combined = n) ;
-  hash combined
+  let result = hash combined in
+  _alh_marker 7002 ; result

@@ -183,7 +183,19 @@ let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
 (** Hash the accumulator using Poseidon with packing, matching nori's
     Poseidon.hashPacked(Accumulator, acc).
     Uses Random_oracle.Checked.pack_input + hash. *)
+let _acc_hash_marker (x : int) =
+  let module S = Pickles.Impls.Step in
+  S.assert_
+    (Raw
+       { kind = Zero
+       ; values = [||]
+       ; coeffs = Array.map ~f:S.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
+       } )
+
 let hash (acc : Circuit.t) : Step.Field.t =
+  _acc_hash_marker 6000 ;
   let input = to_input acc in
   let packed_fields = Random_oracle.Checked.pack_input input in
-  Random_oracle.Checked.hash packed_fields
+  _acc_hash_marker 6001 ;
+  let result = Random_oracle.Checked.hash packed_fields in
+  _acc_hash_marker 6002 ; result
