@@ -268,6 +268,10 @@ type iteration_data =
   ; double_line : Line.t
   ; add_line : Line.t option
   ; f_after : Fp12.t
+  ; delta_double_line : Line.t
+  ; delta_add_line : Line.t option
+  ; gamma_double_line : Line.t
+  ; gamma_add_line : Line.t option
   }
 
 (** The witness tracker state. *)
@@ -512,41 +516,94 @@ let compute_miller_loop (t : t) : unit =
   let f = ref Fp12.one in
   let num_iters = n - 1 in
   let g_values = Array.create ~len:num_iters Fp12.one in
+  (* Delta and gamma G2 points from VK, tracked in parallel with B *)
+  let delta = G2.of_proof_json t.vk.delta in
+  let gamma = G2.of_proof_json t.vk.gamma in
+  let c_g1 = get_c t in
+  let pi_g1 = get_pi t in
+  let c_xoy, c_yinv = compute_affine_cache c_g1 in
+  let pi_xoy, pi_yinv = compute_affine_cache pi_g1 in
+  let current_delta = ref delta in
+  let current_gamma = ref gamma in
+  let neg_delta = { G2.x = delta.x; y = Fp2.neg delta.y } in
+  let neg_gamma = { G2.x = gamma.x; y = Fp2.neg gamma.y } in
+  let dummy_line = { Line.lambda = Fp2.zero; neg_mu = Fp2.zero } in
   let dummy_iter =
     { f_before = Fp12.one
-    ; double_line = { Line.lambda = Fp2.zero; neg_mu = Fp2.zero }
+    ; double_line = dummy_line
     ; add_line = None
     ; f_after = Fp12.one
+    ; delta_double_line = dummy_line
+    ; delta_add_line = None
+    ; gamma_double_line = dummy_line
+    ; gamma_add_line = None
     }
   in
   let iterations = Array.create ~len:num_iters dummy_iter in
   for i = 1 to num_iters do
     let f_before = !f in
+    (* B lines *)
     let double_line, new_t = compute_double_line !current_t in
     current_t := new_t ;
+    (* Delta and gamma lines (parallel trajectory) *)
+    let delta_dl, new_delta = compute_double_line !current_delta in
+    current_delta := new_delta ;
+    let gamma_dl, new_gamma = compute_double_line !current_gamma in
+    current_gamma := new_gamma ;
     f := Fp12.square !f ;
     let line_eval = evaluate_line double_line ~x_over_y ~y_inv in
     f := Fp12.mul !f line_eval ;
     let bit = ate.(i) in
-    let add_line_opt =
+    let add_line_opt, delta_add_opt, gamma_add_opt =
       if bit = 1 then (
         let add_line, new_t = compute_add_line !current_t b in
         current_t := new_t ;
         let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
         f := Fp12.mul !f add_eval ;
-        Some add_line )
+        let d_add, nd = compute_add_line !current_delta delta in
+        current_delta := nd ;
+        let g_add, ng = compute_add_line !current_gamma gamma in
+        current_gamma := ng ;
+        (Some add_line, Some d_add, Some g_add) )
       else if bit = -1 then (
         let neg_b = { G2.x = b.x; y = Fp2.neg b.y } in
         let add_line, new_t = compute_add_line !current_t neg_b in
         current_t := new_t ;
         let add_eval = evaluate_line add_line ~x_over_y ~y_inv in
         f := Fp12.mul !f add_eval ;
-        Some add_line )
-      else None
+        let d_add, nd = compute_add_line !current_delta neg_delta in
+        current_delta := nd ;
+        let g_add, ng = compute_add_line !current_gamma neg_gamma in
+        current_gamma := ng ;
+        (Some add_line, Some d_add, Some g_add) )
+      else (None, None, None)
     in
-    g_values.(i - 1) <- !f ;
+    (* Compute g: product of all line evaluations at all 3 caches *)
+    let g_b_double = evaluate_line double_line ~x_over_y ~y_inv in
+    let g_d_double = evaluate_line delta_dl ~x_over_y:c_xoy ~y_inv:c_yinv in
+    let g_g_double = evaluate_line gamma_dl ~x_over_y:pi_xoy ~y_inv:pi_yinv in
+    let g_val = Fp12.mul (Fp12.mul g_b_double g_d_double) g_g_double in
+    let g_val =
+      match (add_line_opt, delta_add_opt, gamma_add_opt) with
+      | Some al, Some dal, Some gal ->
+          let g_b_add = evaluate_line al ~x_over_y ~y_inv in
+          let g_d_add = evaluate_line dal ~x_over_y:c_xoy ~y_inv:c_yinv in
+          let g_g_add = evaluate_line gal ~x_over_y:pi_xoy ~y_inv:pi_yinv in
+          Fp12.mul g_val (Fp12.mul (Fp12.mul g_b_add g_d_add) g_g_add)
+      | _ ->
+          g_val
+    in
+    g_values.(i - 1) <- g_val ;
     iterations.(i - 1) <-
-      { f_before; double_line; add_line = add_line_opt; f_after = !f }
+      { f_before
+      ; double_line
+      ; add_line = add_line_opt
+      ; f_after = !f
+      ; delta_double_line = delta_dl
+      ; delta_add_line = delta_add_opt
+      ; gamma_double_line = gamma_dl
+      ; gamma_add_line = gamma_add_opt
+      }
   done ;
   t.f <- !f ;
   t.t_point <- !current_t ;

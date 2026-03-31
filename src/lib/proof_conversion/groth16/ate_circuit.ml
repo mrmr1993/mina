@@ -16,45 +16,89 @@ module FF = Snarky_foreign_field.Foreign_field
 module Step = Pickles.Impls.Step
 module WT = Witness_tracker
 
-(** Process one ate loop iteration in-circuit.
+(** Three-cache line evaluation context. *)
+type three_cache =
+  { a_cache : Lines.AffineCache.t  (** negA — for B-lines *)
+  ; c_cache : Lines.AffineCache.t  (** C — for delta-lines *)
+  ; pi_cache : Lines.AffineCache.t  (** PI — for gamma-lines *)
+  }
+
+(** Process one ate loop iteration in-circuit with 3-party line evaluation.
     Returns (updated_f, g, updated_T). *)
 let process_iteration (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
     ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(bit : int)
-    ~(double_line : Lines.G2Line.t) ~(cache : Lines.AffineCache.t)
-    ~(add_line : Lines.G2Line.t option) :
+    ~(double_line : Lines.G2Line.t) ~(delta_double : Lines.G2Line.t)
+    ~(gamma_double : Lines.G2Line.t) ~(caches : three_cache)
+    ~(add_line : Lines.G2Line.t option) ~(delta_add : Lines.G2Line.t option)
+    ~(gamma_add : Lines.G2Line.t option) :
     Fp12.Circuit.t * Fp12.Circuit.t * G2.Circuit.t =
-  (* Assert the double line is tangent to T *)
+  (* Assert the B double line is tangent to T *)
   Lines.assert_is_tangent double_line t_point ;
   let f = Fp12.square f in
-  let g = Lines.eval_to_fp12 double_line cache in
-  let f = Lines.mul_by_line f double_line cache in
+  (* Evaluate all 3 double lines at their respective caches *)
+  let g = Lines.eval_to_fp12 double_line caches.a_cache in
+  let g = Fp12.mul g (Lines.eval_to_fp12 delta_double caches.c_cache) in
+  let g = Fp12.mul g (Lines.eval_to_fp12 gamma_double caches.pi_cache) in
+  let f = Lines.mul_by_line f double_line caches.a_cache in
   (* Update T by doubling *)
   let t_point = Lines.double_from_line t_point ~lambda:double_line.lambda in
-  match (bit, add_line) with
-  | 0, _ ->
+  match (bit, add_line, delta_add, gamma_add) with
+  | 0, _, _, _ ->
       (f, g, t_point)
-  | 1, Some add_l ->
-      (* Assert add line passes through T and B *)
+  | 1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point b_point ;
-      let g = Fp12.mul g (Lines.eval_to_fp12 add_l cache) in
-      let f = Lines.mul_by_line f add_l cache in
+      let g2 = Lines.eval_to_fp12 add_l caches.a_cache in
+      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 d_add caches.c_cache) in
+      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 g_add caches.pi_cache) in
+      let g = Fp12.mul g g2 in
+      let f = Lines.mul_by_line f add_l caches.a_cache in
       let t_point = Lines.add_from_line t_point ~lambda:add_l.lambda b_point in
       (f, g, t_point)
-  | -1, Some add_l ->
-      (* Assert add line passes through T and negB *)
+  | -1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point neg_b ;
-      let g = Fp12.mul g (Lines.eval_to_fp12 add_l cache) in
-      let f = Lines.mul_by_line f add_l cache in
+      let g2 = Lines.eval_to_fp12 add_l caches.a_cache in
+      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 d_add caches.c_cache) in
+      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 g_add caches.pi_cache) in
+      let g = Fp12.mul g g2 in
+      let f = Lines.mul_by_line f add_l caches.a_cache in
       let t_point = Lines.add_from_line t_point ~lambda:add_l.lambda neg_b in
       (f, g, t_point)
   | _ ->
       (f, g, t_point)
 
-(** Run a chunk of ate loop iterations with T point tracking.
+(** Witness a G2Line from tracker iteration data. *)
+let witness_line (get : WT.iteration_data -> WT.Line.t) (iter_idx : int) :
+    Lines.G2Line.t =
+  { Lines.G2Line.lambda =
+      Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+          (get (WT.get_iteration (Circuit_config.get_tracker ()) iter_idx))
+            .lambda )
+  ; neg_mu =
+      Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+          (get (WT.get_iteration (Circuit_config.get_tracker ()) iter_idx))
+            .neg_mu )
+  }
+
+(** Witness an optional G2Line from tracker. *)
+let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
+    (iter_idx : int) : Lines.G2Line.t =
+  { Lines.G2Line.lambda =
+      Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+          (Option.value_exn
+             (get (WT.get_iteration (Circuit_config.get_tracker ()) iter_idx)) )
+            .lambda )
+  ; neg_mu =
+      Step.exists Fp2.Circuit.typ ~compute:(fun () ->
+          (Option.value_exn
+             (get (WT.get_iteration (Circuit_config.get_tracker ()) iter_idx)) )
+            .neg_mu )
+  }
+
+(** Run a chunk of ate loop iterations with T tracking and 3-party lines.
     Returns (final_f, g_values, final_T). *)
 let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
     ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(begin_idx : int)
-    ~(end_idx : int) ~(cache : Lines.AffineCache.t) :
+    ~(end_idx : int) ~(caches : three_cache) :
     Fp12.Circuit.t * Fp12.Circuit.t array * G2.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
   let n = end_idx - begin_idx in
@@ -63,36 +107,24 @@ let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
   let t_ref = ref t_point in
   for i = begin_idx to end_idx - 1 do
     let bit = ate.(i) in
-    let double_line : Lines.G2Line.t =
-      { lambda =
-          Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-              let tracker = Circuit_config.get_tracker () in
-              (WT.get_iteration tracker (i - 1)).double_line.lambda )
-      ; neg_mu =
-          Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-              let tracker = Circuit_config.get_tracker () in
-              (WT.get_iteration tracker (i - 1)).double_line.neg_mu )
-      }
+    let iter_idx = i - 1 in
+    let double_line = witness_line (fun d -> d.WT.double_line) iter_idx in
+    let delta_double =
+      witness_line (fun d -> d.WT.delta_double_line) iter_idx
     in
-    let add_line =
+    let gamma_double =
+      witness_line (fun d -> d.WT.gamma_double_line) iter_idx
+    in
+    let add_line, delta_add, gamma_add =
       if bit <> 0 then
-        Some
-          { Lines.G2Line.lambda =
-              Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                  let tracker = Circuit_config.get_tracker () in
-                  let line = (WT.get_iteration tracker (i - 1)).add_line in
-                  (Option.value_exn line).lambda )
-          ; neg_mu =
-              Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                  let tracker = Circuit_config.get_tracker () in
-                  let line = (WT.get_iteration tracker (i - 1)).add_line in
-                  (Option.value_exn line).neg_mu )
-          }
-      else None
+        ( Some (witness_opt_line (fun d -> d.WT.add_line) iter_idx)
+        , Some (witness_opt_line (fun d -> d.WT.delta_add_line) iter_idx)
+        , Some (witness_opt_line (fun d -> d.WT.gamma_add_line) iter_idx) )
+      else (None, None, None)
     in
     let new_f, g, new_t =
-      process_iteration !f_ref !t_ref ~b_point ~neg_b ~bit ~double_line ~cache
-        ~add_line
+      process_iteration !f_ref !t_ref ~b_point ~neg_b ~bit ~double_line
+        ~delta_double ~gamma_double ~caches ~add_line ~delta_add ~gamma_add
     in
     f_ref := new_f ;
     t_ref := new_t ;
@@ -117,17 +149,21 @@ let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
   let t_point = acc.state.t_point in
   let b_point = acc.proof.b in
   let neg_b = G2.negate b_point in
-  let cache : Lines.AffineCache.t =
+  let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
     { x_over_y =
         Step.exists FF.Field3.typ ~compute:(fun () ->
             let tracker = Circuit_config.get_tracker () in
-            let neg_a = WT.get_neg_a tracker in
-            fst (WT.compute_affine_cache neg_a) )
+            fst (WT.compute_affine_cache (get_pt tracker)) )
     ; y_inv =
         Step.exists FF.Field3.typ ~compute:(fun () ->
             let tracker = Circuit_config.get_tracker () in
-            let neg_a = WT.get_neg_a tracker in
-            snd (WT.compute_affine_cache neg_a) )
+            snd (WT.compute_affine_cache (get_pt tracker)) )
+    }
+  in
+  let caches : three_cache =
+    { a_cache = witness_cache WT.get_neg_a
+    ; c_cache = witness_cache WT.get_c
+    ; pi_cache = witness_cache (fun t -> WT.get_pi t)
     }
   in
   (* Witness the full lines_hashes array and verify against g_digest *)
@@ -140,7 +176,7 @@ let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
   Step.Field.Assert.equal acc.state.g_digest digest ;
   (* Run the ate loop chunk with T tracking *)
   let f_updated, g_values, t_updated =
-    run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~cache
+    run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~caches
   in
   (* Update lines_hashes with the computed g values *)
   for i = 0 to Array.length g_values - 1 do
