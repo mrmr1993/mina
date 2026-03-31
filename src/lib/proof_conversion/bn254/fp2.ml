@@ -63,30 +63,12 @@ let neg (a : Circuit.t) : Circuit.t =
 let conjugate (a : Circuit.t) : Circuit.t =
   { c0 = a.c0; c1 = FpA.neg a.c1 ~f:p }
 
-let _fp2_mul_trace = ref false
-
-let marker_ (x : int) =
-  let module Step = Pickles.Impls.Step in
-  Step.assert_
-    (Raw
-       { kind = Zero
-       ; values = [||]
-       ; coeffs =
-           Array.map ~f:Step.Field.Constant.of_int [| x; 1; 2; 3; 4; 5; 6 |]
-       } )
-
 (** Fp2 multiplication using witness-and-assertMul pattern.
     Matches nori's Fp2.mul. *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  let trace = !_fp2_mul_trace in
-  if trace then marker_ 3000 ;
   let a0b0 = FpA.mul a.c0 b.c0 ~f:p in
-  if trace then marker_ 3001 ;
   let a1b1 = FpA.mul a.c1 b.c1 ~f:p in
-  if trace then marker_ 3002 ;
-  (* FpU.sub: a0b0 and a1b1 are FpU (from mul), matching o1js a0b0.sub(a1b1) *)
   let c0 = FF.FpU.sub a0b0 a1b1 ~f:p in
-  if trace then marker_ 3003 ;
   let module Step = Pickles.Impls.Step in
   let c1 =
     Step.exists FF.FpU.typ ~compute:(fun () ->
@@ -114,11 +96,8 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
          (FF.FpU.to_field3 a0b0) )
       (FF.FpU.to_field3 a1b1)
   in
-  if trace then FF._ams_trace := true ;
   FF.assert_mul_sum (FF.Sum_input lhs_x) (FF.Sum_input lhs_y) (FF.Sum_input rhs)
     ~f:p ;
-  if trace then marker_ 3005 ;
-  _fp2_mul_trace := false ;
   from_unreduced c0 c1
 
 let square (a : Circuit.t) : Circuit.t =
