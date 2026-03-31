@@ -1162,17 +1162,27 @@ module Sum = struct
               (fst c, snd c)
             in
             overflows.(i) <- overflow ;
-            (* Constrain carry to {0, 1, -1} via (carry)(carry-1)(carry+1) = 0.
-               This uses 2 generic gates matching o1js assertOneOf. *)
-            let carry_m1 =
-              Circuit.Field.(carry - constant (Circuit.Field.Constant.of_int 1))
+            (* Constrain carry to {0, 1, -1}: carry*(carry²-1) = 0.
+               Use R1CS constraints to produce half-generics that pair:
+               1. z = carry*(carry-1)  [half-generic: witness z]
+               2. z*(carry+1) = 0     [half-generic: assertion]
+               These pair into 1 Generic gate, matching o1js. *)
+            let z =
+              Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+                  let c = Circuit.As_prover.read_var carry in
+                  let c1 = Circuit.Field.Constant.(c * (c - one)) in
+                  c1 )
             in
-            let carry_p1 =
-              Circuit.Field.(carry + constant (Circuit.Field.Constant.of_int 1))
-            in
-            let t1 = Circuit.Field.(carry * carry_m1) in
             Circuit.assert_
-              (Equal (Circuit.Field.(t1 * carry_p1), Circuit.Field.zero)) ;
+              (R1CS
+                 ( carry
+                 , Circuit.Field.(carry - constant Circuit.Field.Constant.one)
+                 , z ) ) ;
+            Circuit.assert_
+              (R1CS
+                 ( z
+                 , Circuit.Field.(carry + constant Circuit.Field.Constant.one)
+                 , Circuit.Field.zero ) ) ;
             (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
             let sign_field = bignum_to_field_const sign_bi in
             let f0_field = bignum_to_field_const f0 in
@@ -1185,7 +1195,7 @@ module Sum = struct
                   - (overflow * constant f0_field)
                   - (carry * constant two_l_field)) ;
             x0s.(i) <- !x0 ) ;
-        (* ForeignFieldAdd chain *)
+        (* ForeignFieldAdd chain with wired assertEquals *)
         let result = ref (List.hd_exn xs) in
         List.iteri (List.tl_exn xs) ~f:(fun i xi ->
             let sign_i = List.nth_exn signs i in

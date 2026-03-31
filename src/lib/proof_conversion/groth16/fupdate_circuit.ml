@@ -84,7 +84,8 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
     if i = 0 then marker 2000 ;
     result := Fp12.cyclotomic_square !result ;
     if i = 0 then marker 2001 ;
-    (* after first square *)
+    (* after first square — enable Fp2.mul tracing for first Fp12.mul *)
+    if i = 0 then Fp2._fp2_mul_trace := true ;
     result := Fp12.mul !result g_chunk.(i) ;
     if i = 0 then marker 2002 ;
     (* after first mul *)
