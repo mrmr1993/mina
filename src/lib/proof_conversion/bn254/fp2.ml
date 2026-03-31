@@ -56,18 +56,12 @@ let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c1 = FpA.sub a.c1 b.c1 ~f:p in
   from_unreduced c0 c1
 
+(* neg returns FpA directly (negation proves result < f) *)
 let neg (a : Circuit.t) : Circuit.t =
-  let c0 = FpA.neg a.c0 ~f:p in
-  let c1 = FpA.neg a.c1 ~f:p in
-  from_unreduced c0 c1
+  { c0 = FpA.neg a.c0 ~f:p; c1 = FpA.neg a.c1 ~f:p }
 
 let conjugate (a : Circuit.t) : Circuit.t =
-  let c1 = FpA.neg a.c1 ~f:p in
-  match FpA.assert_almost_reduced [ c1 ] ~f:p ~skip_mrc:true () with
-  | [ c1a ] ->
-      { c0 = a.c0; c1 = c1a }
-  | _ ->
-      failwith "conjugate: unexpected"
+  { c0 = a.c0; c1 = FpA.neg a.c1 ~f:p }
 
 let _fp2_mul_trace = ref false
 
@@ -90,7 +84,8 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   if trace then marker_ 3001 ;
   let a1b1 = FpA.mul a.c1 b.c1 ~f:p in
   if trace then marker_ 3002 ;
-  let c0 = FpA.sub a0b0 a1b1 ~f:p in
+  (* FpU.sub: a0b0 and a1b1 are FpU (from mul), matching o1js a0b0.sub(a1b1) *)
+  let c0 = FF.FpU.sub a0b0 a1b1 ~f:p in
   if trace then marker_ 3003 ;
   let module Step = Pickles.Impls.Step in
   let c1 =
@@ -114,8 +109,10 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   in
   let rhs =
     FF.Sum.add
-      (FF.Sum.add (FF.Sum.of_field3 (FF.FpU.to_field3 c1)) (FpA.to_field3 a0b0))
-      (FpA.to_field3 a1b1)
+      (FF.Sum.add
+         (FF.Sum.of_field3 (FF.FpU.to_field3 c1))
+         (FF.FpU.to_field3 a0b0) )
+      (FF.FpU.to_field3 a1b1)
   in
   if trace then FF._ams_trace := true ;
   FF.assert_mul_sum (FF.Sum_input lhs_x) (FF.Sum_input lhs_y) (FF.Sum_input rhs)
@@ -140,16 +137,19 @@ let square (a : Circuit.t) : Circuit.t =
   in
   let c0 = FpA.mul sum_a diff_a ~f:p in
   let c1 = FpA.mul two_a0_a a.c1 ~f:p in
-  { c0; c1 }
+  from_unreduced c0 c1
 
 (** Multiply by an Fp scalar. The scalar should already be FpA. *)
 let mul_by_fp (a : Circuit.t) (s : FpA.t) : Circuit.t =
-  { c0 = FpA.mul a.c0 s ~f:p; c1 = FpA.mul a.c1 s ~f:p }
+  let c0 = FpA.mul a.c0 s ~f:p in
+  let c1 = FpA.mul a.c1 s ~f:p in
+  from_unreduced c0 c1
 
 let inverse (a : Circuit.t) : Circuit.t =
   let a0_sq = FpA.mul a.c0 a.c0 ~f:p in
   let a1_sq = FpA.mul a.c1 a.c1 ~f:p in
-  let norm = FpA.add a0_sq a1_sq ~f:p in
+  (* a0_sq, a1_sq are FpU (from mul); use FpU.add *)
+  let norm = FF.FpU.add a0_sq a1_sq ~f:p in
   let norm_a =
     match FpA.assert_almost_reduced [ norm ] ~f:p ~skip_mrc:true () with
     | [ n ] ->
@@ -160,12 +160,9 @@ let inverse (a : Circuit.t) : Circuit.t =
   let norm_inv = FpA.inv norm_a ~f:p in
   let c0 = FpA.mul a.c0 norm_inv ~f:p in
   let c1_pos = FpA.mul a.c1 norm_inv ~f:p in
-  let c1 = FpA.neg c1_pos ~f:p in
-  match FpA.assert_almost_reduced [ c1 ] ~f:p ~skip_mrc:true () with
-  | [ c1a ] ->
-      { c0; c1 = c1a }
-  | _ ->
-      failwith "inverse: unexpected"
+  (* neg on FpU result; from_unreduced converts both to FpA *)
+  let c1 = FF.FpU.neg c1_pos ~f:p in
+  from_unreduced c0 c1
 
 let frobenius (a : Circuit.t) : Circuit.t = conjugate a
 

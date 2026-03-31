@@ -1348,13 +1348,25 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
 
 (* ------------------------------------------------------------------ *)
 (* FpU / FpA: Typed foreign field hierarchy                            *)
+(*                                                                     *)
+(* Mirrors o1js foreign-field.ts:                                      *)
+(*   ForeignField (base)     — add, sub, neg, sum                      *)
+(*     └ UnreducedForeignField  — check = MRC                          *)
+(*     └ ForeignFieldWithMul    — mul, inv, div                        *)
+(*         └ AlmostForeignField — check = MRC + weakBound              *)
+(*         └ CanonicalForeignField — check = MRC + canonical           *)
+(*                                                                     *)
+(* Return types match o1js exactly:                                    *)
+(*   add/sub → Unreduced,  neg → AlmostReduced                        *)
+(*   mul → Unreduced,  inv/div → AlmostReduced                        *)
 (* ------------------------------------------------------------------ *)
 
 (** Unreduced foreign field element. Limbs are range-checked (< 2^88)
-    but the high limb is NOT weakly bounded. Result of add/sub.
+    but the high limb is NOT weakly bounded.
 
-    Mirrors o1js FpU (= Fp.Unreduced).
-    check = multiRangeCheck only (matching UnreducedForeignField.check). *)
+    Mirrors o1js UnreducedForeignField.
+    Has add/sub (returns FpU), but NOT mul/inv/div.
+    check = multiRangeCheck only. *)
 module FpU : sig
   type t = private Field3.t
 
@@ -1362,7 +1374,18 @@ module FpU : sig
 
   val of_field3_unsafe : Field3.t -> t
 
-  (** Snarky Typ for FpU. check = multiRangeCheck (limbs < 2^88). *)
+  (** FpU + FpU → FpU. Emits ForeignFieldAdd + indirectMRC. *)
+  val add : t -> t -> f:Bignum_bigint.t -> t
+
+  (** FpU - FpU → FpU. Emits ForeignFieldAdd + indirectMRC. *)
+  val sub : t -> t -> f:Bignum_bigint.t -> t
+
+  (** -FpU → FpU. Emits ForeignFieldAdd + indirectMRC.
+      Note: in o1js, neg returns AlmostReduced. We return FpU here
+      because FpA is not yet defined. Callers that need FpA should
+      use FpA.neg instead. *)
+  val neg : t -> f:Bignum_bigint.t -> t
+
   val typ : (t, Field3.Constant.t) Circuit.Typ.t
 end = struct
   type t = Field3.t
@@ -1371,16 +1394,22 @@ end = struct
 
   let of_field3_unsafe (x : Field3.t) : t = x
 
-  (* FpU.typ check = MRC only, matching o1js UnreducedForeignField.check *)
+  let add (x : t) (y : t) ~(f : Bignum_bigint.t) : t = add x y ~f
+
+  let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : t = sub x y ~f
+
+  let neg (x : t) ~(f : Bignum_bigint.t) : t = negate x ~f
+
   let typ : (t, Field3.Constant.t) Circuit.Typ.t = Field3.typ
 end
 
 (** Almost-reduced foreign field element. Limbs are range-checked (< 2^88)
-    AND the high limb is weakly bounded (< f_high or f_high+1).
-    Safe to use as input to mul / assertMul.
+    AND the high limb is weakly bounded.
 
-    Mirrors o1js FpA (= Fp.AlmostReduced).
-    check = multiRangeCheck + assertAlmostReduced (weakBound). *)
+    Mirrors o1js AlmostForeignField.
+    Has add/sub (returns FpU), neg (returns FpA),
+    mul (returns FpU), inv/div (returns FpA).
+    check = multiRangeCheck + weakBound. *)
 module FpA : sig
   type t = private Field3.t
 
@@ -1392,31 +1421,28 @@ module FpA : sig
 
   val of_constant : Bignum_bigint.t -> t
 
-  (** FpA + FpA → FpU. Emits ForeignFieldAdd + MRC. *)
+  (** FpA + FpA → FpU. Emits ForeignFieldAdd + indirectMRC. *)
   val add : t -> t -> f:Bignum_bigint.t -> FpU.t
 
-  (** FpA - FpA → FpU. Emits ForeignFieldAdd + MRC. *)
+  (** FpA - FpA → FpU. Emits ForeignFieldAdd + indirectMRC. *)
   val sub : t -> t -> f:Bignum_bigint.t -> FpU.t
 
-  (** -FpA → FpU. Emits ForeignFieldAdd + MRC. *)
-  val neg : t -> f:Bignum_bigint.t -> FpU.t
+  (** -FpA → FpA. Negation proves result < f, so it's AlmostReduced. *)
+  val neg : t -> f:Bignum_bigint.t -> t
 
-  (** FpA * FpA → FpA. Emits ForeignFieldMul + range checks. *)
-  val mul : t -> t -> f:Bignum_bigint.t -> t
+  (** FpA * FpA → FpU. Emits ForeignFieldMul + range checks. *)
+  val mul : t -> t -> f:Bignum_bigint.t -> FpU.t
 
-  (** 1/FpA → FpA. *)
+  (** 1/FpA → FpA. Witnesses inverse, constrains via assertMul. *)
   val inv : t -> f:Bignum_bigint.t -> t
 
   (** FpA / FpA → FpA. *)
   val div : t -> t -> f:Bignum_bigint.t -> t
 
-  (** Convert FpU values to FpA by adding weakBound check.
-      Emits MRC + weakBound for each value (skip_mrc=false), or
-      just weakBound (skip_mrc=true) if already range-checked. *)
+  (** Convert FpU values to FpA by adding weakBound check. *)
   val assert_almost_reduced :
     FpU.t list -> f:Bignum_bigint.t -> ?skip_mrc:bool -> unit -> t list
 
-  (** Snarky Typ for FpA. check = MRC + weakBound. *)
   val typ : f:Bignum_bigint.t -> (t, Field3.Constant.t) Circuit.Typ.t
 end = struct
   type t = Field3.t
@@ -1429,17 +1455,22 @@ end = struct
 
   let of_constant (x : Bignum_bigint.t) : t = Field3.of_constant x
 
+  (* add/sub return FpU — matching o1js ForeignField.add/sub → Unreduced *)
   let add (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
     FpU.of_field3_unsafe (add x y ~f)
 
   let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
     FpU.of_field3_unsafe (sub x y ~f)
 
-  let neg (x : t) ~(f : Bignum_bigint.t) : FpU.t =
-    FpU.of_field3_unsafe (negate x ~f)
+  (* neg returns FpA — matching o1js ForeignField.neg → AlmostReduced
+     because negation proves r = f - x >= 0, so r < f *)
+  let neg (x : t) ~(f : Bignum_bigint.t) : t = negate x ~f
 
-  let mul (x : t) (y : t) ~(f : Bignum_bigint.t) : t = mul x y ~f
+  (* mul returns FpU — matching o1js ForeignFieldWithMul.mul → Unreduced *)
+  let mul (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
+    FpU.of_field3_unsafe (mul x y ~f)
 
+  (* inv/div return FpA — matching o1js → AlmostReduced *)
   let inv (x : t) ~(f : Bignum_bigint.t) : t = inv x ~f
 
   let div (x : t) (y : t) ~(f : Bignum_bigint.t) : t = div x y ~f
