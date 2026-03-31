@@ -1405,4 +1405,43 @@ end = struct
                   , Circuit.Field.constant Circuit.Field.Constant.zero
                   , Circuit.Field.constant Circuit.Field.Constant.zero ) ) )
       }
+
+end
+
+(** Canonical foreign field element.  Limbs are range-checked (< 2^88)
+    AND the full value is proven < f.
+
+    Mirrors o1js CanonicalForeignField.
+    check = multiRangeCheck + assertCanonical (assertLessThan(f)). *)
+module FpC = struct
+  type t = private Field3.t
+
+  let of_fpa_unsafe (x : FpA.t) : t = (Obj.magic x : t)
+
+  let to_field3 (x : t) : Field3.t = (x :> Field3.t)
+
+  let to_fpa (x : t) : FpA.t = FpA.of_field3_unsafe (to_field3 x)
+
+  let of_constant (x : Bignum_bigint.t) : t =
+    of_fpa_unsafe (FpA.of_constant x)
+
+  (** Assert a value is canonical (< f) and return as FpC. *)
+  let assert_canonical (x : FpA.t) ~(f : Bignum_bigint.t) : t =
+    assert_less_than (FpA.to_field3 x) ~bound:f ;
+    of_fpa_unsafe x
+
+  let typ ~(f : Bignum_bigint.t) : (t, Field3.Constant.t) Circuit.Typ.t =
+    let (Circuit.Typ.Typ base) = (FpA.typ ~f : (FpA.t, _) Circuit.Typ.t) in
+    Circuit.Typ.Typ
+      { base with
+        check =
+          (fun x ->
+            let open Circuit.Internal_Basic in
+            let%bind () = base.check x in
+            Circuit.make_checked (fun () ->
+                assert_less_than (FpA.to_field3 x) ~bound:f ) )
+      }
+    |> Circuit.Typ.transport_var
+         ~there:(fun x -> to_fpa x)
+         ~back:(fun x -> of_fpa_unsafe x)
 end
