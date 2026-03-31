@@ -17,6 +17,16 @@ let eval_line (line : G2Line.t) (cache : AffineCache.t) :
   let c11 = Fp2.mul_by_fp line.neg_mu cache.y_inv in
   (c01, c11)
 
+(** Evaluate a line into a full (sparse) Fp12 element.
+    The result has the form (1, c01, 0; c11, 0, 0) in Fp12. *)
+let eval_to_fp12 (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
+  let c01, c11 = eval_line line cache in
+  let one_fp2 = Fp2.of_constant Fp2.Constant.one in
+  let zero_fp2 = Fp2.of_constant Fp2.Constant.zero in
+  { Fp12.Circuit.c0 = { Fp6.Circuit.c0 = one_fp2; c1 = c01; c2 = zero_fp2 }
+  ; c1 = { Fp6.Circuit.c0 = c11; c1 = zero_fp2; c2 = zero_fp2 }
+  }
+
 let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t) (cache : AffineCache.t) :
     Fp12.Circuit.t =
   let c01, c11 = eval_line line cache in

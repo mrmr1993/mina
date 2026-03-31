@@ -76,18 +76,36 @@ let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits: witness accumulator, run iterations, output hash *)
+      (* Ate loop circuits: witness accumulator, run iterations, output hash.
+         Verifies g_digest on entry, updates it with computed g values. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
-       let _f_updated = Ate_circuit.build_from_acc acc ~circuit_index in
-       (* TODO: update acc.state.T and acc.state.g_digest *)
-       hash_with_updated_f acc acc.state.f
+       let f_updated, new_g_digest =
+         Ate_circuit.build_from_acc acc ~circuit_index
+       in
+       (* TODO: update acc.state.T *)
+       let updated : Accumulator.Circuit.t =
+         { proof = acc.proof
+         ; state = { acc.state with f = f_updated; g_digest = new_g_digest }
+         }
+       in
+       Accumulator.hash updated
   | 6 ->
       (* Final ate loop + Frobenius correction.
          Witnesses the last g value, verifies c * c_inv = 1,
-         and applies Frobenius line evaluations from B, piB, pi2B. *)
+         and applies Frobenius line evaluations from B, piB, pi2B.
+         Updates g_digest with the Frobenius g hash at position 64. *)
       fun input_hash ->
        let acc = witness_and_verify_acc input_hash in
+       let n_total = Array.length Bn254_params.ate_loop_count in
+       (* Verify g_digest *)
+       let lines_hashes =
+         Array.init n_total ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
+       let digest = Array_list_hasher.hash lines_hashes in
+       Step.Field.Assert.equal acc.state.g_digest digest ;
        (* f: accumulated Miller loop result from zkp5 *)
        let f = acc.state.f in
        (* Last g value from line accumulation *)
@@ -106,18 +124,29 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              WT.get_frobenius_line (Circuit_config.get_tracker ()) 0 )
        in
+       let frobenius_g = frobenius_line_piB in
        let f = Fp12.mul f frobenius_line_piB in
        let frobenius_line_pi2B =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              WT.get_frobenius_line (Circuit_config.get_tracker ()) 1 )
        in
+       let frobenius_g = Fp12.mul frobenius_g frobenius_line_pi2B in
        let f = Fp12.mul f frobenius_line_pi2B in
        let frobenius_line_pi3B =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              WT.get_frobenius_line (Circuit_config.get_tracker ()) 2 )
        in
+       let frobenius_g = Fp12.mul frobenius_g frobenius_line_pi3B in
        let f = Fp12.mul f frobenius_line_pi3B in
-       hash_with_updated_f acc f
+       (* Update g_digest: hash frobenius_g into the last position *)
+       lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 frobenius_g ;
+       let new_g_digest = Array_list_hasher.hash lines_hashes in
+       let updated : Accumulator.Circuit.t =
+         { proof = acc.proof
+         ; state = { acc.state with f; g_digest = new_g_digest }
+         }
+       in
+       Accumulator.hash updated
   | 7 | 8 | 9 | 10 | 11 | 12 ->
       (* f-update: cyclotomic squarings with g-value and c/c_inv multiplies *)
       Fupdate_circuit.build ~circuit_index
