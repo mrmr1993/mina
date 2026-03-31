@@ -1347,66 +1347,96 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
   _ams_trace := false
 
 (* ------------------------------------------------------------------ *)
-(* FpA: Almost-reduced foreign field element (typed API)               *)
+(* FpU / FpA: Typed foreign field hierarchy                            *)
 (* ------------------------------------------------------------------ *)
 
-(** Almost-reduced foreign field element. Limbs are range-checked (< 2^88)
-    and the high limb is weakly bounded.
+(** Unreduced foreign field element. Limbs are range-checked (< 2^88)
+    but the high limb is NOT weakly bounded. Result of add/sub.
 
-    Mirrors o1js FpA (= Fp.AlmostReduced). All operations match the o1js
-    API: add/sub/mul return Field3.t (unreduced), and assertAlmostReduced
-    converts back to FpA.t. *)
-module FpA : sig
+    Mirrors o1js FpU (= Fp.Unreduced).
+    check = multiRangeCheck only (matching UnreducedForeignField.check). *)
+module FpU : sig
   type t = private Field3.t
 
   val to_field3 : t -> Field3.t
 
   val of_field3_unsafe : Field3.t -> t
 
+  (** Snarky Typ for FpU. check = multiRangeCheck (limbs < 2^88). *)
+  val typ : (t, Field3.Constant.t) Circuit.Typ.t
+end = struct
+  type t = Field3.t
+
+  let to_field3 (x : t) = x
+
+  let of_field3_unsafe (x : Field3.t) : t = x
+
+  (* FpU.typ check = MRC only, matching o1js UnreducedForeignField.check *)
+  let typ : (t, Field3.Constant.t) Circuit.Typ.t = Field3.typ
+end
+
+(** Almost-reduced foreign field element. Limbs are range-checked (< 2^88)
+    AND the high limb is weakly bounded (< f_high or f_high+1).
+    Safe to use as input to mul / assertMul.
+
+    Mirrors o1js FpA (= Fp.AlmostReduced).
+    check = multiRangeCheck + assertAlmostReduced (weakBound). *)
+module FpA : sig
+  type t = private Field3.t
+
+  val to_field3 : t -> Field3.t
+
+  val to_fpu : t -> FpU.t
+
+  val of_field3_unsafe : Field3.t -> t
+
   val of_constant : Bignum_bigint.t -> t
 
-  (** FpA + FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
-  val add : t -> t -> f:Bignum_bigint.t -> Field3.t
+  (** FpA + FpA → FpU. Emits ForeignFieldAdd + MRC. *)
+  val add : t -> t -> f:Bignum_bigint.t -> FpU.t
 
-  (** FpA - FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
-  val sub : t -> t -> f:Bignum_bigint.t -> Field3.t
+  (** FpA - FpA → FpU. Emits ForeignFieldAdd + MRC. *)
+  val sub : t -> t -> f:Bignum_bigint.t -> FpU.t
 
-  (** -FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
-  val neg : t -> f:Bignum_bigint.t -> Field3.t
+  (** -FpA → FpU. Emits ForeignFieldAdd + MRC. *)
+  val neg : t -> f:Bignum_bigint.t -> FpU.t
 
   (** FpA * FpA → FpA. Emits ForeignFieldMul + range checks. *)
   val mul : t -> t -> f:Bignum_bigint.t -> t
 
-  (** 1/FpA → FpA. Witnesses inverse, emits ForeignFieldMul. *)
+  (** 1/FpA → FpA. *)
   val inv : t -> f:Bignum_bigint.t -> t
 
   (** FpA / FpA → FpA. *)
   val div : t -> t -> f:Bignum_bigint.t -> t
 
-  (** Convert unreduced Field3 values to FpA by asserting bounds.
-      Emits multiRangeCheck + weakBound for each value. *)
-  val assert_almost_reduced : Field3.t list -> f:Bignum_bigint.t -> t list
+  (** Convert FpU values to FpA by adding weakBound check.
+      Emits MRC + weakBound for each value (skip_mrc=false), or
+      just weakBound (skip_mrc=true) if already range-checked. *)
+  val assert_almost_reduced :
+    FpU.t list -> f:Bignum_bigint.t -> ?skip_mrc:bool -> unit -> t list
+
+  (** Snarky Typ for FpA. check = MRC + weakBound. *)
+  val typ : f:Bignum_bigint.t -> (t, Field3.Constant.t) Circuit.Typ.t
 end = struct
   type t = Field3.t
 
   let to_field3 (x : t) : Field3.t = x
 
+  let to_fpu (x : t) : FpU.t = FpU.of_field3_unsafe x
+
   let of_field3_unsafe (x : Field3.t) : t = x
 
   let of_constant (x : Bignum_bigint.t) : t = Field3.of_constant x
 
-  let add (x : t) (y : t) ~(f : Bignum_bigint.t) : Field3.t =
-    (* FF.add returns Field3.t with range checks *)
-    let r = add x y ~f in
-    (r :> Field3.t)
+  let add (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
+    FpU.of_field3_unsafe (add x y ~f)
 
-  let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : Field3.t =
-    let r = sub x y ~f in
-    (r :> Field3.t)
+  let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
+    FpU.of_field3_unsafe (sub x y ~f)
 
-  let neg (x : t) ~(f : Bignum_bigint.t) : Field3.t =
-    let r = negate x ~f in
-    (r :> Field3.t)
+  let neg (x : t) ~(f : Bignum_bigint.t) : FpU.t =
+    FpU.of_field3_unsafe (negate x ~f)
 
   let mul (x : t) (y : t) ~(f : Bignum_bigint.t) : t = mul x y ~f
 
@@ -1414,8 +1444,24 @@ end = struct
 
   let div (x : t) (y : t) ~(f : Bignum_bigint.t) : t = div x y ~f
 
-  let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t) : t list
-      =
-    assert_almost_reduced xs ~f ~skip_mrc:false ;
-    List.map xs ~f:of_field3_unsafe
+  let assert_almost_reduced (xs : FpU.t list) ~(f : Bignum_bigint.t)
+      ?(skip_mrc = false) () : t list =
+    let xs_raw = List.map xs ~f:FpU.to_field3 in
+    assert_almost_reduced xs_raw ~f ~skip_mrc ;
+    List.map xs_raw ~f:of_field3_unsafe
+
+  let typ ~(f : Bignum_bigint.t) : (t, Field3.Constant.t) Circuit.Typ.t =
+    let (Circuit.Typ.Typ base) = Field3.typ in
+    Circuit.Typ.Typ
+      { base with
+        check =
+          (fun (l0, l1, l2) ->
+            Circuit.make_checked (fun () ->
+                multi_range_check (l0, l1, l2) ;
+                let bound = weak_bound l2 ~f in
+                multi_range_check
+                  ( bound
+                  , Circuit.Field.constant Circuit.Field.Constant.zero
+                  , Circuit.Field.constant Circuit.Field.Constant.zero ) ) )
+      }
 end
