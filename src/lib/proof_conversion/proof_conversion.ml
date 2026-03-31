@@ -17,6 +17,9 @@ module Bn254_params = Bn254_params
 module Proof_json = Proof_json
 module Circuit_info = Circuit_info
 module Plonk_circuits = Plonk_circuits
+module Pickles_rules = Pickles_rules
+module Circuit_utils = Circuit_utils
+module Circuits = Circuits
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig

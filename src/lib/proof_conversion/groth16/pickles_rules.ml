@@ -24,21 +24,15 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
           ; auxiliary_output = ()
           } )
   ; feature_flags =
-      (* Feature flags must exactly match the gates the circuit produces.
-         All circuits with FF ops need range_check + foreign_field_mul.
-         Circuit 0 (minimal test) only needs range checks. *)
-      ( match n with
-      | 0 ->
-          { Pickles_types.Plonk_types.Features.none_bool with
-            range_check0 = true
-          ; range_check1 = true
-          }
-      | _ ->
-          { Pickles_types.Plonk_types.Features.none_bool with
-            range_check0 = true
-          ; range_check1 = true
-          ; foreign_field_mul = true
-          } )
+      (* All Groth16 circuits use foreign field arithmetic and Poseidon hashing.
+         Feature flags must exactly match the gate types present. *)
+      ( ignore (n : int) ;
+        { Pickles_types.Plonk_types.Features.none_bool with
+          range_check0 = true
+        ; range_check1 = true
+        ; foreign_field_add = true
+        ; foreign_field_mul = true
+        } )
   }
 
 (** Compile and prove a single circuit.

@@ -31,6 +31,22 @@
   (pps ppx_version ppx_jane)))
 
 (executable
+ (name test_groth16_vk)
+ (modules test_groth16_vk)
+ (libraries
+  core_kernel
+  pickles
+  pickles_types
+  kimchi_pasta
+  mina_base
+  promise
+  proof_conversion)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
+
+(executable
  (name test_gate_comparison)
  (modules test_gate_comparison gate_comparison)
  (libraries
