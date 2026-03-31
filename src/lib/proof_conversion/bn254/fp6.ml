@@ -48,20 +48,18 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let b1_b2 = Fp2.add b.c1 b.c2 in
   let b0_b1 = Fp2.add b.c0 b.c1 in
   let b0_b2 = Fp2.add b.c0 b.c2 in
+  let open Snarky_foreign_field.Foreign_field in
   (* c0 = ((a1+a2)(b1+b2) - t1 - t2) * xi + t0 *)
-  let c0 =
-    Fp2.add
-      (mul_by_non_residue (Fp2.sub (Fp2.sub (Fp2.mul a1_a2 b1_b2) t1) t2))
-      t0
-  in
+  let c0_inner = Fp2.sum [ Fp2.mul a1_a2 b1_b2; t1; t2 ] [ Sub; Sub ] in
+  let c0 = Fp2.add (mul_by_non_residue c0_inner) t0 in
   (* c1 = (a0+a1)(b0+b1) - t0 - t1 + t2*xi *)
   let c1 =
-    Fp2.add
-      (Fp2.sub (Fp2.sub (Fp2.mul a0_a1 b0_b1) t0) t1)
-      (mul_by_non_residue t2)
+    Fp2.sum
+      [ Fp2.mul a0_a1 b0_b1; t0; t1; mul_by_non_residue t2 ]
+      [ Sub; Sub; Add ]
   in
   (* c2 = (a0+a2)(b0+b2) - t0 - t2 + t1 *)
-  let c2 = Fp2.add (Fp2.sub (Fp2.sub (Fp2.mul a0_a2 b0_b2) t0) t2) t1 in
+  let c2 = Fp2.sum [ Fp2.mul a0_a2 b0_b2; t0; t2; t1 ] [ Sub; Sub; Add ] in
   { c0; c1; c2 }
 
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =

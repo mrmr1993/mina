@@ -56,6 +56,16 @@ let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c1 = FpA.sub a.c1 b.c1 ~f:p in
   from_unreduced c0 c1
 
+(** Batched sum/difference of multiple Fp2 values.
+    Uses a single FF.sum chain per component, matching nori's Fp2.sum.
+    More efficient than chaining add/sub for 3+ operands. *)
+let sum (inputs : Circuit.t list) (ops : FF.sign list) : Circuit.t =
+  let c0s = List.map inputs ~f:(fun x -> FpA.to_field3 x.c0) in
+  let c1s = List.map inputs ~f:(fun x -> FpA.to_field3 x.c1) in
+  let c0 = FF.FpU.of_field3_unsafe (FF.sum c0s ops ~f:p) in
+  let c1 = FF.FpU.of_field3_unsafe (FF.sum c1s ops ~f:p) in
+  from_unreduced c0 c1
+
 (* neg returns FpA directly (negation proves result < f) *)
 let neg (a : Circuit.t) : Circuit.t =
   { c0 = FpA.neg a.c0 ~f:p; c1 = FpA.neg a.c1 ~f:p }
