@@ -82,9 +82,12 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
   | 0 | 1 | 2 | 3 | 4 | 5 ->
       (* Ate loop circuits: witness all private inputs up front (matching
          nori's privateInputs: [Accumulator, Array(Field, N), Array(G2Line, 91)]),
-         then run iterations and output hash. *)
+         then run constraints and output hash. *)
       fun input_hash ->
-       let acc = witness_and_verify_acc input_hash in
+       let acc =
+         Step.exists Accumulator.typ ~compute:(fun () ->
+             WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+       in
        let n_total = Array.length Bn254_params.ate_loop_count in
        let lines_hashes =
          Array.init n_total ~f:(fun i ->
@@ -99,6 +102,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
                  in
                  (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
        in
+       let acc_hash = Accumulator.hash acc in
+       Step.Field.Assert.equal input_hash acc_hash ;
        let f_updated, new_g_digest, t_updated =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
            ~circuit_index
@@ -117,7 +122,10 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          both ate g values and the Frobenius g hash.
          Matches nori's zkp6.ts. *)
       fun input_hash ->
-       let acc = witness_and_verify_acc input_hash in
+       let acc =
+         Step.exists Accumulator.typ ~compute:(fun () ->
+             WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+       in
        let n_total = Array.length Bn254_params.ate_loop_count in
        let lines_hashes =
          Array.init n_total ~f:(fun i ->
@@ -132,6 +140,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
                  in
                  (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
        in
+       let acc_hash = Accumulator.hash acc in
+       Step.Field.Assert.equal input_hash acc_hash ;
        (* Run ate loop iterations [59,65) with g_digest verification *)
        let f_after_ate, new_g_digest, t_after_ate =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
