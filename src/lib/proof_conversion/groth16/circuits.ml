@@ -95,7 +95,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
                  (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
        in
        let all_b_lines =
-         Array.init Ate_circuit.total_b_lines ~f:(fun i ->
+         (* +2 for frobenius lines. *)
+         Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
              Step.exists Lines.G2Line.typ ~compute:(fun () ->
                  let line =
                    (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
@@ -133,7 +134,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
                  (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
        in
        let all_b_lines =
-         Array.init Ate_circuit.total_b_lines ~f:(fun i ->
+         (* +2 for frobenius lines at the end, matching nori's 91-element array *)
+         Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
              Step.exists Lines.G2Line.typ ~compute:(fun () ->
                  let line =
                    (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
@@ -154,21 +156,11 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
           Matches nori's zkp6: piB = B.frobenius(), pi2B = piB.negative_frobenius() *)
        let piB = G2.frobenius acc.proof.b in
        let pi2B = G2.negative_frobenius piB in
-       (* Witness the Frobenius b_lines (lambda, neg_mu) and assert they
-          pass through the correct points. The T point comes from the
-          ate loop state (carried in accumulator). *)
+       (* Frobenius b_lines are the last 2 elements of all_b_lines,
+          matching nori's LineParser.frobenius_lines(all_b_lines).slice(-2) *)
+       let n_b = Array.length all_b_lines in
+       let frob_b_line1 = all_b_lines.(n_b - 2) in
        let t_point = t_after_ate in
-       let frob_b_line1 =
-         { Lines.G2Line.lambda =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 (WT.get_frobenius_b_line tracker 0).lambda )
-         ; neg_mu =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 let tracker = Circuit_config.get_tracker () in
-                 (WT.get_frobenius_b_line tracker 0).neg_mu )
-         }
-       in
        Lines.assert_is_line frob_b_line1 t_point piB ;
        (* Witness all 3 affine caches *)
        let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
@@ -213,7 +205,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Lines.add_from_line t_point ~lambda:frob_b_line1.lambda piB
        in
        (* Second Frobenius correction: pi2B *)
-       let frob_b_line2 = witness_frob_line WT.get_frobenius_b_line 1 in
+       let frob_b_line2 = all_b_lines.(n_b - 1) in
        let frob_delta2 = witness_frob_line WT.get_frobenius_delta_line 1 in
        let frob_gamma2 = witness_frob_line WT.get_frobenius_gamma_line 1 in
        Lines.assert_is_line frob_b_line2 t_point pi2B ;

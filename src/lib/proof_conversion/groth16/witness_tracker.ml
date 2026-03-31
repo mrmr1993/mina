@@ -457,8 +457,10 @@ let get_g_digest_opening (t : t) ~(g_start : int) ~(n_iters : int) :
   (lhs, g_chunk, rhs)
 
 (** Get all B-lines as a flat array in nori's order: for each ate iteration,
-    the double line followed by the add line (if bit != 0).
-    Matches nori's Provable.Array(G2Line, 91) private input. *)
+    the double line followed by the add line (if bit != 0), then the 2
+    frobenius b_lines at the end.
+    Matches nori's Provable.Array(G2Line, 91) private input, where
+    LineParser.frobenius_lines returns the last 2 elements. *)
 let get_all_b_lines (t : t) : Line.t array =
   let ate = Bn254_params.ate_loop_count in
   let lines = Queue.create () in
@@ -468,6 +470,8 @@ let get_all_b_lines (t : t) : Line.t array =
     if ate.(i) <> 0 then
       Queue.enqueue lines (Option.value_exn iter.add_line)
   done ;
+  (* Append frobenius b_lines (matches nori's slice(-2)) *)
+  Array.iter t.frobenius_b_lines ~f:(Queue.enqueue lines) ;
   Queue.to_array lines
 
 (** Get a Frobenius correction line evaluation for zkp6. *)
