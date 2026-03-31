@@ -52,8 +52,27 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c1 = Fp6.sub (Fp6.sub t v0) v1 in
   { c0; c1 }
 
-(** Squaring. *)
-let square (a : Circuit.t) : Circuit.t = mul a a
+(** Squaring using the Chung-Hasan SQ2 formula.
+    More efficient than mul(a, a): uses 2 Fp6.mul instead of 3.
+    Matches nori's Fp12.square(). *)
+let square (a : Circuit.t) : Circuit.t =
+  let c0 = Fp6.sub a.c0 a.c1 in
+  let v1_shifted : Fp6.Circuit.t =
+    { c0 = Fp6.mul_by_non_residue a.c1.c2; c1 = a.c1.c0; c2 = a.c1.c1 }
+  in
+  let c3 = Fp6.sub a.c0 v1_shifted in
+  let c2 = Fp6.mul a.c0 a.c1 in
+  let c0 = Fp6.add (Fp6.mul c0 c3) c2 in
+  let two =
+    Snarky_foreign_field.Foreign_field.Field3.of_constant
+      (Bignum_bigint.of_int 2)
+  in
+  let c1 = Fp6.mul_by_fp c2 two in
+  let c2_shifted : Fp6.Circuit.t =
+    { c0 = Fp6.mul_by_non_residue c2.c2; c1 = c2.c0; c2 = c2.c1 }
+  in
+  let c0 = Fp6.add c0 c2_shifted in
+  { c0; c1 }
 
 (** Conjugate: (a0 + a1*w)* = a0 - a1*w *)
 let conjugate (a : Circuit.t) : Circuit.t = { c0 = a.c0; c1 = Fp6.neg a.c1 }

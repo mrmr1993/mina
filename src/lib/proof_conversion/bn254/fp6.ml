@@ -56,6 +56,14 @@ let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
   Fp2.assert_equal a.c1 b.c1 ;
   Fp2.assert_equal a.c2 b.c2
 
+(** Multiply Fp6 by a native Fp scalar (multiply each Field3 limb). *)
+let mul_by_fp (a : Circuit.t) (b : Snarky_foreign_field.Foreign_field.Field3.t)
+    : Circuit.t =
+  { c0 = Fp2.mul_by_fp a.c0 b
+  ; c1 = Fp2.mul_by_fp a.c1 b
+  ; c2 = Fp2.mul_by_fp a.c2 b
+  }
+
 (** Multiply Fp6 by a single Fp2 element (scalar multiply each component). *)
 let mul_by_fp2 (a : Circuit.t) (b : Fp2.Circuit.t) : Circuit.t =
   { c0 = Fp2.mul a.c0 b; c1 = Fp2.mul a.c1 b; c2 = Fp2.mul a.c2 b }
