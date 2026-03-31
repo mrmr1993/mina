@@ -13,15 +13,51 @@ end
 module Circuit = struct
   type t = { x : FpA.t; y : FpA.t }
 
+  (** Assert that the point lies on BN254 G1: y^2 = x^3 + b.
+      Matches o1js EllipticCurve.assertOnCurve (a=0):
+        x2 = mul(x, x)
+        assertAlmostReduced([x2, x, y])
+        y2 = mul(y, y)
+        assertMul(Sum(x2), x, Sum(y2).sub(b)) *)
+  let assert_on_curve (pt : t) : unit =
+    let x = FpA.to_field3 pt.x in
+    let y = FpA.to_field3 pt.y in
+    let x2 = FF.mul x x ~f:p in
+    FF.assert_almost_reduced [ x2; x; y ] ~f:p ~skip_mrc:false ;
+    let y2 = FF.mul y y ~f:p in
+    let x2_sum = FF.Sum.of_field3 x2 in
+    let y2_minus_b =
+      FF.Sum.sub (FF.Sum.of_field3 y2)
+        (FF.Field3.of_constant Bn254_params.curve_b)
+    in
+    FF.assert_mul_sum (FF.Sum_input x2_sum) (FF.Field3_input x)
+      (FF.Sum_input y2_minus_b) ~f:p
+
+  (** Matches o1js ForeignCurve.check (foreign-curve.ts:349-354):
+        multiRangeCheck(x), multiRangeCheck(y)
+        assertOnCurve(g)
+        assertInSubgroup(g)  -- no-op for BN254 (cofactor 1) *)
+  let check (pt : t) : unit =
+    FF.multi_range_check (FpA.to_field3 pt.x) ;
+    FF.multi_range_check (FpA.to_field3 pt.y) ;
+    assert_on_curve pt
+
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
-    let fpa_typ = FpA.typ ~f:p in
-    Pickles.Impls.Step.Typ.transport
-      (Pickles.Impls.Step.Typ.tuple2 fpa_typ fpa_typ)
-      ~there:(fun { Constant.x; y } -> (x, y))
-      ~back:(fun (x, y) -> { Constant.x; y })
-    |> Pickles.Impls.Step.Typ.transport_var
-         ~there:(fun { x; y } -> (x, y))
-         ~back:(fun (x, y) -> { x; y })
+    let module Step = Pickles.Impls.Step in
+    let (Typ base) =
+      Step.Typ.transport
+        (Step.Typ.tuple2 FF.Field3.typ FF.Field3.typ)
+        ~there:(fun { Constant.x; y } -> (x, y))
+        ~back:(fun (x, y) -> { Constant.x; y })
+      |> Step.Typ.transport_var
+           ~there:(fun { x; y } -> (FpA.to_field3 x, FpA.to_field3 y))
+           ~back:(fun (x, y) ->
+             { x = FpA.of_field3_unsafe x; y = FpA.of_field3_unsafe y } )
+    in
+    Typ
+      { base with
+        check = (fun pt -> Step.make_checked (fun () -> check pt))
+      }
 end
 
 let of_constant (pt : Constant.t) : Circuit.t =
@@ -29,18 +65,7 @@ let of_constant (pt : Constant.t) : Circuit.t =
 
 let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FpA.neg pt.y ~f:p }
 
-let assert_on_curve (pt : Circuit.t) : unit =
-  let x_sq = FpA.mul pt.x pt.x ~f:p in
-  let x_sq_a =
-    match FpA.assert_almost_reduced [ x_sq ] ~f:p ~skip_mrc:true () with
-    | [ a ] -> a
-    | _ -> failwith "assert_on_curve: x_sq"
-  in
-  let x_cu = FpA.mul x_sq_a pt.x ~f:p in
-  let y_sq = FpA.mul pt.y pt.y ~f:p in
-  let curve_b = FF.FpU.of_field3_unsafe (FF.Field3.of_constant Bn254_params.curve_b) in
-  let rhs = FF.FpU.add x_cu curve_b ~f:p in
-  FF.assert_equal (FF.FpU.to_field3 y_sq) (FF.FpU.to_field3 rhs)
+let assert_on_curve = Circuit.assert_on_curve
 
 let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
   let dx = FpA.sub p1.x p2.x ~f:p in
