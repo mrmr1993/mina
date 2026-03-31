@@ -24,10 +24,8 @@ module AffineCache = struct
 
   let make (p : G1.Circuit.t) : t =
     let f = Bn254_params.p in
-    let x_neg = FF.FpA.neg p.x ~f in
-    let x_neg = FF.FpC.assert_canonical x_neg ~f in
-    let y_inv = FF.FpA.inv p.y ~f in
-    let _y_inv = FF.FpC.assert_canonical y_inv ~f in
+    let x_neg = FF.FpA.neg p.x ~f |> FF.FpC.assert_canonical ~f in
+    let _y_inv = FF.FpA.inv p.y ~f |> FF.FpC.assert_canonical ~f in
     let y_inv =
       Step.exists (FF.FpC.typ ~f) ~compute:(fun () ->
           let p_y = Step.As_prover.read (FF.FpA.typ ~f) p.y in
