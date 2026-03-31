@@ -2,6 +2,7 @@
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
+module FpA = FF.FpA
 
 let p = Bn254_params.p
 
@@ -10,11 +11,12 @@ module Constant = struct
 end
 
 module Circuit = struct
-  type t = { x : FF.Field3.t; y : FF.Field3.t }
+  type t = { x : FpA.t; y : FpA.t }
 
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
+    let fpa_typ = FpA.typ ~f:p in
     Pickles.Impls.Step.Typ.transport
-      (Pickles.Impls.Step.Typ.tuple2 FF.Field3.typ FF.Field3.typ)
+      (Pickles.Impls.Step.Typ.tuple2 fpa_typ fpa_typ)
       ~there:(fun { Constant.x; y } -> (x, y))
       ~back:(fun (x, y) -> { Constant.x; y })
     |> Pickles.Impls.Step.Typ.transport_var
@@ -23,36 +25,121 @@ module Circuit = struct
 end
 
 let of_constant (pt : Constant.t) : Circuit.t =
-  { x = FF.Field3.of_constant pt.x; y = FF.Field3.of_constant pt.y }
+  { x = FpA.of_constant pt.x; y = FpA.of_constant pt.y }
 
-let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FF.negate pt.y ~f:p }
+let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FpA.neg pt.y ~f:p }
 
 let assert_on_curve (pt : Circuit.t) : unit =
-  let x_sq = FF.mul pt.x pt.x ~f:p in
-  let x_cu = FF.mul x_sq pt.x ~f:p in
-  let y_sq = FF.mul pt.y pt.y ~f:p in
-  let rhs = FF.add x_cu (FF.Field3.of_constant Bn254_params.curve_b) ~f:p in
-  FF.assert_equal y_sq rhs
+  let x_sq = FpA.mul pt.x pt.x ~f:p in
+  let x_sq_a =
+    match FpA.assert_almost_reduced [ x_sq ] ~f:p ~skip_mrc:true () with
+    | [ a ] -> a
+    | _ -> failwith "assert_on_curve: x_sq"
+  in
+  let x_cu = FpA.mul x_sq_a pt.x ~f:p in
+  let y_sq = FpA.mul pt.y pt.y ~f:p in
+  let curve_b = FF.FpU.of_field3_unsafe (FF.Field3.of_constant Bn254_params.curve_b) in
+  let rhs = FF.FpU.add x_cu curve_b ~f:p in
+  FF.assert_equal (FF.FpU.to_field3 y_sq) (FF.FpU.to_field3 rhs)
 
 let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
-  let dx = FF.sub p2.x p1.x ~f:p in
-  let dy = FF.sub p2.y p1.y ~f:p in
-  let lambda = FF.div dy dx ~f:p in
-  let lambda_sq = FF.mul lambda lambda ~f:p in
-  let x3 = FF.sub (FF.sub lambda_sq p1.x ~f:p) p2.x ~f:p in
-  let y3 = FF.sub (FF.mul lambda (FF.sub p1.x x3 ~f:p) ~f:p) p1.y ~f:p in
-  { x = x3; y = y3 }
+  let dx = FpA.sub p1.x p2.x ~f:p in
+  let dy = FpA.sub p1.y p2.y ~f:p in
+  let dx_a =
+    match FpA.assert_almost_reduced [ dx ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "add_nonzero: dx"
+  in
+  let dy_a =
+    match FpA.assert_almost_reduced [ dy ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "add_nonzero: dy"
+  in
+  let lambda = FpA.div dy_a dx_a ~f:p in
+  let lambda_sq = FpA.mul lambda lambda ~f:p in
+  let x3 =
+    FF.FpU.sub (FF.FpU.sub lambda_sq (FpA.to_fpu p1.x) ~f:p) (FpA.to_fpu p2.x)
+      ~f:p
+  in
+  let x3_a =
+    match FpA.assert_almost_reduced [ x3 ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "add_nonzero: x3"
+  in
+  let dx1 = FpA.sub p1.x x3_a ~f:p in
+  let dx1_a =
+    match FpA.assert_almost_reduced [ dx1 ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "add_nonzero: dx1"
+  in
+  let y3 =
+    FF.FpU.sub (FpA.mul lambda dx1_a ~f:p) (FpA.to_fpu p1.y) ~f:p
+  in
+  let y3_a =
+    match FpA.assert_almost_reduced [ y3 ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "add_nonzero: y3"
+  in
+  { x = x3_a; y = y3_a }
 
 let double (pt : Circuit.t) : Circuit.t =
-  let x_sq = FF.mul pt.x pt.x ~f:p in
-  let three_x_sq = FF.add (FF.add x_sq x_sq ~f:p) x_sq ~f:p in
-  let two_y = FF.add pt.y pt.y ~f:p in
-  let lambda = FF.div three_x_sq two_y ~f:p in
-  let lambda_sq = FF.mul lambda lambda ~f:p in
-  let two_x = FF.add pt.x pt.x ~f:p in
-  let x3 = FF.sub lambda_sq two_x ~f:p in
-  let y3 = FF.sub (FF.mul lambda (FF.sub pt.x x3 ~f:p) ~f:p) pt.y ~f:p in
-  { x = x3; y = y3 }
+  let x_sq = FpA.mul pt.x pt.x ~f:p in
+  let three_x_sq =
+    FF.FpU.add (FF.FpU.add x_sq x_sq ~f:p) x_sq ~f:p
+  in
+  let three_x_sq_a =
+    match FpA.assert_almost_reduced [ three_x_sq ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "double: three_x_sq"
+  in
+  let two_y = FpA.add pt.y pt.y ~f:p in
+  let two_y_a =
+    match FpA.assert_almost_reduced [ two_y ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "double: two_y"
+  in
+  let lambda = FpA.div three_x_sq_a two_y_a ~f:p in
+  let lambda_sq = FpA.mul lambda lambda ~f:p in
+  let two_x = FpA.add pt.x pt.x ~f:p in
+  let x3 = FF.FpU.sub lambda_sq two_x ~f:p in
+  let x3_a =
+    match FpA.assert_almost_reduced [ x3 ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "double: x3"
+  in
+  let dx = FpA.sub pt.x x3_a ~f:p in
+  let dx_a =
+    match FpA.assert_almost_reduced [ dx ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "double: dx"
+  in
+  let y3 = FF.FpU.sub (FpA.mul lambda dx_a ~f:p) (FpA.to_fpu pt.y) ~f:p in
+  let y3_a =
+    match FpA.assert_almost_reduced [ y3 ] ~f:p ~skip_mrc:true () with
+    | [ a ] ->
+        a
+    | _ ->
+        failwith "double: y3"
+  in
+  { x = x3_a; y = y3_a }
 
 (** In-circuit scalar multiplication: point * scalar.
     Uses double-and-add with bit decomposition of the scalar.
@@ -98,12 +185,9 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* All bits concatenated, LSB first *)
   let all_bits = Array.concat [ bits0; bits1; bits2 ] in
   let n_bits = Array.length all_bits in
-  (* Find highest set bit (at compile time we don't know, so use all 254) *)
   (* Double-and-add from MSB to LSB *)
   let acc = ref pt in
   let started = ref false in
-  (* We start from MSB. For variable scalars, we need conditional logic.
-     Use a simpler approach: witness the result of each step. *)
   for i = n_bits - 1 downto 0 do
     if !started then acc := double !acc ;
     (* Conditionally add pt when bit is 1 *)
@@ -111,20 +195,17 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let added = add_nonzero !acc pt in
       let bit = all_bits.(i) in
       (* Select: if bit then added else acc *)
-      let sel (a : FF.Field3.t) (b : FF.Field3.t) : FF.Field3.t =
-        let a0, a1, a2 = a in
-        let b0, b1, b2 = b in
-        ( Step.Field.if_ bit ~then_:a0 ~else_:b0
-        , Step.Field.if_ bit ~then_:a1 ~else_:b1
-        , Step.Field.if_ bit ~then_:a2 ~else_:b2 )
+      let sel (a : FpA.t) (b : FpA.t) : FpA.t =
+        let a0, a1, a2 = FpA.to_field3 a in
+        let b0, b1, b2 = FpA.to_field3 b in
+        FpA.of_field3_unsafe
+          ( Step.Field.if_ bit ~then_:a0 ~else_:b0
+          , Step.Field.if_ bit ~then_:a1 ~else_:b1
+          , Step.Field.if_ bit ~then_:a2 ~else_:b2 )
       in
       acc := { x = sel added.x !acc.x; y = sel added.y !acc.y }
     else (
-      (* First iteration: acc = pt, only start when first 1-bit found *)
       started := true ;
-      (* For the MSB, we know it's set for non-zero scalars, so we
-         just start with pt. For full correctness with variable MSB
-         position, we'd need more complex initialization. *)
       ignore (all_bits.(i) : Step.Boolean.var) )
   done ;
   !acc

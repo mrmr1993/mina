@@ -71,8 +71,8 @@ let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
 (** Hash a G1 point's field elements (for zkp13 → zkp14 transition).
     Matches nori's Poseidon.hashPacked(G1Affine, pi). *)
 let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
-  let l0_x, l1_x, l2_x = pt.x in
-  let l0_y, l1_y, l2_y = pt.y in
+  let l0_x, l1_x, l2_x = FF.FpA.to_field3 pt.x in
+  let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
   Accumulator_hash.poseidon_hash [| l0_x; l1_x; l2_x; l0_y; l1_y; l2_y |]
 
 (** Build the circuit body for zkpN.
@@ -422,8 +422,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        let full_acc = G1.add_nonzero partial_acc scaled4 in
        let full_acc = G1.add_nonzero full_acc scaled5 in
        (* Assert computed IC accumulation equals the proof's PI *)
-       FF.assert_equal full_acc.x pi.x ;
-       FF.assert_equal full_acc.y pi.y ;
+       FF.assert_equal (FF.FpA.to_field3 full_acc.x) (FF.FpA.to_field3 pi.x) ;
+       FF.assert_equal (FF.FpA.to_field3 full_acc.y) (FF.FpA.to_field3 pi.y) ;
        (* Output pis_hash (matches nori's return value) *)
        pis_hash
   | n ->

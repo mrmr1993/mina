@@ -154,7 +154,10 @@ let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
       ]
   in
   let g1_packed (x : G1.Circuit.t) =
-    Array.concat [ field3_packed x.x; field3_packed x.y ]
+    Array.concat
+      [ field3_packed (FF.FpA.to_field3 x.x)
+      ; field3_packed (FF.FpA.to_field3 x.y)
+      ]
   in
   let g2_packed (x : G2.Circuit.t) =
     Array.concat [ fp2_packed x.x; fp2_packed x.y ]

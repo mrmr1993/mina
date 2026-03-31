@@ -52,9 +52,14 @@ let batch_opening ~(commitments : G1.Circuit.t array)
   for i = 0 to Array.length commitments - 1 do
     let ci = commitments.(i) in
     let vi = evaluations.(i) in
-    c_x := FF.add !c_x (FF.mul !r_pow ci.x ~f:p) ~f:p ;
-    c_y := FF.add !c_y (FF.mul !r_pow ci.y ~f:p) ~f:p ;
+    c_x :=
+      FF.add !c_x (FF.mul !r_pow (FF.FpA.to_field3 ci.x) ~f:p) ~f:p ;
+    c_y :=
+      FF.add !c_y (FF.mul !r_pow (FF.FpA.to_field3 ci.y) ~f:p) ~f:p ;
     v := FF.add !v (FF.mul !r_pow vi ~f:Bn254_params.r) ~f:Bn254_params.r ;
     r_pow := FF.mul !r_pow random ~f:Bn254_params.r
   done ;
-  ({ G1.Circuit.x = !c_x; y = !c_y }, !v)
+  ( { G1.Circuit.x = FF.FpA.of_field3_unsafe !c_x
+    ; y = FF.FpA.of_field3_unsafe !c_y
+    }
+  , !v )
