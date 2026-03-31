@@ -32,7 +32,10 @@ let hash_fp12 (x : Fp12.Circuit.t) : Step.Field.t =
     [| (l0, l); (l1, l); (l2, l) |]
   in
   let fp2_packed (fp2 : Fp2.Circuit.t) =
-    Array.concat [ field3_packed fp2.c0; field3_packed fp2.c1 ]
+    Array.concat
+      [ field3_packed (FF.FpA.to_field3 fp2.c0)
+      ; field3_packed (FF.FpA.to_field3 fp2.c1)
+      ]
   in
   let fp6_packed (fp6 : Fp6.Circuit.t) =
     Array.concat [ fp2_packed fp6.c0; fp2_packed fp6.c1; fp2_packed fp6.c2 ]

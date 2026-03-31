@@ -1,13 +1,14 @@
 (** Fp2 = Fp[u] / (u^2 + 1) arithmetic over BN254 base field.
 
-    Elements are pairs (c0, c1) representing c0 + c1 * u where u^2 = -1. *)
+    Elements are pairs (c0, c1) of FpA values, representing c0 + c1 * u
+    where u^2 = -1. Mirrors nori's Fp2 which holds FpA components. *)
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
+module FpA = FF.FpA
 
 let p = Bn254_params.p
 
-(** Constant Fp2 element as bignum pairs. *)
 module Constant = struct
   type t = FF.Bignum_bigint.t * FF.Bignum_bigint.t
 
@@ -16,9 +17,8 @@ module Constant = struct
   let one : t = (FF.Bignum_bigint.one, FF.Bignum_bigint.zero)
 end
 
-(** Fp2 element as a pair of Field3 values. *)
 module Circuit = struct
-  type t = { c0 : FF.Field3.t; c1 : FF.Field3.t }
+  type t = { c0 : FpA.t; c1 : FpA.t }
 
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
     Pickles.Impls.Step.Typ.transport
@@ -26,38 +26,45 @@ module Circuit = struct
       ~there:(fun (c0, c1) -> (c0, c1))
       ~back:(fun (c0, c1) -> (c0, c1))
     |> Pickles.Impls.Step.Typ.transport_var
-         ~there:(fun { c0; c1 } -> (c0, c1))
-         ~back:(fun (c0, c1) -> { c0; c1 })
+         ~there:(fun { c0; c1 } -> (FpA.to_field3 c0, FpA.to_field3 c1))
+         ~back:(fun (c0, c1) ->
+           { c0 = FpA.of_field3_unsafe c0; c1 = FpA.of_field3_unsafe c1 } )
 end
 
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =
-  { c0 = FF.Field3.of_constant c0; c1 = FF.Field3.of_constant c1 }
+  { c0 = FpA.of_constant c0; c1 = FpA.of_constant c1 }
 
-(** Fp2 add/sub: each component uses FF.add/sub (ForeignFieldAdd gate + RC),
-    then assertAlmostReduced for the weak bound check.
-    Matches nori's Fp2.fromUnreduced(FpA.assertAlmostReduced(c0, c1)). *)
+(** Convert unreduced pair to Fp2. Matches nori's Fp2.fromUnreduced. *)
+let from_unreduced (c0 : FF.Field3.t) (c1 : FF.Field3.t) : Circuit.t =
+  match FpA.assert_almost_reduced [ c0; c1 ] ~f:p with
+  | [ c0a; c1a ] ->
+      { c0 = c0a; c1 = c1a }
+  | _ ->
+      failwith "from_unreduced: unexpected"
+
+(** Fp2 addition: FpA.add each component → unreduced, then fromUnreduced. *)
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  let c0 = FF.add a.c0 b.c0 ~f:p in
-  let c1 = FF.add a.c1 b.c1 ~f:p in
-  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
-  { c0; c1 }
+  let c0 = FpA.add a.c0 b.c0 ~f:p in
+  let c1 = FpA.add a.c1 b.c1 ~f:p in
+  from_unreduced c0 c1
 
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  let c0 = FF.sub a.c0 b.c0 ~f:p in
-  let c1 = FF.sub a.c1 b.c1 ~f:p in
-  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
-  { c0; c1 }
+  let c0 = FpA.sub a.c0 b.c0 ~f:p in
+  let c1 = FpA.sub a.c1 b.c1 ~f:p in
+  from_unreduced c0 c1
 
 let neg (a : Circuit.t) : Circuit.t =
-  let c0 = FF.negate a.c0 ~f:p in
-  let c1 = FF.negate a.c1 ~f:p in
-  FF.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true ;
-  { c0; c1 }
+  let c0 = FpA.neg a.c0 ~f:p in
+  let c1 = FpA.neg a.c1 ~f:p in
+  from_unreduced c0 c1
 
 let conjugate (a : Circuit.t) : Circuit.t =
-  let c1 = FF.negate a.c1 ~f:p in
-  FF.assert_almost_reduced [ c1 ] ~f:p ~skip_mrc:true ;
-  { c0 = a.c0; c1 }
+  let c1 = FpA.neg a.c1 ~f:p in
+  match FpA.assert_almost_reduced [ c1 ] ~f:p with
+  | [ c1a ] ->
+      { c0 = a.c0; c1 = c1a }
+  | _ ->
+      failwith "conjugate: unexpected"
 
 let _fp2_mul_trace = ref false
 
@@ -72,20 +79,16 @@ let marker_ (x : int) =
        } )
 
 (** Fp2 multiplication using witness-and-assertMul pattern.
-    Instead of computing (a0+a1)*(b0+b1) with a 3rd FF.mul,
-    witnesses c1 directly and verifies via assert_mul_sum:
-      (a0 + a1) * (b0 + b1) = c1 + a0*b0 + a1*b1
-    Saves 1 FF.mul and its range checks per Fp2.mul. *)
+    Matches nori's Fp2.mul. *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let trace = !_fp2_mul_trace in
   if trace then marker_ 3000 ;
-  let a0b0 = FF.mul a.c0 b.c0 ~f:p in
+  let a0b0 = FpA.mul a.c0 b.c0 ~f:p in
   if trace then marker_ 3001 ;
-  let a1b1 = FF.mul a.c1 b.c1 ~f:p in
+  let a1b1 = FpA.mul a.c1 b.c1 ~f:p in
   if trace then marker_ 3002 ;
-  let c0 = FF.sub a0b0 a1b1 ~f:p in
+  let c0 = FpA.sub a0b0 a1b1 ~f:p in
   if trace then marker_ 3003 ;
-  (* Witness c1 = a0*b1 + a1*b0 directly *)
   let module Step = Pickles.Impls.Step in
   let c1 =
     Step.exists FF.Field3.typ ~compute:(fun () ->
@@ -94,44 +97,73 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
           let open Bignum_bigint in
           r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
         in
-        let a0 = read a.c0 in
-        let a1 = read a.c1 in
-        let b0 = read b.c0 in
-        let b1 = read b.c1 in
+        let a0 = read (FpA.to_field3 a.c0) in
+        let a1 = read (FpA.to_field3 a.c1) in
+        let b0 = read (FpA.to_field3 b.c0) in
+        let b1 = read (FpA.to_field3 b.c1) in
         Bignum_bigint.(((a0 * b1) + (a1 * b0)) % p) )
   in
-  (* Assert: (a0 + a1) * (b0 + b1) = c1 + a0b0 + a1b1 *)
-  let lhs_x = FF.Sum.add (FF.Sum.of_field3 a.c0) a.c1 in
-  let lhs_y = FF.Sum.add (FF.Sum.of_field3 b.c0) b.c1 in
-  let rhs = FF.Sum.add (FF.Sum.add (FF.Sum.of_field3 c1) a0b0) a1b1 in
+  let lhs_x =
+    FF.Sum.add (FF.Sum.of_field3 (FpA.to_field3 a.c0)) (FpA.to_field3 a.c1)
+  in
+  let lhs_y =
+    FF.Sum.add (FF.Sum.of_field3 (FpA.to_field3 b.c0)) (FpA.to_field3 b.c1)
+  in
+  let rhs =
+    FF.Sum.add
+      (FF.Sum.add (FF.Sum.of_field3 c1) (FpA.to_field3 a0b0))
+      (FpA.to_field3 a1b1)
+  in
   if trace then FF._ams_trace := true ;
   FF.assert_mul_sum (FF.Sum_input lhs_x) (FF.Sum_input lhs_y) (FF.Sum_input rhs)
     ~f:p ;
   if trace then marker_ 3005 ;
   _fp2_mul_trace := false ;
-  { c0; c1 }
+  from_unreduced c0 c1
 
 let square (a : Circuit.t) : Circuit.t =
-  let sum_ = FF.add a.c0 a.c1 ~f:p in
-  let diff = FF.sub a.c0 a.c1 ~f:p in
-  let c0 = FF.mul sum_ diff ~f:p in
-  let prod = FF.mul a.c0 a.c1 ~f:p in
-  let c1 = FF.add prod prod ~f:p in
+  let sum_ = FpA.add a.c0 a.c1 ~f:p in
+  let diff = FpA.sub a.c0 a.c1 ~f:p in
+  let two_a0 = FpA.add a.c0 a.c0 ~f:p in
+  (* All three are unreduced → assertAlmostReduced before mul *)
+  let sum_a, diff_a, two_a0_a =
+    match FpA.assert_almost_reduced [ sum_; diff; two_a0 ] ~f:p with
+    | [ s; d; t ] ->
+        (s, d, t)
+    | _ ->
+        failwith "square: unexpected"
+  in
+  let c0 = FpA.mul sum_a diff_a ~f:p in
+  let c1 = FpA.mul two_a0_a a.c1 ~f:p in
   { c0; c1 }
 
-let mul_by_fp (a : Circuit.t) (s : FF.Field3.t) : Circuit.t =
-  { c0 = FF.mul a.c0 s ~f:p; c1 = FF.mul a.c1 s ~f:p }
+(** Multiply by an Fp scalar. The scalar should already be FpA. *)
+let mul_by_fp (a : Circuit.t) (s : FpA.t) : Circuit.t =
+  { c0 = FpA.mul a.c0 s ~f:p; c1 = FpA.mul a.c1 s ~f:p }
 
 let inverse (a : Circuit.t) : Circuit.t =
-  let a0_sq = FF.mul a.c0 a.c0 ~f:p in
-  let a1_sq = FF.mul a.c1 a.c1 ~f:p in
-  let norm = FF.add a0_sq a1_sq ~f:p in
-  let norm_inv = FF.inv norm ~f:p in
-  { c0 = FF.mul a.c0 norm_inv ~f:p
-  ; c1 = FF.negate (FF.mul a.c1 norm_inv ~f:p) ~f:p
-  }
+  let a0_sq = FpA.mul a.c0 a.c0 ~f:p in
+  let a1_sq = FpA.mul a.c1 a.c1 ~f:p in
+  let norm = FpA.add a0_sq a1_sq ~f:p in
+  let norm_a =
+    match FpA.assert_almost_reduced [ norm ] ~f:p with
+    | [ n ] ->
+        n
+    | _ ->
+        failwith "inverse"
+  in
+  let norm_inv = FpA.inv norm_a ~f:p in
+  let c0 = FpA.mul a.c0 norm_inv ~f:p in
+  let c1_pos = FpA.mul a.c1 norm_inv ~f:p in
+  let c1 = FpA.neg c1_pos ~f:p in
+  match FpA.assert_almost_reduced [ c1 ] ~f:p with
+  | [ c1a ] ->
+      { c0; c1 = c1a }
+  | _ ->
+      failwith "inverse: unexpected"
 
 let frobenius (a : Circuit.t) : Circuit.t = conjugate a
 
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
-  FF.assert_equal a.c0 b.c0 ; FF.assert_equal a.c1 b.c1
+  FF.assert_equal (FpA.to_field3 a.c0) (FpA.to_field3 b.c0) ;
+  FF.assert_equal (FpA.to_field3 a.c1) (FpA.to_field3 b.c1)

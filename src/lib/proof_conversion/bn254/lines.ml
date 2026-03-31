@@ -8,7 +8,7 @@ module G2Line = struct
 end
 
 module AffineCache = struct
-  type t = { x_over_y : FF.Field3.t; y_inv : FF.Field3.t }
+  type t = { x_over_y : FF.FpA.t; y_inv : FF.FpA.t }
 end
 
 (** Compute the addition line through two G2 points in-circuit.

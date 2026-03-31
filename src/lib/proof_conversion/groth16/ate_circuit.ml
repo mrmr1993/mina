@@ -151,13 +151,15 @@ let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
   let neg_b = G2.negate b_point in
   let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
     { x_over_y =
-        Step.exists FF.Field3.typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            fst (WT.compute_affine_cache (get_pt tracker)) )
+        FF.FpA.of_field3_unsafe
+          (Step.exists FF.Field3.typ ~compute:(fun () ->
+               let tracker = Circuit_config.get_tracker () in
+               fst (WT.compute_affine_cache (get_pt tracker)) ) )
     ; y_inv =
-        Step.exists FF.Field3.typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            snd (WT.compute_affine_cache (get_pt tracker)) )
+        FF.FpA.of_field3_unsafe
+          (Step.exists FF.Field3.typ ~compute:(fun () ->
+               let tracker = Circuit_config.get_tracker () in
+               snd (WT.compute_affine_cache (get_pt tracker)) ) )
     }
   in
   let caches : three_cache =

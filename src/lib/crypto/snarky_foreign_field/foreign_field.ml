@@ -10,6 +10,7 @@ open Core_kernel
 
 (* Debug: set to true to inject Zero gate markers inside finish_for_mul_input *)
 let _fmfi_trace = ref false
+
 module Bignum_bigint = Bigint
 module Circuit = Kimchi_pasta_snarky_backend.Step_impl
 
@@ -1171,8 +1172,13 @@ module Sum = struct
             if !_fmfi_trace then
               Circuit.assert_
                 (Raw
-                   { kind = Zero ; values = [||]
-                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8001;1;2;3;4;5;6|]
+                   { kind = Zero
+                   ; values = [||]
+                   ; coeffs =
+                       Array.map
+                         ~f:(fun x ->
+                           bignum_to_field_const (Bignum_bigint.of_int x) )
+                         [| 8001; 1; 2; 3; 4; 5; 6 |]
                    } ) ;
             (* Constrain carry to {0, 1, -1}: carry*(carry²-1) = 0.
                Emit a single Generic gate with both half-generics:
@@ -1210,8 +1216,13 @@ module Sum = struct
             if !_fmfi_trace then
               Circuit.assert_
                 (Raw
-                   { kind = Zero ; values = [||]
-                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8002;1;2;3;4;5;6|]
+                   { kind = Zero
+                   ; values = [||]
+                   ; coeffs =
+                       Array.map
+                         ~f:(fun x ->
+                           bignum_to_field_const (Bignum_bigint.of_int x) )
+                         [| 8002; 1; 2; 3; 4; 5; 6 |]
                    } ) ;
             (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
             let sign_field = bignum_to_field_const sign_bi in
@@ -1229,14 +1240,23 @@ module Sum = struct
             if !_fmfi_trace then
               Circuit.assert_
                 (Raw
-                   { kind = Zero ; values = [||]
-                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8003;1;2;3;4;5;6|]
+                   { kind = Zero
+                   ; values = [||]
+                   ; coeffs =
+                       Array.map
+                         ~f:(fun x ->
+                           bignum_to_field_const (Bignum_bigint.of_int x) )
+                         [| 8003; 1; 2; 3; 4; 5; 6 |]
                    } ) ) ;
         if !_fmfi_trace then
           Circuit.assert_
             (Raw
-               { kind = Zero ; values = [||]
-               ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8004;1;2;3;4;5;6|]
+               { kind = Zero
+               ; values = [||]
+               ; coeffs =
+                   Array.map
+                     ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x))
+                     [| 8004; 1; 2; 3; 4; 5; 6 |]
                } ) ;
         (* ForeignFieldAdd chain — assert equality via wiring.
            The assertEqual calls produce half-generics that pair with
@@ -1252,8 +1272,13 @@ module Sum = struct
             if !_fmfi_trace then
               Circuit.assert_
                 (Raw
-                   { kind = Zero ; values = [||]
-                   ; coeffs = Array.map ~f:(fun x -> bignum_to_field_const (Bignum_bigint.of_int x)) [|8005;1;2;3;4;5;6|]
+                   { kind = Zero
+                   ; values = [||]
+                   ; coeffs =
+                       Array.map
+                         ~f:(fun x ->
+                           bignum_to_field_const (Bignum_bigint.of_int x) )
+                         [| 8005; 1; 2; 3; 4; 5; 6 |]
                    } ) ) ;
         ( if not t.chained then
           let r0, r1, r2 = !result in
@@ -1320,3 +1345,77 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
   assert_mul x_val y_val xy_val ~f ;
   ams_marker_ 4004 ;
   _ams_trace := false
+
+(* ------------------------------------------------------------------ *)
+(* FpA: Almost-reduced foreign field element (typed API)               *)
+(* ------------------------------------------------------------------ *)
+
+(** Almost-reduced foreign field element. Limbs are range-checked (< 2^88)
+    and the high limb is weakly bounded.
+
+    Mirrors o1js FpA (= Fp.AlmostReduced). All operations match the o1js
+    API: add/sub/mul return Field3.t (unreduced), and assertAlmostReduced
+    converts back to FpA.t. *)
+module FpA : sig
+  type t = private Field3.t
+
+  val to_field3 : t -> Field3.t
+
+  val of_field3_unsafe : Field3.t -> t
+
+  val of_constant : Bignum_bigint.t -> t
+
+  (** FpA + FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
+  val add : t -> t -> f:Bignum_bigint.t -> Field3.t
+
+  (** FpA - FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
+  val sub : t -> t -> f:Bignum_bigint.t -> Field3.t
+
+  (** -FpA → Field3 (unreduced). Emits ForeignFieldAdd gates. *)
+  val neg : t -> f:Bignum_bigint.t -> Field3.t
+
+  (** FpA * FpA → FpA. Emits ForeignFieldMul + range checks. *)
+  val mul : t -> t -> f:Bignum_bigint.t -> t
+
+  (** 1/FpA → FpA. Witnesses inverse, emits ForeignFieldMul. *)
+  val inv : t -> f:Bignum_bigint.t -> t
+
+  (** FpA / FpA → FpA. *)
+  val div : t -> t -> f:Bignum_bigint.t -> t
+
+  (** Convert unreduced Field3 values to FpA by asserting bounds.
+      Emits multiRangeCheck + weakBound for each value. *)
+  val assert_almost_reduced : Field3.t list -> f:Bignum_bigint.t -> t list
+end = struct
+  type t = Field3.t
+
+  let to_field3 (x : t) : Field3.t = x
+
+  let of_field3_unsafe (x : Field3.t) : t = x
+
+  let of_constant (x : Bignum_bigint.t) : t = Field3.of_constant x
+
+  let add (x : t) (y : t) ~(f : Bignum_bigint.t) : Field3.t =
+    (* FF.add returns Field3.t with range checks *)
+    let r = add x y ~f in
+    (r :> Field3.t)
+
+  let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : Field3.t =
+    let r = sub x y ~f in
+    (r :> Field3.t)
+
+  let neg (x : t) ~(f : Bignum_bigint.t) : Field3.t =
+    let r = negate x ~f in
+    (r :> Field3.t)
+
+  let mul (x : t) (y : t) ~(f : Bignum_bigint.t) : t = mul x y ~f
+
+  let inv (x : t) ~(f : Bignum_bigint.t) : t = inv x ~f
+
+  let div (x : t) (y : t) ~(f : Bignum_bigint.t) : t = div x y ~f
+
+  let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t) : t list
+      =
+    assert_almost_reduced xs ~f ~skip_mrc:false ;
+    List.map xs ~f:of_field3_unsafe
+end

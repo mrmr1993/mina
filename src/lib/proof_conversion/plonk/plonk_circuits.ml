@@ -58,8 +58,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       (* Initialize KZG accumulator *)
       fun input_hash ->
        let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one
+         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
+         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
          }
        in
        let w6 () : Fp6.Circuit.t =
@@ -72,8 +72,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       (* Hash line coefficients: Fp12 values → Poseidon digest *)
       fun input_hash ->
        let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one
+         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
+         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
          }
        in
        let w6 () : Fp6.Circuit.t =
@@ -87,8 +87,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       (* Miller loop computation (shared structure with Groth16) *)
       fun input_hash ->
        let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.Field3.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.Field3.of_constant FF.Bignum_bigint.one
+         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
+         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
          }
        in
        let w6 () : Fp6.Circuit.t =

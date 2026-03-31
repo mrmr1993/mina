@@ -54,8 +54,11 @@ let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
     , Step.Field.if_ cond ~then_:x1 ~else_:y1
     , Step.Field.if_ cond ~then_:x2 ~else_:y2 )
   in
+  let sel_fpa (x : FF.FpA.t) (y : FF.FpA.t) : FF.FpA.t =
+    FF.FpA.of_field3_unsafe (sel (FF.FpA.to_field3 x) (FF.FpA.to_field3 y))
+  in
   let sel_fp2 (x : Fp2.Circuit.t) (y : Fp2.Circuit.t) : Fp2.Circuit.t =
-    { Fp2.Circuit.c0 = sel x.c0 y.c0; c1 = sel x.c1 y.c1 }
+    { Fp2.Circuit.c0 = sel_fpa x.c0 y.c0; c1 = sel_fpa x.c1 y.c1 }
   in
   let sel_fp6 (x : Fp6.Circuit.t) (y : Fp6.Circuit.t) : Fp6.Circuit.t =
     { Fp6.Circuit.c0 = sel_fp2 x.c0 y.c0
@@ -129,15 +132,17 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Witness all 3 affine caches *)
        let witness_cache get_pt : Lines.AffineCache.t =
          { x_over_y =
-             Step.exists FF.Field3.typ ~compute:(fun () ->
-                 fst
-                   (WT.compute_affine_cache
-                      (get_pt (Circuit_config.get_tracker ())) ) )
+             FF.FpA.of_field3_unsafe
+               (Step.exists FF.Field3.typ ~compute:(fun () ->
+                    fst
+                      (WT.compute_affine_cache
+                         (get_pt (Circuit_config.get_tracker ())) ) ) )
          ; y_inv =
-             Step.exists FF.Field3.typ ~compute:(fun () ->
-                 snd
-                   (WT.compute_affine_cache
-                      (get_pt (Circuit_config.get_tracker ())) ) )
+             FF.FpA.of_field3_unsafe
+               (Step.exists FF.Field3.typ ~compute:(fun () ->
+                    snd
+                      (WT.compute_affine_cache
+                         (get_pt (Circuit_config.get_tracker ())) ) ) )
          }
        in
        let a_cache = witness_cache WT.get_neg_a in
