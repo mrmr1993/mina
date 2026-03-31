@@ -162,24 +162,10 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        let frob_b_line1 = all_b_lines.(n_b - 2) in
        let t_point = t_after_ate in
        Lines.assert_is_line frob_b_line1 t_point piB ;
-       (* Witness all 3 affine caches *)
-       let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
-       let witness_cache get_pt : Lines.AffineCache.t =
-         { x_over_y =
-             Step.exists fpa_typ ~compute:(fun () ->
-                 fst
-                   (WT.compute_affine_cache
-                      (get_pt (Circuit_config.get_tracker ())) ) )
-         ; y_inv =
-             Step.exists fpa_typ ~compute:(fun () ->
-                 snd
-                   (WT.compute_affine_cache
-                      (get_pt (Circuit_config.get_tracker ())) ) )
-         }
-       in
-       let a_cache = witness_cache WT.get_neg_a in
-       let c_cache = witness_cache WT.get_c in
-       let pi_cache = witness_cache (fun t -> WT.get_pi t) in
+       (* Compute affine caches matching nori's AffineCache (precompute.ts) *)
+       let a_cache = Lines.AffineCache.make acc.proof.neg_a in
+       let c_cache = Lines.AffineCache.make acc.proof.c in
+       let pi_cache = Lines.AffineCache.make acc.proof.pi in
        (* Witness delta and gamma Frobenius lines *)
        let witness_frob_line get i : Lines.G2Line.t =
          { lambda =

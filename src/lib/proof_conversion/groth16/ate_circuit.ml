@@ -179,25 +179,9 @@ let build_from_acc (acc : Accumulator.Circuit.t)
   Step.Field.Assert.equal acc.state.g_digest digest ;
   (* Slice the b_lines for this circuit's range *)
   let caches : three_cache =
-    let make_cache (p : G1.Circuit.t) : Lines.AffineCache.t =
-      let y_inv = FF.FpA.inv p.y ~f:Bn254_params.p in
-      let x_neg = FF.FpA.neg p.x ~f:Bn254_params.p in
-      let x_over_y = FF.FpA.mul x_neg y_inv ~f:Bn254_params.p in
-      let x_over_y =
-        match
-          FF.FpA.assert_almost_reduced [ x_over_y ] ~f:Bn254_params.p
-            ~skip_mrc:true ()
-        with
-        | [ a ] ->
-            a
-        | _ ->
-            failwith "make_cache"
-      in
-      { y_inv; x_over_y }
-    in
-    let a_cache = make_cache acc.proof.neg_a in
-    let c_cache = make_cache acc.proof.c in
-    let pi_cache = make_cache acc.proof.pi in
+    let a_cache = Lines.AffineCache.make acc.proof.neg_a in
+    let c_cache = Lines.AffineCache.make acc.proof.c in
+    let pi_cache = Lines.AffineCache.make acc.proof.pi in
     { a_cache; c_cache; pi_cache }
   in
   let neg_b = G2.negate b_point in

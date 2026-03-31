@@ -19,7 +19,24 @@ module G2Line = struct
 end
 
 module AffineCache = struct
-  type t = { x_over_y : FF.FpA.t; y_inv : FF.FpA.t }
+  type t = { x_over_y : FF.FpC.t; y_inv : FF.FpC.t }
+
+  let make (p : G1.Circuit.t) : t =
+    let f = Bn254_params.p in
+    let x_neg = FF.FpA.neg p.x ~f in
+    let _x_neg_c = FF.FpC.assert_canonical x_neg ~f in
+    let y_inv = FF.FpA.inv p.y ~f in
+    let y_inv_c = FF.FpC.assert_canonical y_inv ~f in
+    let x_over_y = FF.FpA.mul x_neg y_inv ~f in
+    let x_over_y_a =
+      match FF.FpA.assert_almost_reduced [ x_over_y ] ~f ~skip_mrc:true () with
+      | [ a ] ->
+          a
+      | _ ->
+          failwith "make_cache"
+    in
+    let x_over_y_c = FF.FpC.assert_canonical x_over_y_a ~f in
+    { y_inv = y_inv_c; x_over_y = x_over_y_c }
 end
 
 (** Compute the addition line through two G2 points in-circuit.
@@ -86,8 +103,8 @@ let add_from_line (p1 : G2.Circuit.t) ~(lambda : Fp2.Circuit.t)
 
 let eval_line (line : G2Line.t) (cache : AffineCache.t) :
     Fp2.Circuit.t * Fp2.Circuit.t =
-  let c01 = Fp2.mul_by_fp line.lambda cache.x_over_y in
-  let c11 = Fp2.mul_by_fp line.neg_mu cache.y_inv in
+  let c01 = Fp2.mul_by_fp line.lambda (FF.FpC.to_fpa cache.x_over_y) in
+  let c11 = Fp2.mul_by_fp line.neg_mu (FF.FpC.to_fpa cache.y_inv) in
   (c01, c11)
 
 (** Evaluate a line into a sparse Fp12 element matching nori's psi().
