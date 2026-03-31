@@ -149,17 +149,16 @@ let build_from_acc (acc : Accumulator.Circuit.t) ~(circuit_index : int) :
   let t_point = acc.state.t_point in
   let b_point = acc.proof.b in
   let neg_b = G2.negate b_point in
+  let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
   let witness_cache (get_pt : WT.t -> WT.G1.t) : Lines.AffineCache.t =
     { x_over_y =
-        FF.FpA.of_field3_unsafe
-          (Step.exists FF.Field3.typ ~compute:(fun () ->
-               let tracker = Circuit_config.get_tracker () in
-               fst (WT.compute_affine_cache (get_pt tracker)) ) )
+        Step.exists fpa_typ ~compute:(fun () ->
+            let tracker = Circuit_config.get_tracker () in
+            fst (WT.compute_affine_cache (get_pt tracker)) )
     ; y_inv =
-        FF.FpA.of_field3_unsafe
-          (Step.exists FF.Field3.typ ~compute:(fun () ->
-               let tracker = Circuit_config.get_tracker () in
-               snd (WT.compute_affine_cache (get_pt tracker)) ) )
+        Step.exists fpa_typ ~compute:(fun () ->
+            let tracker = Circuit_config.get_tracker () in
+            snd (WT.compute_affine_cache (get_pt tracker)) )
     }
   in
   let caches : three_cache =

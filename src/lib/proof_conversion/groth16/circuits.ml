@@ -130,19 +130,18 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        in
        Lines.assert_is_line frob_b_line1 t_point piB ;
        (* Witness all 3 affine caches *)
+       let fpa_typ = FF.FpA.typ ~f:Bn254_params.p in
        let witness_cache get_pt : Lines.AffineCache.t =
          { x_over_y =
-             FF.FpA.of_field3_unsafe
-               (Step.exists FF.Field3.typ ~compute:(fun () ->
-                    fst
-                      (WT.compute_affine_cache
-                         (get_pt (Circuit_config.get_tracker ())) ) ) )
+             Step.exists fpa_typ ~compute:(fun () ->
+                 fst
+                   (WT.compute_affine_cache
+                      (get_pt (Circuit_config.get_tracker ())) ) )
          ; y_inv =
-             FF.FpA.of_field3_unsafe
-               (Step.exists FF.Field3.typ ~compute:(fun () ->
-                    snd
-                      (WT.compute_affine_cache
-                         (get_pt (Circuit_config.get_tracker ())) ) ) )
+             Step.exists fpa_typ ~compute:(fun () ->
+                 snd
+                   (WT.compute_affine_cache
+                      (get_pt (Circuit_config.get_tracker ())) ) )
          }
        in
        let a_cache = witness_cache WT.get_neg_a in
