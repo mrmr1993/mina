@@ -68,7 +68,9 @@ let sum (inputs : Circuit.t list) (ops : FF.sign list) : Circuit.t =
 
 (* neg returns FpA directly (negation proves result < f) *)
 let neg (a : Circuit.t) : Circuit.t =
-  { c0 = FpA.neg a.c0 ~f:p; c1 = FpA.neg a.c1 ~f:p }
+  let c0 = FpA.neg a.c0 ~f:p in
+  let c1 = FpA.neg a.c1 ~f:p in
+  { c0; c1 }
 
 let conjugate (a : Circuit.t) : Circuit.t =
   { c0 = a.c0; c1 = FpA.neg a.c1 ~f:p }
