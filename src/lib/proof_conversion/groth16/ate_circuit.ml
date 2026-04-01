@@ -196,7 +196,6 @@ let build_from_acc (acc : Accumulator.Circuit.t)
   let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
   let delta_slice = Array.sub delta_lines ~pos:offset ~len:count in
   let gamma_slice = Array.sub gamma_lines ~pos:offset ~len:count in
-  Circuit_utils.marker 0x0480 ;
   (* Run the ate loop chunk with T tracking.
      g values are hashed into lines_hashes inline. *)
   let t_updated =
