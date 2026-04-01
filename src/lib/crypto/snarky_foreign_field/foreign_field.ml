@@ -1235,6 +1235,12 @@ type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
     standard range check approach. Matching nori's exact gate sequence
     requires implementing the generic-gate low-limb tracking from o1js. *)
 
+(** Convert a Field3 to variables if not already pure variables.
+    Matches nori's toVariable step in assertMul which ensures
+    finished sum values don't break the gate chain. *)
+let to_var_field3 ((l0, l1, l2) : Field3.t) : Field3.t =
+  (to_var l0, to_var l1, to_var l2)
+
 let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     ~(f : Bignum_bigint.t) : unit =
   let finish_for_mul = function
@@ -1255,9 +1261,24 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     | Field3_input f3 ->
         f3
   in
-  (* Match nori's assertMul order: finish y, finish xy, finish x (chained), assert_mul. *)
+  (* Match nori's assertMul order:
+     1. finish b (y), finish c (xy)
+     2. toVariable on b and c (if not all constant)
+     3. finish a (x, chained) → assertMul *)
   let y_val = finish_for_mul y in
   let xy_val = finish_simple xy in
+  let all_constant =
+    (match x with
+    | Sum_input s ->
+        Sum.is_constant s
+    | Field3_input f3 ->
+        Field3.is_constant f3)
+    && Field3.is_constant y_val && Field3.is_constant xy_val
+  in
+  let y_val, xy_val =
+    if all_constant then (y_val, xy_val)
+    else (to_var_field3 y_val, to_var_field3 xy_val)
+  in
   let x_val = finish_chained x in
   assert_mul x_val y_val xy_val ~f
 
