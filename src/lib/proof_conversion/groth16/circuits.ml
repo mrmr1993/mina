@@ -75,9 +75,23 @@ let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
   let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
   Accumulator_hash.poseidon_hash [| l0_x; l1_x; l2_x; l0_y; l1_y; l2_y |]
 
+(** Convert VK constant lines to circuit constants (embedded in the
+    constraint system, not witnesses).  Called at circuit definition
+    time, outside the proving closure. *)
+let vk_lines_to_circuit (lines : WT.Line.t array) : Lines.G2Line.t array =
+  Array.map lines ~f:(fun l ->
+      Lines.G2Line.of_constant (l.WT.Line.lambda, l.WT.Line.neg_mu) )
+
 (** Build the circuit body for zkpN.
+    [vk] provides precomputed VK constants (delta/gamma lines etc.)
+    that are embedded as circuit constants, not witnesses.
     Takes the input hash and returns the output hash. *)
-let build_circuit_body ~(circuit_index : int) : circuit_body =
+let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
+    circuit_body =
+  (* Convert VK lines to circuit constants at definition time,
+     matching nori's module-level: const delta_lines = LineParser.parse(...) *)
+  let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
+  let gamma_lines_const = vk_lines_to_circuit vk.gamma_lines in
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
       (* Ate loop circuits: witness all private inputs up front (matching
@@ -105,14 +119,15 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        in
        let acc_hash = Accumulator.hash acc in
        Step.Field.Assert.equal input_hash acc_hash ;
-       let f_updated, new_g_digest, t_updated =
+       let new_g_digest, t_updated =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
+           ~delta_lines:delta_lines_const ~gamma_lines:gamma_lines_const
            ~circuit_index
        in
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof
          ; state =
-             { f = f_updated; g_digest = new_g_digest; t_point = t_updated }
+             { acc.state with g_digest = new_g_digest; t_point = t_updated }
          }
        in
        Accumulator.hash updated
@@ -147,6 +162,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Run ate loop iterations [59,65) with g_digest verification *)
        let _ate_g_digest, t_after_ate =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
+           ~delta_lines:delta_lines_const ~gamma_lines:gamma_lines_const
            ~circuit_index:6
        in
        (* Frobenius part — matches nori's zkp6.ts frobenius section.
@@ -156,24 +172,14 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        let frob_b_lines =
          [| all_b_lines.(n_b - 2); all_b_lines.(n_b - 1) |]
        in
-       let witness_frob_line get i : Lines.G2Line.t =
-         { lambda =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 (get (Circuit_config.get_tracker ()) i).WT.Line.lambda )
-         ; neg_mu =
-             Step.exists Fp2.Circuit.typ ~compute:(fun () ->
-                 (get (Circuit_config.get_tracker ()) i).WT.Line.neg_mu )
-         }
-       in
+       (* Frobenius delta/gamma lines are VK constants (last 2 elements) *)
+       let n_d = Array.length delta_lines_const in
        let frob_delta_lines =
-         [| witness_frob_line WT.get_frobenius_delta_line 0
-          ; witness_frob_line WT.get_frobenius_delta_line 1
-         |]
+         [| delta_lines_const.(n_d - 2); delta_lines_const.(n_d - 1) |]
        in
+       let n_g = Array.length gamma_lines_const in
        let frob_gamma_lines =
-         [| witness_frob_line WT.get_frobenius_gamma_line 0
-          ; witness_frob_line WT.get_frobenius_gamma_line 1
-         |]
+         [| gamma_lines_const.(n_g - 2); gamma_lines_const.(n_g - 1) |]
        in
        (* Compute affine caches *)
        let a_cache = Lines.AffineCache.make acc.proof.neg_a in

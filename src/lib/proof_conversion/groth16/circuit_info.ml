@@ -5,8 +5,8 @@ open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Compile a circuit and extract the step circuit gate count. *)
-let get_gate_count ~(n : int) : int =
-  let rule = Pickles_rules.make_rule ~n in
+let get_gate_count ~(vk : Vk_constants.t) ~(n : int) : int =
+  let rule = Pickles_rules.make_rule ~vk ~n in
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
@@ -31,7 +31,7 @@ let get_gate_count ~(n : int) : int =
   -1
 
 (** Report circuit information for all 16 Groth16 circuits. *)
-let report_all () =
+let report_all ~(vk : Vk_constants.t) () =
   printf "Groth16 Circuit Information\n" ;
   printf "==========================\n" ;
   printf "%-8s %-20s %s\n" "Circuit" "Description" "Status" ;
@@ -56,7 +56,7 @@ let report_all () =
   in
   for n = 0 to Circuits.num_circuits - 1 do
     printf "  zkp%-3d %-20s compiling... %!" n descriptions.(n) ;
-    let _count = get_gate_count ~n in
+    let _count = get_gate_count ~vk ~n in
     printf "done\n%!"
   done ;
   printf "\nUse DUMP_PCS_GATES=<dir> for full gate JSON dumps.\n"

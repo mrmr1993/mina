@@ -8,8 +8,9 @@ open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Build a Pickles inductive rule for circuit [n]. *)
-let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
-  let body = Circuits.build_circuit_body ~circuit_index:n in
+let make_rule ~(vk : Vk_constants.t) ~(n : int) :
+    _ Pickles.Inductive_rule.Promise.t =
+  let body = Circuits.build_circuit_body ~vk ~circuit_index:n in
   { identifier = sprintf "zkp%d" n
   ; prevs = []
   ; main =
@@ -37,10 +38,11 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
 
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
-let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
+let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
+    ~(input_hash : Step.Field.Constant.t) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   printf "  [zkp%d] compiling... %!" n ;
-  let rule = make_rule ~n in
+  let rule = make_rule ~vk ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
       ~public_input:
@@ -73,14 +75,15 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
   (output_hash, proof)
 
 (** Compile and prove all 16 circuits, chaining input/output hashes. *)
-let compile_and_prove_all () : Pickles_types.Nat.N0.n Pickles.Proof.t array =
+let compile_and_prove_all ~(vk : Vk_constants.t) () :
+    Pickles_types.Nat.N0.n Pickles.Proof.t array =
   printf "Compiling and proving %d circuits (chained)...\n%!"
     Circuits.num_circuits ;
   let current_hash = ref Step.Field.Constant.zero in
   let proofs =
     Array.init Circuits.num_circuits ~f:(fun n ->
         let output_hash, proof =
-          compile_and_prove_one ~n ~input_hash:!current_hash
+          compile_and_prove_one ~vk ~n ~input_hash:!current_hash
         in
         current_hash := output_hash ;
         proof )

@@ -101,16 +101,19 @@ let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
   }
 
 (** Run a chunk of ate loop iterations with T tracking and 3-party lines.
-    [b_lines] is the pre-witnessed slice of B-lines for this chunk
-    (matching nori's LineParser.parse output).
+    [b_lines] is the pre-witnessed slice of B-lines for this chunk.
+    [delta_lines] and [gamma_lines] are VK constant slices (not witnesses).
     Hashes each g value into [lines_hashes] inline (matching nori's
     [lines_hashes[idx] = Poseidon.hashPacked(Fp12, g)] inside the loop).
     Does NOT update f — that happens in the f-update circuits (zkp7-12).
     Returns final_T. *)
 let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
-    ~(b_lines : Lines.G2Line.t array) ~(lines_hashes : Step.Field.t array)
-    ~(caches : three_cache) : G2.Circuit.t =
+    ~(b_lines : Lines.G2Line.t array)
+    ~(delta_lines : Lines.G2Line.t array)
+    ~(gamma_lines : Lines.G2Line.t array)
+    ~(lines_hashes : Step.Field.t array) ~(caches : three_cache) :
+    G2.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
   let t_ref = ref t_point in
   let line_cnt = ref 0 in
@@ -118,20 +121,16 @@ let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     let bit = ate.(i) in
     let iter_idx = i - 1 in
     let double_line = b_lines.(!line_cnt) in
+    let delta_double = delta_lines.(!line_cnt) in
+    let gamma_double = gamma_lines.(!line_cnt) in
     incr line_cnt ;
-    let delta_double =
-      witness_line (fun d -> d.WT.delta_double_line) iter_idx
-    in
-    let gamma_double =
-      witness_line (fun d -> d.WT.gamma_double_line) iter_idx
-    in
     let add_line, delta_add, gamma_add =
       if bit <> 0 then (
         let add_l = b_lines.(!line_cnt) in
+        let d_add = delta_lines.(!line_cnt) in
+        let g_add = gamma_lines.(!line_cnt) in
         incr line_cnt ;
-        ( Some add_l
-        , Some (witness_opt_line (fun d -> d.WT.delta_add_line) iter_idx)
-        , Some (witness_opt_line (fun d -> d.WT.gamma_add_line) iter_idx) ) )
+        (Some add_l, Some d_add, Some g_add) )
       else (None, None, None)
     in
     let g, new_t =
@@ -139,8 +138,6 @@ let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
         ~delta_double ~gamma_double ~caches ~add_line ~delta_add ~gamma_add
     in
     t_ref := new_t ;
-    (* Hash g into lines_hashes inline, matching nori:
-       lines_hashes[idx] = Poseidon.hashPacked(Fp12, g) *)
     lines_hashes.(iter_idx) <- Accumulator_hash.hash_fp12 g
   done ;
   !t_ref
@@ -171,12 +168,15 @@ let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
 
 (** Build the circuit body for an ate loop circuit from pre-witnessed
     values.  [lines_hashes] and [all_b_lines] must already be witnessed
-    (matching nori's privateInputs pattern).
+    (matching nori's privateInputs pattern).  [delta_lines] and
+    [gamma_lines] are VK constants (full flat arrays, sliced internally).
     Returns (updated_g_digest, updated_T).  f is NOT updated here —
     that happens in the f-update circuits (zkp7-12). *)
 let build_from_acc (acc : Accumulator.Circuit.t)
     ~(lines_hashes : Step.Field.t array) ~(all_b_lines : Lines.G2Line.t array)
-    ~(circuit_index : int) : Step.Field.t * G2.Circuit.t =
+    ~(delta_lines : Lines.G2Line.t array)
+    ~(gamma_lines : Lines.G2Line.t array) ~(circuit_index : int) :
+    Step.Field.t * G2.Circuit.t =
   assert (circuit_index >= 0 && circuit_index <= 6) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
   let t_point = acc.state.t_point in
@@ -191,16 +191,17 @@ let build_from_acc (acc : Accumulator.Circuit.t)
     { a_cache; c_cache; pi_cache }
   in
   let neg_b = G2.negate b_point in
-  let b_lines =
-    let offset = b_line_offset ~begin_idx in
-    let count = b_line_count ~from:begin_idx ~to_:end_idx in
-    Array.sub all_b_lines ~pos:offset ~len:count
-  in
+  let offset = b_line_offset ~begin_idx in
+  let count = b_line_count ~from:begin_idx ~to_:end_idx in
+  let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
+  let delta_slice = Array.sub delta_lines ~pos:offset ~len:count in
+  let gamma_slice = Array.sub gamma_lines ~pos:offset ~len:count in
+  Circuit_utils.marker 0x0480 ;
   (* Run the ate loop chunk with T tracking.
      g values are hashed into lines_hashes inline. *)
   let t_updated =
     run_chunk t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines
-      ~lines_hashes ~caches
+      ~delta_lines:delta_slice ~gamma_lines:gamma_slice ~lines_hashes ~caches
   in
   (* Compute the updated g_digest *)
   let new_g_digest = Array_list_hasher.hash lines_hashes in

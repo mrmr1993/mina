@@ -12,8 +12,8 @@
 open Core_kernel
 module Step = Pickles.Impls.Step
 
-let compile_circuit ~(n : int) : string =
-  let rule = Proof_conversion.Pickles_rules.make_rule ~n in
+let compile_circuit ~(vk : Proof_conversion.Vk_constants.t) ~(n : int) : string =
+  let rule = Proof_conversion.Pickles_rules.make_rule ~vk ~n in
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
@@ -39,6 +39,16 @@ let compile_circuit ~(n : int) : string =
   Kimchi_pasta.Pasta.Fp.to_string hash
 
 let () =
+  let vk_path =
+    match Stdlib.Sys.getenv_opt "GROTH16_VK_PATH" with
+    | Some p ->
+        p
+    | None ->
+        eprintf "Set GROTH16_VK_PATH to the verification key JSON\n" ;
+        exit 1
+  in
+  let vk = Proof_conversion.Proof_json.load_vk vk_path in
+  let vk_const = Proof_conversion.Vk_constants.create vk in
   let circuits =
     match Stdlib.Sys.getenv_opt "CIRCUIT" with
     | Some s ->
@@ -50,5 +60,5 @@ let () =
   printf "=========================\n" ;
   Array.iter circuits ~f:(fun n ->
       printf "  zkp%-2d: compiling... %!" n ;
-      let hash = compile_circuit ~n in
+      let hash = compile_circuit ~vk:vk_const ~n in
       printf "VK=%s\n%!" hash )

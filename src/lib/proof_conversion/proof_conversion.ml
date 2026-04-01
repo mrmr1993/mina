@@ -15,6 +15,7 @@ module Witness_tracker = Witness_tracker
 
 module Bn254_params = Bn254_params
 module Proof_json = Proof_json
+module Vk_constants = Vk_constants
 module Circuit_info = Circuit_info
 module Plonk_circuits = Plonk_circuits
 module Pickles_rules = Pickles_rules
@@ -48,12 +49,13 @@ module Groth16 : PROOF_SYSTEM = struct
     let aux = Proof_json.load_aux_witness aux_path in
     let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
+    let vk_const = Vk_constants.create vk in
     printf "Witness data prepared: %d IC points, %d public inputs\n"
       (Witness_tracker.num_ic tracker)
       (Witness_tracker.num_public_inputs tracker) ;
     printf "Compiling and proving all %d circuits (chained)...\n"
       Circuits.num_circuits ;
-    let proofs = Pickles_rules.compile_and_prove_all () in
+    let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const () in
     printf "Generated %d proofs successfully.\n%!" (Array.length proofs) ;
     (* Run compression tree *)
     printf "Running compression tree...\n%!" ;

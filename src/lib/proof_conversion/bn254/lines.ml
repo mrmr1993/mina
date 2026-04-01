@@ -17,6 +17,11 @@ module G2Line = struct
     |> Step.Typ.transport_var
          ~there:(fun { lambda; neg_mu } -> (lambda, neg_mu))
          ~back:(fun (lambda, neg_mu) -> { lambda; neg_mu })
+
+  (** Embed a constant line as a circuit value (no constraints). *)
+  let of_constant (l : constant) : t =
+    let lambda, neg_mu = l in
+    { lambda = Fp2.of_constant lambda; neg_mu = Fp2.of_constant neg_mu }
 end
 
 module AffineCache = struct

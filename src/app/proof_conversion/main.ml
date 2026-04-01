@@ -4,6 +4,7 @@ let () =
   let proof_type = ref "" in
   let input_path = ref "" in
   let output_path = ref "" in
+  let vk_path = ref "" in
   let info_mode = ref false in
   let spec =
     [ ( "--proof-type"
@@ -11,12 +12,13 @@ let () =
       , "groth16|plonk  Type of proof to convert" )
     ; ("--input", Arg.Set_string input_path, "PATH  Input proof JSON file")
     ; ("--output", Arg.Set_string output_path, "PATH  Output proof JSON file")
+    ; ("--vk", Arg.Set_string vk_path, "PATH  Verification key JSON file")
     ; ("--info", Arg.Set info_mode, "  Report circuit info without proving")
     ]
   in
   Arg.parse spec
     (fun _ -> ())
-    "mina-proof-conversion --proof-type <type> [--info | --input <path> --output <path>]" ;
+    "mina-proof-conversion --proof-type <type> [--info --vk <path> | --input <path> --output <path>]" ;
   if String.is_empty !proof_type then (
     Arg.usage spec "Missing --proof-type" ;
     exit 1 ) ;
@@ -24,7 +26,12 @@ let () =
     (* Info mode: compile circuits and report gate information *)
     match !proof_type with
     | "groth16" ->
-        Proof_conversion.Circuit_info.report_all ()
+        if String.is_empty !vk_path then (
+          eprintf "Groth16 --info requires --vk <path>\n" ;
+          exit 1 ) ;
+        let vk = Proof_conversion.Proof_json.load_vk !vk_path in
+        let vk_const = Proof_conversion.Vk_constants.create vk in
+        Proof_conversion.Circuit_info.report_all ~vk:vk_const ()
     | "plonk" ->
         printf "PLONK circuit info: %d circuits\n"
           Proof_conversion.Plonk_circuits.num_circuits ;
