@@ -109,8 +109,7 @@ let eval_line (line : G2Line.t) (cache : AffineCache.t) :
     Convenience wrapper for the common pattern in ate loop iterations. *)
 let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t) (cache : AffineCache.t) :
     Fp12.Circuit.t =
-  let h0, h1 = eval_line line cache in
-  Fp12.sparse_mul f ~b00:Fp2.Constant.one ~b10:h0 ~b11:h1
+  Fp12.sparse_mul f (eval_to_fp12 line cache)
 
 (* Re-export G2Line assertion functions at module level for convenience *)
 let assert_is_tangent = G2Line.assert_is_tangent

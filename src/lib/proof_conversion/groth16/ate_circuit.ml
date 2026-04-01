@@ -27,8 +27,7 @@ type three_cache =
     Matches nori's g = g.sparse_mul(line.psi(cache)). *)
 let sparse_mul_line (g : Fp12.Circuit.t) (line : Lines.G2Line.t)
     (cache : Lines.AffineCache.t) : Fp12.Circuit.t =
-  let h0, h1 = Lines.eval_line line cache in
-  Fp12.sparse_mul g ~b00:Fp2.Constant.one ~b10:h0 ~b11:h1
+  Fp12.sparse_mul g (Lines.eval_to_fp12 line cache)
 
 (** Process one ate loop iteration in-circuit with 3-party line evaluation.
     Matches nori's zkp0-6 loop body: computes g (line evaluations) and
