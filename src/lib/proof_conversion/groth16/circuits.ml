@@ -119,6 +119,11 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        let acc_hash = Accumulator.hash acc in
        Step.Field.Assert.equal input_hash acc_hash ;
+       let acc =
+         if circuit_index = 0 then
+           { acc with state = { acc.state with t_point = acc.proof.b } }
+         else acc
+       in
        let new_g_digest, t_updated =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
            ~delta_lines:delta_lines_const ~gamma_lines:gamma_lines_const
