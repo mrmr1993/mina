@@ -853,11 +853,11 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
       failwith "assert_mul: incorrect multiplication result" )
   else
     let xy0, xy1, xy2 = xy in
+    let q, r01, r2 = multiply_no_range_check x y ~f in
+    multi_range_check q ;
     let xy01 =
       Circuit.Field.(xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
     in
-    let q, r01, r2 = multiply_no_range_check x y ~f in
-    multi_range_check q ;
     Circuit.assert_ (Equal (r01, xy01)) ;
     Circuit.assert_ (Equal (r2, xy2))
 
