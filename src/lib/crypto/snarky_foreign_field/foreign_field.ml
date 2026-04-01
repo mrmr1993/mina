@@ -1342,7 +1342,10 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
   in
   let y_val, xy_val =
     if all_constant then (y_val, xy_val)
-    else (to_var_field3 y_val, to_var_field3 xy_val)
+    else
+      let y_val = to_var_field3 y_val in
+      let xy_val = to_var_field3 xy_val in
+      (y_val, xy_val)
   in
   let x_val = finish_chained x in
   assert_mul x_val y_val xy_val ~f
