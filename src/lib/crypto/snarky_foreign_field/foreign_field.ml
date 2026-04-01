@@ -1251,27 +1251,16 @@ module Sum = struct
               (fst c, snd c)
             in
             overflows.(i) <- overflow ;
-            (* Constrain carry to {0, 1, -1}: carry*(carry²-1) = 0.
-               Two R1CS half-generics that enter the PCS pairing queue:
-               1. carry*(carry-1) = z
-               2. z*(carry+1) = 0
-               These pair with OTHER half-generics (e.g. weakBound),
-               matching nori's pairing behavior. *)
-            let z =
-              Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-                  let c = Circuit.As_prover.read_var carry in
-                  Circuit.Field.Constant.(c * (c - one)) )
+            (* Constrain carry to {0, 1, -1}.
+               Matches nori's assertOneOf(carry, [0n, 1n, -1n]). *)
+            let neg_one =
+              Circuit.Field.Constant.(zero - one)
             in
-            Circuit.assert_
-              (R1CS
-                 ( carry
-                 , Circuit.Field.(carry - constant Circuit.Field.Constant.one)
-                 , z ) ) ;
-            Circuit.assert_
-              (R1CS
-                 ( z
-                 , Circuit.Field.(carry + constant Circuit.Field.Constant.one)
-                 , Circuit.Field.zero ) ) ;
+            assert_one_of carry
+              [ Circuit.Field.Constant.zero
+              ; Circuit.Field.Constant.one
+              ; neg_one
+              ] ;
             (* x0 <- x0 + sign*xi0 - overflow*f0 - carry*2^l *)
             let sign_field = bignum_to_field_const sign_bi in
             let f0_field = bignum_to_field_const f0 in
