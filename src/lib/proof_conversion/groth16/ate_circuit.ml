@@ -27,7 +27,7 @@ type three_cache =
     Matches nori's g = g.sparse_mul(line.psi(cache)). *)
 let sparse_mul_line (g : Fp12.Circuit.t) (line : Lines.G2Line.t)
     (cache : Lines.AffineCache.t) : Fp12.Circuit.t =
-  Fp12.sparse_mul g (Lines.eval_to_fp12 line cache)
+  Fp12.sparse_mul g (Lines.psi line cache)
 
 (** Process one ate loop iteration in-circuit with 3-party line evaluation.
     Matches nori's zkp0-6 loop body: computes g (line evaluations) and
@@ -41,7 +41,7 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     Fp12.Circuit.t * G2.Circuit.t =
   Lines.assert_is_tangent double_line t_point ;
   (* g = b_line.psi(a_cache) *)
-  let g = Lines.eval_to_fp12 double_line caches.a_cache in
+  let g = Lines.psi double_line caches.a_cache in
   (* g = g.sparse_mul(delta_line.psi(c_cache)) *)
   let g = sparse_mul_line g delta_double caches.c_cache in
   (* g = g.sparse_mul(gamma_line.psi(pi_cache)) *)

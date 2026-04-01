@@ -98,7 +98,7 @@ end
 
 (** Evaluate a line into a sparse Fp12 via psi, using an AffineCache.
     Convenience wrapper matching nori's [line.psi(cache)]. *)
-let eval_to_fp12 (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
+let psi (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
   G2Line.psi line
     ~x_over_y:(AffineCache.x_over_y_fpa cache)
     ~y_inv:(AffineCache.y_inv_fpa cache)
@@ -115,7 +115,7 @@ let eval_line (line : G2Line.t) (cache : AffineCache.t) :
     Convenience wrapper for the common pattern in ate loop iterations. *)
 let mul_by_line (f : Fp12.Circuit.t) (line : G2Line.t) (cache : AffineCache.t) :
     Fp12.Circuit.t =
-  Fp12.sparse_mul f (eval_to_fp12 line cache)
+  Fp12.sparse_mul f (psi line cache)
 
 (* Re-export G2Line assertion functions at module level for convenience *)
 let assert_is_tangent = G2Line.assert_is_tangent

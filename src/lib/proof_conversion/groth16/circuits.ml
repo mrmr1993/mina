@@ -237,7 +237,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          [| gamma_lines_const.(n_g - 2); gamma_lines_const.(n_g - 1) |]
        in
        (* First Frobenius line: g = psi(b) * psi(delta) * psi(gamma) *)
-       let g = Lines.eval_to_fp12 frob_b_lines.(0) a_cache in
+       let g = Lines.psi frob_b_lines.(0) a_cache in
        let g = Ate_circuit.sparse_mul_line g frob_delta_lines.(0) c_cache in
        let g = Ate_circuit.sparse_mul_line g frob_gamma_lines.(0) pi_cache in
        (* piB = B.frobenius(); assert line passes through (T, piB) *)
