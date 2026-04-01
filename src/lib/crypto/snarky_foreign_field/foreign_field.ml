@@ -502,16 +502,11 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   | [ b1 ] ->
       multi_range_check
         ( b1
-        , Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-              Circuit.Field.Constant.zero )
-        , Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-              Circuit.Field.Constant.zero ) )
+        , Circuit.Field.constant Circuit.Field.Constant.zero
+        , Circuit.Field.constant Circuit.Field.Constant.zero )
   | [ b1; b2 ] ->
       multi_range_check
-        ( b1
-        , b2
-        , Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-              Circuit.Field.Constant.zero ) )
+        (b1, b2, Circuit.Field.constant Circuit.Field.Constant.zero)
   | _ ->
       ()
 
