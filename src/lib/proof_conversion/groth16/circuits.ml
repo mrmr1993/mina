@@ -131,24 +131,14 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let a_cache = Lines.AffineCache.make acc.proof.neg_a in
        let c_cache = Lines.AffineCache.make acc.proof.c in
        let pi_cache = Lines.AffineCache.make acc.proof.pi in
-       let caches : Ate_circuit.three_cache =
-         { a_cache; c_cache; pi_cache }
-       in
-       let begin_idx, end_idx =
-         Ate_circuit.circuit_ranges.(circuit_index)
-       in
+       let caches : Ate_circuit.three_cache = { a_cache; c_cache; pi_cache } in
+       let begin_idx, end_idx = Ate_circuit.circuit_ranges.(circuit_index) in
        let neg_b = G2.negate acc.proof.b in
        let offset = Ate_circuit.b_line_offset ~begin_idx in
-       let count =
-         Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx
-       in
+       let count = Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx in
        let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
-       let delta_slice =
-         Array.sub delta_lines_const ~pos:offset ~len:count
-       in
-       let gamma_slice =
-         Array.sub gamma_lines_const ~pos:offset ~len:count
-       in
+       let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
+       let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
        let t_updated =
          Ate_circuit.run_circuit_chunk ~t_point:acc.state.t_point
            ~b_point:acc.proof.b ~neg_b ~begin_idx ~end_idx ~b_lines
@@ -199,22 +189,14 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let a_cache = Lines.AffineCache.make acc.proof.neg_a in
        let c_cache = Lines.AffineCache.make acc.proof.c in
        let pi_cache = Lines.AffineCache.make acc.proof.pi in
-       let caches : Ate_circuit.three_cache =
-         { a_cache; c_cache; pi_cache }
-       in
+       let caches : Ate_circuit.three_cache = { a_cache; c_cache; pi_cache } in
        let begin_idx, end_idx = Ate_circuit.circuit_ranges.(6) in
        let neg_b = G2.negate acc.proof.b in
        let offset = Ate_circuit.b_line_offset ~begin_idx in
-       let count =
-         Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx
-       in
+       let count = Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx in
        let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
-       let delta_slice =
-         Array.sub delta_lines_const ~pos:offset ~len:count
-       in
-       let gamma_slice =
-         Array.sub gamma_lines_const ~pos:offset ~len:count
-       in
+       let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
+       let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
        (* Run ate loop iterations [59,65) *)
        let t_after_ate =
          Ate_circuit.run_circuit_chunk ~t_point:acc.state.t_point
@@ -238,8 +220,8 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        (* First Frobenius line: g = psi(b) * psi(delta) * psi(gamma) *)
        let g = Lines.psi frob_b_lines.(0) a_cache in
-       let g = Ate_circuit.sparse_mul_line g frob_delta_lines.(0) c_cache in
-       let g = Ate_circuit.sparse_mul_line g frob_gamma_lines.(0) pi_cache in
+       let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(0) c_cache) in
+       let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(0) pi_cache) in
        (* piB = B.frobenius(); assert line passes through (T, piB) *)
        let piB = G2.frobenius acc.proof.b in
        let t_point = t_after_ate in
@@ -250,9 +232,9 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        (* Second Frobenius line *)
        let pi2B = piB |> G2.negative_frobenius in
        Lines.assert_is_line frob_b_lines.(1) t_point pi2B ;
-       let g = Ate_circuit.sparse_mul_line g frob_b_lines.(1) a_cache in
-       let g = Ate_circuit.sparse_mul_line g frob_delta_lines.(1) c_cache in
-       let g = Ate_circuit.sparse_mul_line g frob_gamma_lines.(1) pi_cache in
+       let g = Fp12.sparse_mul g (Lines.psi frob_b_lines.(1) a_cache) in
+       let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(1) c_cache) in
+       let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(1) pi_cache) in
        (* Verify c * c_inv = 1 *)
        let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
        Fp12.assert_one product ;

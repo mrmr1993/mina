@@ -23,12 +23,6 @@ type three_cache =
   ; pi_cache : Lines.AffineCache.t  (** PI — for gamma-lines *)
   }
 
-(** Sparse-multiply g by a line evaluation: g.sparse_mul(line.psi(cache)).
-    Matches nori's g = g.sparse_mul(line.psi(cache)). *)
-let sparse_mul_line (g : Fp12.Circuit.t) (line : Lines.G2Line.t)
-    (cache : Lines.AffineCache.t) : Fp12.Circuit.t =
-  Fp12.sparse_mul g (Lines.psi line cache)
-
 (** Process one ate loop iteration in-circuit with 3-party line evaluation.
     Matches nori's zkp0-6 loop body: computes g (line evaluations) and
     updates T. Does NOT update f — that happens in zkp7-12.
@@ -43,9 +37,9 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
   (* g = b_line.psi(a_cache) *)
   let g = Lines.psi double_line caches.a_cache in
   (* g = g.sparse_mul(delta_line.psi(c_cache)) *)
-  let g = sparse_mul_line g delta_double caches.c_cache in
+  let g = Fp12.sparse_mul g (Lines.psi delta_double caches.c_cache) in
   (* g = g.sparse_mul(gamma_line.psi(pi_cache)) *)
-  let g = sparse_mul_line g gamma_double caches.pi_cache in
+  let g = Fp12.sparse_mul g (Lines.psi gamma_double caches.pi_cache) in
   (* T = T.double_from_line(b_line.lambda) *)
   let t_point = G2.double_from_line t_point ~lambda:double_line.lambda in
   match (bit, add_line, delta_add, gamma_add) with
@@ -54,16 +48,16 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
   | 1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point b_point ;
       let t_point = G2.add_from_line t_point ~lambda:add_l.lambda b_point in
-      let g = sparse_mul_line g add_l caches.a_cache in
-      let g = sparse_mul_line g d_add caches.c_cache in
-      let g = sparse_mul_line g g_add caches.pi_cache in
+      let g = Fp12.sparse_mul g (Lines.psi add_l caches.a_cache) in
+      let g = Fp12.sparse_mul g (Lines.psi d_add caches.c_cache) in
+      let g = Fp12.sparse_mul g (Lines.psi g_add caches.pi_cache) in
       (g, t_point)
   | -1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point neg_b ;
       let t_point = G2.add_from_line t_point ~lambda:add_l.lambda neg_b in
-      let g = sparse_mul_line g add_l caches.a_cache in
-      let g = sparse_mul_line g d_add caches.c_cache in
-      let g = sparse_mul_line g g_add caches.pi_cache in
+      let g = Fp12.sparse_mul g (Lines.psi add_l caches.a_cache) in
+      let g = Fp12.sparse_mul g (Lines.psi d_add caches.c_cache) in
+      let g = Fp12.sparse_mul g (Lines.psi g_add caches.pi_cache) in
       (g, t_point)
   | _ ->
       (g, t_point)
@@ -167,8 +161,7 @@ let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
 let run_circuit_chunk ~(t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
     ~(b_lines : Lines.G2Line.t array) ~(delta_lines : Lines.G2Line.t array)
-    ~(gamma_lines : Lines.G2Line.t array)
-    ~(lines_hashes : Step.Field.t array) ~(caches : three_cache) :
-    G2.Circuit.t =
+    ~(gamma_lines : Lines.G2Line.t array) ~(lines_hashes : Step.Field.t array)
+    ~(caches : three_cache) : G2.Circuit.t =
   run_chunk t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines ~delta_lines
     ~gamma_lines ~lines_hashes ~caches
