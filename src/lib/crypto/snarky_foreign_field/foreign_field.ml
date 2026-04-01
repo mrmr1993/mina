@@ -311,6 +311,87 @@ let to_var (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (v, x)) ;
       v
 
+(** Emit a Generic gate: ql*left + qr*right + qo*out + qm*left*right + qc = 0.
+    Matches o1js Gates.generic. *)
+let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
+    ~(qo : Circuit.Field.Constant.t) ~(qm : Circuit.Field.Constant.t)
+    ~(qc : Circuit.Field.Constant.t) ~(left : Circuit.Field.t)
+    ~(right : Circuit.Field.t) ~(out : Circuit.Field.t) : unit =
+  Circuit.assert_
+    (Basic
+       { l = (ql, left)
+       ; r = (qr, right)
+       ; o = (qo, out)
+       ; m = qm
+       ; c = qc
+       } )
+
+(** Witness z = a*x*y + b*x + c*y + d and emit a Generic gate constraining it.
+    Matches o1js bilinear(x, y, [a, b, c, d]). *)
+let bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
+    ~(a : Circuit.Field.Constant.t) ~(b : Circuit.Field.Constant.t)
+    ~(c : Circuit.Field.Constant.t) ~(d : Circuit.Field.Constant.t) :
+    Circuit.Field.t =
+  let z =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        let x0 = Circuit.As_prover.read_var x in
+        let y0 = Circuit.As_prover.read_var y in
+        Circuit.Field.Constant.(a * x0 * y0 + b * x0 + c * y0 + d) )
+  in
+  (* b*x + c*y - z + a*x*y + d = 0 *)
+  generic ~ql:b ~qr:c
+    ~qo:Circuit.Field.Constant.(zero - one)
+    ~qm:a ~qc:d ~left:x ~right:y ~out:z ;
+  z
+
+(** Assert a*x*y + b*x + c*y + d = 0.
+    Matches o1js assertBilinear(x, y, [a, b, c, d]). *)
+let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
+    ~(a : Circuit.Field.Constant.t) ~(b : Circuit.Field.Constant.t)
+    ~(c : Circuit.Field.Constant.t) ~(d : Circuit.Field.Constant.t) : unit =
+  let empty =
+    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+        Circuit.Field.Constant.zero )
+  in
+  (* b*x + c*y + 0*out + a*x*y + d = 0 *)
+  generic ~ql:b ~qr:c ~qo:Circuit.Field.Constant.zero ~qm:a ~qc:d ~left:x
+    ~right:y ~out:empty
+
+(** Assert x is one of the allowed values.
+    Matches o1js assertOneOf(x, allowed).
+    Emits (n-1) Generic gates for n allowed values. *)
+let assert_one_of (x : Circuit.Field.t)
+    (allowed : Circuit.Field.Constant.t list) : unit =
+  let x = to_var x in
+  match allowed with
+  | [] ->
+      failwith "assert_one_of: empty list"
+  | [ c1 ] ->
+      (* x - c1 = 0 *)
+      Circuit.assert_ (Equal (x, Circuit.Field.constant c1))
+  | c1 :: c2 :: rest ->
+      let module C = Circuit.Field.Constant in
+      let n = List.length rest in
+      if n = 0 then
+        (* (x - c1)*(x - c2) = 0 *)
+        assert_bilinear x x ~a:C.one ~b:C.(zero - (c1 + c2)) ~c:C.zero
+          ~d:C.(c1 * c2)
+      else (
+        (* z = (x - c1)*(x - c2) *)
+        let z =
+          ref
+            (bilinear x x ~a:C.one ~b:C.(zero - (c1 + c2)) ~c:C.zero
+               ~d:C.(c1 * c2) )
+        in
+        List.iteri rest ~f:(fun i ci ->
+            if i < n - 1 then
+              (* z = z*(x - ci) *)
+              z := bilinear !z x ~a:C.one ~b:C.(zero - ci) ~c:C.zero ~d:C.zero
+            else
+              (* z*(x - ci) = 0 *)
+              assert_bilinear !z x ~a:C.one ~b:C.(zero - ci) ~c:C.zero
+                ~d:C.zero ) )
+
 (* ------------------------------------------------------------------ *)
 (* Multi-range checks                                                  *)
 (* ------------------------------------------------------------------ *)
