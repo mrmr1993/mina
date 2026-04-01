@@ -35,13 +35,22 @@ let mul_by_v (a : Circuit.t) : Circuit.t =
   { c0; c1 = a.c0; c2 = a.c1 }
 
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp2.add a.c0 b.c0; c1 = Fp2.add a.c1 b.c1; c2 = Fp2.add a.c2 b.c2 }
+  let c0 = Fp2.add a.c0 b.c0 in
+  let c1 = Fp2.add a.c1 b.c1 in
+  let c2 = Fp2.add a.c2 b.c2 in
+  { c0; c1; c2 }
 
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp2.sub a.c0 b.c0; c1 = Fp2.sub a.c1 b.c1; c2 = Fp2.sub a.c2 b.c2 }
+  let c0 = Fp2.sub a.c0 b.c0 in
+  let c1 = Fp2.sub a.c1 b.c1 in
+  let c2 = Fp2.sub a.c2 b.c2 in
+  { c0; c1; c2 }
 
 let neg (a : Circuit.t) : Circuit.t =
-  { c0 = Fp2.neg a.c0; c1 = Fp2.neg a.c1; c2 = Fp2.neg a.c2 }
+  let c0 = Fp2.neg a.c0 in
+  let c1 = Fp2.neg a.c1 in
+  let c2 = Fp2.neg a.c2 in
+  { c0; c1; c2 }
 
 (** Fp6 multiplication using Karatsuba (6 Fp2.mul instead of 9).
     Matches nori's Fp6.mul. *)
