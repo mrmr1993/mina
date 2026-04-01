@@ -9,7 +9,6 @@ module FpA = FF.FpA
 
 let p = Bn254_params.p
 
-
 module Constant = struct
   type t = FF.Bignum_bigint.t * FF.Bignum_bigint.t
 

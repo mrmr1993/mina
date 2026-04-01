@@ -54,15 +54,20 @@ module G2Line = struct
   (** Evaluate a line into a sparse Fp12 element.
       Matches nori's G2Line.psi(cache):
         c0 = (1, 0, 0), c1 = (lambda*xp_prime, neg_mu*yp_prime, 0) *)
-  let psi (line : t) ~(x_over_y : FF.FpA.t) ~(y_inv : FF.FpA.t) :
-      Fp12.Circuit.t =
+  let psi (line : t) ~(x_over_y : FF.FpA.t) ~(y_inv : FF.FpA.t) : Fp12.Circuit.t
+      =
+    let g0 : Fp2.Circuit.t =
+      { c0 = FF.FpA.of_constant FF.Bignum_bigint.one
+      ; c1 = FF.FpA.of_constant FF.Bignum_bigint.zero
+      }
+    in
     let h0 = Fp2.mul_by_fp line.lambda x_over_y in
+    let g1 = Fp2.of_constant Fp2.Constant.zero in
     let h1 = Fp2.mul_by_fp line.neg_mu y_inv in
-    let one_fp2 = Fp2.of_constant Fp2.Constant.one in
-    let zero_fp2 = Fp2.of_constant Fp2.Constant.zero in
-    { Fp12.Circuit.c0 =
-        { Fp6.Circuit.c0 = one_fp2; c1 = zero_fp2; c2 = zero_fp2 }
-    ; c1 = { Fp6.Circuit.c0 = h0; c1 = h1; c2 = zero_fp2 }
+    let g2 = Fp2.of_constant Fp2.Constant.zero in
+    let h2 = Fp2.of_constant Fp2.Constant.zero in
+    { Fp12.Circuit.c0 = { Fp6.Circuit.c0 = g0; c1 = g1; c2 = g2 }
+    ; c1 = { Fp6.Circuit.c0 = h0; c1 = h1; c2 = h2 }
     }
 end
 
@@ -94,7 +99,8 @@ end
 (** Evaluate a line into a sparse Fp12 via psi, using an AffineCache.
     Convenience wrapper matching nori's [line.psi(cache)]. *)
 let eval_to_fp12 (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
-  G2Line.psi line ~x_over_y:(AffineCache.x_over_y_fpa cache)
+  G2Line.psi line
+    ~x_over_y:(AffineCache.x_over_y_fpa cache)
     ~y_inv:(AffineCache.y_inv_fpa cache)
 
 (** Evaluate a line at a cache, returning the two Fp2 components.
