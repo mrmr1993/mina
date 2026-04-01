@@ -23,48 +23,54 @@ type three_cache =
   ; pi_cache : Lines.AffineCache.t  (** PI — for gamma-lines *)
   }
 
+(** Sparse-multiply g by a line evaluation: g.sparse_mul(line.psi(cache)).
+    Matches nori's g = g.sparse_mul(line.psi(cache)). *)
+let sparse_mul_line (g : Fp12.Circuit.t) (line : Lines.G2Line.t)
+    (cache : Lines.AffineCache.t) : Fp12.Circuit.t =
+  let h0, h1 = Lines.eval_line line cache in
+  Fp12.sparse_mul g ~b00:Fp2.Constant.one ~b10:h0 ~b11:h1
+
 (** Process one ate loop iteration in-circuit with 3-party line evaluation.
-    Returns (updated_f, g, updated_T). *)
-let process_iteration (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
-    ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(bit : int)
-    ~(double_line : Lines.G2Line.t) ~(delta_double : Lines.G2Line.t)
-    ~(gamma_double : Lines.G2Line.t) ~(caches : three_cache)
-    ~(add_line : Lines.G2Line.t option) ~(delta_add : Lines.G2Line.t option)
+    Matches nori's zkp0-6 loop body: computes g (line evaluations) and
+    updates T. Does NOT update f — that happens in zkp7-12.
+    Returns (g, updated_T). *)
+let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
+    ~(neg_b : G2.Circuit.t) ~(bit : int) ~(double_line : Lines.G2Line.t)
+    ~(delta_double : Lines.G2Line.t) ~(gamma_double : Lines.G2Line.t)
+    ~(caches : three_cache) ~(add_line : Lines.G2Line.t option)
+    ~(delta_add : Lines.G2Line.t option)
     ~(gamma_add : Lines.G2Line.t option) :
-    Fp12.Circuit.t * Fp12.Circuit.t * G2.Circuit.t =
-  (* Assert the B double line is tangent to T *)
+    Fp12.Circuit.t * G2.Circuit.t =
   Lines.assert_is_tangent double_line t_point ;
-  let f = Fp12.square f in
-  (* Evaluate all 3 double lines at their respective caches *)
+  (* g = b_line.psi(a_cache) *)
   let g = Lines.eval_to_fp12 double_line caches.a_cache in
-  let g = Fp12.mul g (Lines.eval_to_fp12 delta_double caches.c_cache) in
-  let g = Fp12.mul g (Lines.eval_to_fp12 gamma_double caches.pi_cache) in
-  let f = Lines.mul_by_line f double_line caches.a_cache in
-  (* Update T by doubling *)
+  (* g = g.sparse_mul(delta_line.psi(c_cache)) *)
+  let g = sparse_mul_line g delta_double caches.c_cache in
+  (* g = g.sparse_mul(gamma_line.psi(pi_cache)) *)
+  let g = sparse_mul_line g gamma_double caches.pi_cache in
+  (* T = T.double_from_line(b_line.lambda) *)
   let t_point = Lines.double_from_line t_point ~lambda:double_line.lambda in
   match (bit, add_line, delta_add, gamma_add) with
   | 0, _, _, _ ->
-      (f, g, t_point)
+      (g, t_point)
   | 1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point b_point ;
-      let g2 = Lines.eval_to_fp12 add_l caches.a_cache in
-      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 d_add caches.c_cache) in
-      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 g_add caches.pi_cache) in
-      let g = Fp12.mul g g2 in
-      let f = Lines.mul_by_line f add_l caches.a_cache in
-      let t_point = Lines.add_from_line t_point ~lambda:add_l.lambda b_point in
-      (f, g, t_point)
+      let t_point =
+        Lines.add_from_line t_point ~lambda:add_l.lambda b_point
+      in
+      let g = sparse_mul_line g add_l caches.a_cache in
+      let g = sparse_mul_line g d_add caches.c_cache in
+      let g = sparse_mul_line g g_add caches.pi_cache in
+      (g, t_point)
   | -1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point neg_b ;
-      let g2 = Lines.eval_to_fp12 add_l caches.a_cache in
-      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 d_add caches.c_cache) in
-      let g2 = Fp12.mul g2 (Lines.eval_to_fp12 g_add caches.pi_cache) in
-      let g = Fp12.mul g g2 in
-      let f = Lines.mul_by_line f add_l caches.a_cache in
       let t_point = Lines.add_from_line t_point ~lambda:add_l.lambda neg_b in
-      (f, g, t_point)
+      let g = sparse_mul_line g add_l caches.a_cache in
+      let g = sparse_mul_line g d_add caches.c_cache in
+      let g = sparse_mul_line g g_add caches.pi_cache in
+      (g, t_point)
   | _ ->
-      (f, g, t_point)
+      (g, t_point)
 
 (** Witness a G2Line from tracker iteration data. *)
 let witness_line (get : WT.iteration_data -> WT.Line.t) (iter_idx : int) :
@@ -99,14 +105,13 @@ let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
     (matching nori's LineParser.parse output).
     Hashes each g value into [lines_hashes] inline (matching nori's
     [lines_hashes[idx] = Poseidon.hashPacked(Fp12, g)] inside the loop).
-    Returns (final_f, final_T). *)
-let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
-    ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(begin_idx : int)
-    ~(end_idx : int) ~(b_lines : Lines.G2Line.t array)
-    ~(lines_hashes : Step.Field.t array) ~(caches : three_cache) :
-    Fp12.Circuit.t * G2.Circuit.t =
+    Does NOT update f — that happens in the f-update circuits (zkp7-12).
+    Returns final_T. *)
+let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
+    ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
+    ~(b_lines : Lines.G2Line.t array) ~(lines_hashes : Step.Field.t array)
+    ~(caches : three_cache) : G2.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
-  let f_ref = ref f in
   let t_ref = ref t_point in
   let line_cnt = ref 0 in
   for i = begin_idx to end_idx - 1 do
@@ -129,17 +134,16 @@ let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
         , Some (witness_opt_line (fun d -> d.WT.gamma_add_line) iter_idx) ) )
       else (None, None, None)
     in
-    let new_f, g, new_t =
-      process_iteration !f_ref !t_ref ~b_point ~neg_b ~bit ~double_line
+    let g, new_t =
+      process_iteration !t_ref ~b_point ~neg_b ~bit ~double_line
         ~delta_double ~gamma_double ~caches ~add_line ~delta_add ~gamma_add
     in
-    f_ref := new_f ;
     t_ref := new_t ;
     (* Hash g into lines_hashes inline, matching nori:
        lines_hashes[idx] = Poseidon.hashPacked(Fp12, g) *)
     lines_hashes.(iter_idx) <- Accumulator_hash.hash_fp12 g
   done ;
-  (!f_ref, !t_ref)
+  !t_ref
 
 (** Ate loop iteration ranges per circuit, matching nori exactly.
     zkp0: [1,10), zkp1: [10,20), ..., zkp5: [50,59), zkp6: [59,65) *)
@@ -168,19 +172,18 @@ let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
 (** Build the circuit body for an ate loop circuit from pre-witnessed
     values.  [lines_hashes] and [all_b_lines] must already be witnessed
     (matching nori's privateInputs pattern).
-    Returns (updated_f, updated_g_digest, updated_T). *)
+    Returns (updated_g_digest, updated_T).  f is NOT updated here —
+    that happens in the f-update circuits (zkp7-12). *)
 let build_from_acc (acc : Accumulator.Circuit.t)
     ~(lines_hashes : Step.Field.t array) ~(all_b_lines : Lines.G2Line.t array)
-    ~(circuit_index : int) : Fp12.Circuit.t * Step.Field.t * G2.Circuit.t =
+    ~(circuit_index : int) : Step.Field.t * G2.Circuit.t =
   assert (circuit_index >= 0 && circuit_index <= 6) ;
   let begin_idx, end_idx = circuit_ranges.(circuit_index) in
-  let f = acc.state.f in
   let t_point = acc.state.t_point in
   let b_point = acc.proof.b in
   (* Verify lines_hashes against g_digest *)
   let digest = Array_list_hasher.hash lines_hashes in
   Step.Field.Assert.equal acc.state.g_digest digest ;
-  (* Slice the b_lines for this circuit's range *)
   let caches : three_cache =
     let a_cache = Lines.AffineCache.make acc.proof.neg_a in
     let c_cache = Lines.AffineCache.make acc.proof.c in
@@ -195,15 +198,10 @@ let build_from_acc (acc : Accumulator.Circuit.t)
   in
   (* Run the ate loop chunk with T tracking.
      g values are hashed into lines_hashes inline. *)
-  let f_updated, t_updated =
-    run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines
+  let t_updated =
+    run_chunk t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines
       ~lines_hashes ~caches
   in
-  (* Update lines_hashes with the computed g values *)
-  for i = 0 to Array.length g_values - 1 do
-    let idx = begin_idx - 1 + i in
-    lines_hashes.(idx) <- Accumulator_hash.hash_fp12 g_values.(i)
-  done ;
   (* Compute the updated g_digest *)
   let new_g_digest = Array_list_hasher.hash lines_hashes in
-  (f_updated, new_g_digest, t_updated)
+  (new_g_digest, t_updated)

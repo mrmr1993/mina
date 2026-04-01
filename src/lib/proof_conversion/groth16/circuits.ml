@@ -145,28 +145,17 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        let acc_hash = Accumulator.hash acc in
        Step.Field.Assert.equal input_hash acc_hash ;
        (* Run ate loop iterations [59,65) with g_digest verification *)
-       let f_after_ate, new_g_digest, t_after_ate =
+       let _ate_g_digest, t_after_ate =
          Ate_circuit.build_from_acc acc ~lines_hashes ~all_b_lines
            ~circuit_index:6
        in
-       (* Verify c * c_inv = 1 *)
-       let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
-       Fp12.assert_one product ;
-       (* Frobenius corrections: compute piB and pi2B in-circuit from B.
-          Matches nori's zkp6: piB = B.frobenius(), pi2B = piB.negative_frobenius() *)
-       let piB = G2.frobenius acc.proof.b in
-       let pi2B = G2.negative_frobenius piB in
-       (* Frobenius b_lines are the last 2 elements of all_b_lines,
-          matching nori's LineParser.frobenius_lines(all_b_lines).slice(-2) *)
+       (* Frobenius part — matches nori's zkp6.ts frobenius section.
+          Uses sparse_mul (not full Fp12.mul) for line evaluations.
+          Does NOT update f. *)
        let n_b = Array.length all_b_lines in
-       let frob_b_line1 = all_b_lines.(n_b - 2) in
-       let t_point = t_after_ate in
-       Lines.assert_is_line frob_b_line1 t_point piB ;
-       (* Compute affine caches matching nori's AffineCache (precompute.ts) *)
-       let a_cache = Lines.AffineCache.make acc.proof.neg_a in
-       let c_cache = Lines.AffineCache.make acc.proof.c in
-       let pi_cache = Lines.AffineCache.make acc.proof.pi in
-       (* Witness delta and gamma Frobenius lines *)
+       let frob_b_lines =
+         [| all_b_lines.(n_b - 2); all_b_lines.(n_b - 1) |]
+       in
        let witness_frob_line get i : Lines.G2Line.t =
          { lambda =
              Step.exists Fp2.Circuit.typ ~compute:(fun () ->
@@ -176,53 +165,47 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
                  (get (Circuit_config.get_tracker ()) i).WT.Line.neg_mu )
          }
        in
-       let frob_delta1 = witness_frob_line WT.get_frobenius_delta_line 0 in
-       let frob_gamma1 = witness_frob_line WT.get_frobenius_gamma_line 0 in
-       (* 3-party evaluation: b at negA, delta at C, gamma at PI *)
-       let frobenius_g = Lines.eval_to_fp12 frob_b_line1 a_cache in
-       let frobenius_g =
-         Fp12.mul frobenius_g (Lines.eval_to_fp12 frob_delta1 c_cache)
+       let frob_delta_lines =
+         [| witness_frob_line WT.get_frobenius_delta_line 0
+          ; witness_frob_line WT.get_frobenius_delta_line 1
+         |]
        in
-       let frobenius_g =
-         Fp12.mul frobenius_g (Lines.eval_to_fp12 frob_gamma1 pi_cache)
+       let frob_gamma_lines =
+         [| witness_frob_line WT.get_frobenius_gamma_line 0
+          ; witness_frob_line WT.get_frobenius_gamma_line 1
+         |]
        in
-       let f = Fp12.mul f_after_ate frobenius_g in
+       (* Compute affine caches *)
+       let a_cache = Lines.AffineCache.make acc.proof.neg_a in
+       let c_cache = Lines.AffineCache.make acc.proof.c in
+       let pi_cache = Lines.AffineCache.make acc.proof.pi in
+       (* First Frobenius line: g = psi(b) * psi(delta) * psi(gamma) *)
+       let g = Lines.eval_to_fp12 frob_b_lines.(0) a_cache in
+       let g = Ate_circuit.sparse_mul_line g frob_delta_lines.(0) c_cache in
+       let g = Ate_circuit.sparse_mul_line g frob_gamma_lines.(0) pi_cache in
+       (* piB = B.frobenius(); assert line passes through (T, piB) *)
+       let piB = G2.frobenius acc.proof.b in
+       let t_point = t_after_ate in
+       Lines.assert_is_line frob_b_lines.(0) t_point piB ;
        let t_point =
-         Lines.add_from_line t_point ~lambda:frob_b_line1.lambda piB
+         Lines.add_from_line t_point ~lambda:frob_b_lines.(0).lambda piB
        in
-       (* Second Frobenius correction: pi2B *)
-       let frob_b_line2 = all_b_lines.(n_b - 1) in
-       let frob_delta2 = witness_frob_line WT.get_frobenius_delta_line 1 in
-       let frob_gamma2 = witness_frob_line WT.get_frobenius_gamma_line 1 in
-       Lines.assert_is_line frob_b_line2 t_point pi2B ;
-       let frobenius_g2 = Lines.eval_to_fp12 frob_b_line2 a_cache in
-       let frobenius_g2 =
-         Fp12.mul frobenius_g2 (Lines.eval_to_fp12 frob_delta2 c_cache)
-       in
-       let frobenius_g2 =
-         Fp12.mul frobenius_g2 (Lines.eval_to_fp12 frob_gamma2 pi_cache)
-       in
-       let frobenius_g = Fp12.mul frobenius_g frobenius_g2 in
-       let f = Fp12.mul f frobenius_g2 in
-       ignore (t_point : G2.Circuit.t) ;
-       (* Update g_digest: hash frobenius_g into position 64.
-          The ate loop already updated positions [58..63] via build_from_acc.
-          We need to re-witness lines_hashes to add the frobenius hash. *)
+       (* Second Frobenius line *)
+       let pi2B = piB |> G2.negative_frobenius in
+       Lines.assert_is_line frob_b_lines.(1) t_point pi2B ;
+       let g = Ate_circuit.sparse_mul_line g frob_b_lines.(1) a_cache in
+       let g = Ate_circuit.sparse_mul_line g frob_delta_lines.(1) c_cache in
+       let g = Ate_circuit.sparse_mul_line g frob_gamma_lines.(1) pi_cache in
+       (* Verify c * c_inv = 1 *)
+       let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
+       Fp12.assert_one product ;
+       (* Hash frobenius g into lines_hashes and compute final g_digest *)
        let n_total = Array.length Bn254_params.ate_loop_count in
-       let lines_hashes =
-         Array.init n_total ~f:(fun i ->
-             Step.exists Step.Field.typ ~compute:(fun () ->
-                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
-       in
-       (* Verify the updated g_digest from ate loop matches *)
-       let ate_digest = Array_list_hasher.hash lines_hashes in
-       Step.Field.Assert.equal new_g_digest ate_digest ;
-       (* Now add frobenius_g hash at last position *)
-       lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 frobenius_g ;
+       lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 g ;
        let final_g_digest = Array_list_hasher.hash lines_hashes in
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof
-         ; state = { acc.state with f; g_digest = final_g_digest }
+         ; state = { acc.state with g_digest = final_g_digest; t_point }
          }
        in
        Accumulator.hash updated
