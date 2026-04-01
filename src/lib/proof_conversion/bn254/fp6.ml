@@ -93,14 +93,19 @@ let mul_by_fp (a : Circuit.t) (b : Snarky_foreign_field.Foreign_field.FpA.t) :
 
 (** Multiply Fp6 by a single Fp2 element (scalar multiply each component). *)
 let mul_by_fp2 (a : Circuit.t) (b : Fp2.Circuit.t) : Circuit.t =
-  { c0 = Fp2.mul a.c0 b; c1 = Fp2.mul a.c1 b; c2 = Fp2.mul a.c2 b }
+  let c0 = Fp2.mul a.c0 b in
+  let c1 = Fp2.mul a.c1 b in
+  let c2 = Fp2.mul a.c2 b in
+  { c0; c1; c2 }
 
 (** Multiply Fp6 by a sparse Fp6 element (rhs.c0, rhs.c1, 0).
     Faithful conversion of nori's Fp6.mul_by_sparse_fp6(rhs). *)
 let mul_by_sparse_fp6 (a : Circuit.t) (rhs : Circuit.t) : Circuit.t =
   let t0 = Fp2.mul a.c0 rhs.c0 in
   let t1 = Fp2.mul a.c1 rhs.c1 in
-  let c0 = Fp2.mul (Fp2.mul a.c2 rhs.c1) (Fp2.of_constant Bn254_params.fp2_non_residue) in
+  let c0 =
+    Fp2.mul (Fp2.mul a.c2 rhs.c1) (Fp2.of_constant Bn254_params.fp2_non_residue)
+  in
   let c0 = Fp2.add c0 t0 in
   let a0_a1 = Fp2.add a.c0 a.c1 in
   let b0_b1 = Fp2.add rhs.c0 rhs.c1 in
