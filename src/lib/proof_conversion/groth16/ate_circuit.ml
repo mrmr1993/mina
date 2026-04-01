@@ -97,14 +97,15 @@ let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
 (** Run a chunk of ate loop iterations with T tracking and 3-party lines.
     [b_lines] is the pre-witnessed slice of B-lines for this chunk
     (matching nori's LineParser.parse output).
-    Returns (final_f, g_values, final_T). *)
+    Hashes each g value into [lines_hashes] inline (matching nori's
+    [lines_hashes[idx] = Poseidon.hashPacked(Fp12, g)] inside the loop).
+    Returns (final_f, final_T). *)
 let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
     ~(b_point : G2.Circuit.t) ~(neg_b : G2.Circuit.t) ~(begin_idx : int)
-    ~(end_idx : int) ~(b_lines : Lines.G2Line.t array) ~(caches : three_cache) :
-    Fp12.Circuit.t * Fp12.Circuit.t array * G2.Circuit.t =
+    ~(end_idx : int) ~(b_lines : Lines.G2Line.t array)
+    ~(lines_hashes : Step.Field.t array) ~(caches : three_cache) :
+    Fp12.Circuit.t * G2.Circuit.t =
   let ate = Bn254_params.ate_loop_count in
-  let n = end_idx - begin_idx in
-  let g_values = Array.create ~len:n Fp12.one in
   let f_ref = ref f in
   let t_ref = ref t_point in
   let line_cnt = ref 0 in
@@ -134,9 +135,11 @@ let run_chunk (f : Fp12.Circuit.t) (t_point : G2.Circuit.t)
     in
     f_ref := new_f ;
     t_ref := new_t ;
-    g_values.(i - begin_idx) <- g
+    (* Hash g into lines_hashes inline, matching nori:
+       lines_hashes[idx] = Poseidon.hashPacked(Fp12, g) *)
+    lines_hashes.(iter_idx) <- Accumulator_hash.hash_fp12 g
   done ;
-  (!f_ref, g_values, !t_ref)
+  (!f_ref, !t_ref)
 
 (** Ate loop iteration ranges per circuit, matching nori exactly.
     zkp0: [1,10), zkp1: [10,20), ..., zkp5: [50,59), zkp6: [59,65) *)
@@ -190,9 +193,11 @@ let build_from_acc (acc : Accumulator.Circuit.t)
     let count = b_line_count ~from:begin_idx ~to_:end_idx in
     Array.sub all_b_lines ~pos:offset ~len:count
   in
-  (* Run the ate loop chunk with T tracking *)
-  let f_updated, g_values, t_updated =
-    run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines ~caches
+  (* Run the ate loop chunk with T tracking.
+     g values are hashed into lines_hashes inline. *)
+  let f_updated, t_updated =
+    run_chunk f t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines
+      ~lines_hashes ~caches
   in
   (* Update lines_hashes with the computed g values *)
   for i = 0 to Array.length g_values - 1 do
