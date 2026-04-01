@@ -51,6 +51,25 @@ let negative_frobenius (pt : Circuit.t) : Circuit.t =
   ; y = Fp2.neg (Fp2.mul (Fp2.conjugate pt.y) (Fp2.of_constant g.(2)))
   }
 
+(** G2 point doubling from a known tangent line lambda.
+    x3 = lambda^2 - 2*x, y3 = lambda*(x - x3) - y
+    Matches nori's G2Affine.double_from_line(lambda). *)
+let double_from_line (pt : Circuit.t) ~(lambda : Fp2.Circuit.t) : Circuit.t =
+  let lambda_sq = Fp2.square lambda in
+  let x3 = Fp2.sub (Fp2.sub lambda_sq pt.x) pt.x in
+  let y3 = Fp2.sub (Fp2.mul lambda (Fp2.sub pt.x x3)) pt.y in
+  { x = x3; y = y3 }
+
+(** G2 point addition from a known line lambda.
+    x3 = lambda^2 - x1 - x2, y3 = lambda*(x1 - x3) - y1
+    Matches nori's G2Affine.add_from_line(lambda, rhs). *)
+let add_from_line (p1 : Circuit.t) ~(lambda : Fp2.Circuit.t)
+    (p2 : Circuit.t) : Circuit.t =
+  let lambda_sq = Fp2.square lambda in
+  let x3 = Fp2.sub (Fp2.sub lambda_sq p1.x) p2.x in
+  let y3 = Fp2.sub (Fp2.mul lambda (Fp2.sub p1.x x3)) p1.y in
+  { x = x3; y = y3 }
+
 let double (pt : Circuit.t) : Circuit.t =
   let x_sq = Fp2.square pt.x in
   let three_x_sq = Fp2.add (Fp2.add x_sq x_sq) x_sq in

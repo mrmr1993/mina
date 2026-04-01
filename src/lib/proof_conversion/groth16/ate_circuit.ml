@@ -49,14 +49,14 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
   (* g = g.sparse_mul(gamma_line.psi(pi_cache)) *)
   let g = sparse_mul_line g gamma_double caches.pi_cache in
   (* T = T.double_from_line(b_line.lambda) *)
-  let t_point = Lines.double_from_line t_point ~lambda:double_line.lambda in
+  let t_point = G2.double_from_line t_point ~lambda:double_line.lambda in
   match (bit, add_line, delta_add, gamma_add) with
   | 0, _, _, _ ->
       (g, t_point)
   | 1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point b_point ;
       let t_point =
-        Lines.add_from_line t_point ~lambda:add_l.lambda b_point
+        G2.add_from_line t_point ~lambda:add_l.lambda b_point
       in
       let g = sparse_mul_line g add_l caches.a_cache in
       let g = sparse_mul_line g d_add caches.c_cache in
@@ -64,7 +64,7 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
       (g, t_point)
   | -1, Some add_l, Some d_add, Some g_add ->
       Lines.assert_is_line add_l t_point neg_b ;
-      let t_point = Lines.add_from_line t_point ~lambda:add_l.lambda neg_b in
+      let t_point = G2.add_from_line t_point ~lambda:add_l.lambda neg_b in
       let g = sparse_mul_line g add_l caches.a_cache in
       let g = sparse_mul_line g d_add caches.c_cache in
       let g = sparse_mul_line g g_add caches.pi_cache in

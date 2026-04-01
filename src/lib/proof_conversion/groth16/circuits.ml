@@ -194,7 +194,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let t_point = t_after_ate in
        Lines.assert_is_line frob_b_lines.(0) t_point piB ;
        let t_point =
-         Lines.add_from_line t_point ~lambda:frob_b_lines.(0).lambda piB
+         G2.add_from_line t_point ~lambda:frob_b_lines.(0).lambda piB
        in
        (* Second Frobenius line *)
        let pi2B = piB |> G2.negative_frobenius in
