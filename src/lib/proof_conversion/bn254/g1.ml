@@ -487,7 +487,7 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
                 (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
             in
             chunk_val := Step.Field.(!chunk_val + (bit * coeff)) ) ;
-        group (!chunk_val :: acc) rest
+        group (FF.seal !chunk_val :: acc) rest
   in
   group [] all_bits
 
