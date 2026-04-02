@@ -28,12 +28,12 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   let n_iters = iterations_per_circuit.(idx) in
   let g_start = g_start_per_circuit.(idx) in
   let ate = Bn254_params.ate_loop_count in
+  (* Witness ALL private inputs first (matching nori's ZkProgram parameter
+     witnessing, which happens before the method body runs). *)
   let acc =
     Step.exists Accumulator.typ ~compute:(fun () ->
         WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
   in
-  let acc_hash = Accumulator.hash acc in
-  Step.Field.Assert.equal input_hash acc_hash ;
   let g_chunk =
     Array.init n_iters ~f:(fun i ->
         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
@@ -53,6 +53,9 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
             let tracker = Circuit_config.get_tracker () in
             (WT.get_line_hashes tracker).(rhs_start + i) ) )
   in
+  (* Now compute hashes and assertions (method body). *)
+  let acc_hash = Accumulator.hash acc in
+  Step.Field.Assert.equal input_hash acc_hash ;
   let opening =
     Array_list_hasher.open_ ~lhs:lhs_hashes ~opening:g_chunk ~rhs:rhs_hashes
   in
