@@ -41,7 +41,7 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let v1_shifted : Fp6.Circuit.t =
     { c0 = Fp6.mul_by_non_residue v1.c2; c1 = v1.c0; c2 = v1.c1 }
   in
-  let c0 = Fp6.add v0 v1_shifted in
+  let c0 = Fp6.add v1_shifted v0 in
   let a01 = Fp6.add a.c0 a.c1 in
   let b01 = Fp6.add b.c0 b.c1 in
   let t = Fp6.mul a01 b01 in
