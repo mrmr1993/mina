@@ -157,12 +157,22 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
         let v = (mv, x3v, y3v) in
         cache := Some v ; v
     in
-    let witness_field3 f =
-      Step.exists FF.FpU.typ ~compute:(fun () -> f (get ()))
+    (* Witness 9 raw fields (no MRC check — assertAlmostReduced handles it) *)
+    let w i =
+      Step.exists Step.Field.typ ~compute:(fun () ->
+          let mv, x3v, y3v = get () in
+          let vals = [| mv; x3v; y3v |] in
+          let v = vals.(i / 3) in
+          let limb = i mod 3 in
+          let mask = FF.limb_mask in
+          FF.bignum_to_field_const Bignum_bigint.(
+            if Int.equal limb 0 then v land mask
+            else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
+            else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) )
     in
-    let m = witness_field3 (fun (mv, _, _) -> mv) in
-    let x3 = witness_field3 (fun (_, x3v, _) -> x3v) in
-    let y3 = witness_field3 (fun (_, _, y3v) -> y3v) in
+    let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
+    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
+    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
@@ -257,12 +267,22 @@ let double (pt : Circuit.t) : Circuit.t =
         let v = (mv, x3v, y3v) in
         cache := Some v ; v
     in
-    let witness_field3 f =
-      Step.exists FF.FpU.typ ~compute:(fun () -> f (get ()))
+    (* Witness 9 raw fields (no MRC check — assertAlmostReduced handles it) *)
+    let w i =
+      Step.exists Step.Field.typ ~compute:(fun () ->
+          let mv, x3v, y3v = get () in
+          let vals = [| mv; x3v; y3v |] in
+          let v = vals.(i / 3) in
+          let limb = i mod 3 in
+          let mask = FF.limb_mask in
+          FF.bignum_to_field_const Bignum_bigint.(
+            if Int.equal limb 0 then v land mask
+            else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
+            else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) )
     in
-    let m = witness_field3 (fun (mv, _, _) -> mv) in
-    let x3 = witness_field3 (fun (_, x3v, _) -> x3v) in
-    let y3 = witness_field3 (fun (_, _, y3v) -> y3v) in
+    let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
+    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
+    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
@@ -647,8 +667,10 @@ let ia_final : Constant.t =
     For constant points (IC points), window_size = 4. *)
 let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let window_size = 4 in
+
   (* 1. GLV decompose *)
   let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
+
   (* 2. Build point tables *)
   let table = get_point_table pt ~window_size in
   (* Endomorphism: phi(P) = (beta * P.x, P.y) *)
@@ -668,9 +690,11 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* Apply sign negation to tables *)
   let table0 = Array.map table ~f:(fun pt_i -> negate_if s0_neg pt_i) in
   let table1 = Array.map endo_table ~f:(fun pt_i -> negate_if s1_neg pt_i) in
+
   (* 3. Slice scalars into chunks *)
   let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
+
   (* 4. Main loop *)
   let ia = of_constant initial_aggregator in
   let sum = ref ia in
@@ -713,6 +737,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       sum := sel_if is_zero1 added1 !sum ) ;
     if i > 0 then sum := double !sum
   done ;
+
   (* 5. Final correction: subtract 2^127 * IA *)
   let ia_neg = of_constant { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) } in
   (* Assert sum != iaFinal (the result is non-zero) *)
