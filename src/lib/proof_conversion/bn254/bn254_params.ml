@@ -203,5 +203,40 @@ let gamma_3s =
      )
   |]
 
+(** GLV endomorphism constant: beta = cube root of unity in Fp.
+    Satisfies beta^3 = 1 (mod p) and beta != 1.
+    Used to compute the GLV endomorphism phi(x, y) = (beta * x, y). *)
+let glv_beta =
+  of_string
+    "21888242871839275220042445260109153167277707414472061641714758635765020556616"
+
+(** GLV eigenvalue: lambda = cube root of unity in Fr.
+    Satisfies lambda^3 = 1 (mod r) and lambda != 1.
+    The endomorphism phi acts as scalar multiplication by lambda:
+    phi(P) = [lambda] P for all P in G1. *)
+let glv_lambda =
+  of_string
+    "21888242871839275217838484774961031246154997185409878258781734729429964517155"
+
+(** LLL-reduced lattice basis vectors for GLV scalar decomposition.
+    Given scalar k, we decompose k = k1 + lambda * k2 (mod r) where
+    |k1|, |k2| < sqrt(r) ~ 2^128, halving the number of doublings.
+
+    The decomposition uses:
+      beta1 = round(k * n22 / r)
+      beta2 = round(-k * n12 / r)
+      b1 = beta1 * n11 + beta2 * n21
+      b2 = beta1 * n12 + beta2 * n22
+      k1 = k - b1,  k2 = -b2 *)
+let glv_n11 = of_string "147946756881789319000765030803803410728"
+
+let glv_n12 = of_string "9931322734385697763"
+
+(* Note: n21 = n12, n22 = r - n11 - n21. These relationships come from
+   the LLL-reduced basis of the lattice {(a, b) : a + lambda*b = 0 mod r}. *)
+let glv_n21 = of_string "9931322734385697763"
+
+let glv_n22 = of_string "147946756881789319010696353538189108491"
+
 (** Fp2 non-residue used for tower extension: xi = 9 + u *)
 let fp2_non_residue = (of_int 9, one)

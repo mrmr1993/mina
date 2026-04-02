@@ -77,9 +77,24 @@ let double (pt : Circuit.t) : Circuit.t =
     Uses double-and-add with bit decomposition of the scalar.
     The scalar is a BN254 Fr element represented as Field3.
 
-    Note: a production version should use windowed scalar mul with GLV
-    decomposition. This simple double-and-add version is functionally
-    correct but not gate-efficient. *)
+    TODO(GLV): Replace with GLV endomorphism decomposition to halve the
+    number of doublings (~254 -> ~128), roughly halving gate count.
+
+    The GLV approach:
+    1. Out-of-circuit: decompose scalar k into k1, k2 with |k1|,|k2| < ~2^128
+       such that k = k1 + lambda * k2 (mod r), using the LLL basis in
+       Bn254_params (glv_n11, glv_n12, glv_n21, glv_n22).
+    2. Witness k1, k2, and sign bits s1, s2 into the circuit.
+    3. Compute phi(P) = (beta * P.x, P.y) using Bn254_params.glv_beta.
+    4. Constrain: k = s1*k1 + lambda * s2*k2 (mod r). This requires
+       foreign-field arithmetic on the scalar field r (not base field p),
+       which is the main implementation complexity.
+    5. Run a synchronised 128-bit double-and-add on (k1, P) and (k2, phi(P))
+       using a precomputed table {P, phi(P), P + phi(P)}.
+
+    Challenges: the scalar-field constraint (step 4) needs an Fr foreign
+    field context, edge-case handling for k1=0 or k2=0, and careful
+    range-checking to ensure k1, k2 fit in ~128 bits. *)
 let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let module Step = Pickles.Impls.Step in
   (* Decompose scalar limbs into bits.
