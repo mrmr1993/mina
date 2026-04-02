@@ -75,6 +75,28 @@ let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
   let packed2 = Step.Field.((l1_y * two_88) + l2_y) in
   Accumulator_hash.poseidon_hash [| packed0; packed1; packed2 |]
 
+(** Pack Field3 limbs for hashPacked, matching nori's packToFields.
+    Groups 88-bit limbs into 176-bit packed fields. *)
+let hash_packed_field3_array (pis : FF.Field3.t array) : Step.Field.t =
+  let two_88 =
+    Step.Field.constant
+      (FF.bignum_to_field_const Bignum_bigint.(shift_left one 88))
+  in
+  let packed = Queue.create () in
+  let cur = ref Step.Field.zero in
+  let cur_size = ref 0 in
+  Array.iter pis ~f:(fun (l0, l1, l2) ->
+      Array.iter [| l0; l1; l2 |] ~f:(fun limb ->
+          cur_size := !cur_size + 88 ;
+          if !cur_size < 255 then
+            cur := Step.Field.((!cur * two_88) + limb)
+          else (
+            Queue.enqueue packed !cur ;
+            cur := limb ;
+            cur_size := 88 ) ) ) ;
+  Queue.enqueue packed !cur ;
+  Accumulator_hash.poseidon_hash (Queue.to_array packed)
+
 (** Convert VK constant lines to circuit constants (embedded in the
     constraint system, not witnesses).  Called at circuit definition
     time, outside the proving closure. *)
@@ -317,10 +339,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
              Step.exists FF.Field3.typ ~compute:(fun () ->
                  WT.get_public_input (Circuit_config.get_tracker ()) i ) )
        in
-       let pis_hash =
-         Accumulator_hash.poseidon_hash
-           (Array.concat_map pis ~f:(fun (l0, l1, l2) -> [| l0; l1; l2 |]))
-       in
+       let pis_hash = hash_packed_field3_array pis in
        (* IC points from VK (circuit constants, not witnessed) *)
        let ic0 = vk.ic.(0) in
        let ic1 = vk.ic.(1) in
@@ -357,10 +376,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        (* Verify input hash: hash([pi_hash, pis_hash, acc_hash]) *)
        let pi_hash = hash_g1 pi in
-       let pis_hash =
-         Accumulator_hash.poseidon_hash
-           (Array.concat_map pis ~f:(fun (l0, l1, l2) -> [| l0; l1; l2 |]))
-       in
+       let pis_hash = hash_packed_field3_array pis in
        let acc_hash_input = hash_g1 partial_acc in
        let expected_input =
          Accumulator_hash.poseidon_hash [| pi_hash; pis_hash; acc_hash_input |]
