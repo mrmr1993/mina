@@ -1,9 +1,7 @@
 (** BN254 curve parameters for proof conversion.
 
-    These are pure constants with no circuit logic — used by both
-    out-of-circuit witness computation and in-circuit verification.
-
-    Reference: nori-proof-conversion/src/towers/consts.ts *)
+    These are pure constants with no circuit logic -- used by both
+    out-of-circuit witness computation and in-circuit verification. *)
 
 open! Core_kernel
 open Bignum_bigint
@@ -127,7 +125,7 @@ let ate_loop_count =
 (** Frobenius gamma constants (gamma_1s).
     gamma_1s[i] = Fp2 values used in Frobenius endomorphism computation.
     Each is a pair (c0, c1) representing c0 + c1 * u in Fp2. *)
-(* Values from nori: (9 + u)^(i * (p - 1) / 6) for i in 1..5 *)
+(* (9 + u)^(i * (p - 1) / 6) for i in 1..5 *)
 let gamma_1s =
   [| ( of_string
          "8376118865763821496583973867626364092589906065868298776909617916018768340080"

@@ -9,7 +9,7 @@
     6. On non-zero ate bits: witnesses add b_line, asserts it passes through
        T and B (or negB), updates T, evaluates and multiplies into f and g
 
-    Matches nori's zkp0-6 ate loop structure. *)
+*)
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
@@ -24,8 +24,8 @@ type three_cache =
   }
 
 (** Process one ate loop iteration in-circuit with 3-party line evaluation.
-    Matches nori's zkp0-6 loop body: computes g (line evaluations) and
-    updates T. Does NOT update f — that happens in zkp7-12.
+    Computes g (line evaluations) and updates T. Does NOT update f --
+    that happens in zkp7-12.
     Returns (g, updated_T). *)
 let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     ~(neg_b : G2.Circuit.t) ~(bit : int) ~(double_line : Lines.G2Line.t)
@@ -93,9 +93,8 @@ let witness_opt_line (get : WT.iteration_data -> WT.Line.t option)
 (** Run a chunk of ate loop iterations with T tracking and 3-party lines.
     [b_lines] is the pre-witnessed slice of B-lines for this chunk.
     [delta_lines] and [gamma_lines] are VK constant slices (not witnesses).
-    Hashes each g value into [lines_hashes] inline (matching nori's
-    [lines_hashes[idx] = Poseidon.hashPacked(Fp12, g)] inside the loop).
-    Does NOT update f — that happens in the f-update circuits (zkp7-12).
+    Hashes each g value into [lines_hashes] inline.
+    Does NOT update f -- that happens in the f-update circuits (zkp7-12).
     Returns final_T. *)
 let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
@@ -130,14 +129,14 @@ let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
   done ;
   !t_ref
 
-(** Ate loop iteration ranges per circuit, matching nori exactly.
+(** Ate loop iteration ranges per circuit.
     zkp0: [1,10), zkp1: [10,20), ..., zkp5: [50,59), zkp6: [59,65) *)
 let circuit_ranges =
   [| (1, 10); (10, 20); (20, 30); (30, 40); (40, 50); (50, 59); (59, 65) |]
 
-(** Compute the number of B-lines in nori's flat array for a range of
+(** Compute the number of B-lines in the flat array for a range of
     ate iterations.  Each iteration contributes 1 double line + 1 add
-    line when the ate bit is non-zero.  Matches nori's ateCntSlice. *)
+    line when the ate bit is non-zero. *)
 let b_line_count ~from ~to_ =
   let ate = Bn254_params.ate_loop_count in
   let n = ref 0 in
@@ -146,8 +145,7 @@ let b_line_count ~from ~to_ =
   done ;
   !n
 
-(** Total B-lines across all ate iterations [1,65).
-    Matches nori's Provable.Array(G2Line, 91). *)
+(** Total B-lines across all ate iterations [1,65). *)
 let total_b_lines =
   b_line_count ~from:1 ~to_:(Array.length Bn254_params.ate_loop_count)
 

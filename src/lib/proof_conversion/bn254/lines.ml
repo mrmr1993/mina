@@ -18,20 +18,18 @@ module G2Line = struct
          ~there:(fun { lambda; neg_mu } -> (lambda, neg_mu))
          ~back:(fun (lambda, neg_mu) -> { lambda; neg_mu })
 
-  (** Embed a constant line as a circuit value (no constraints). *)
+  (** Embed a constant line as a circuit value. *)
   let of_constant (l : constant) : t =
     let lambda, neg_mu = l in
     { lambda = Fp2.of_constant lambda; neg_mu = Fp2.of_constant neg_mu }
 
-  (** Evaluate the line at a G2 point: -lambda*x + neg_mu + y.
-      Matches nori's G2Line.evaluate(p). *)
+  (** Evaluate the line at a G2 point: -lambda*x + neg_mu + y. *)
   let evaluate (line : t) (p : G2.Circuit.t) : Fp2.Circuit.t =
     let t = Fp2.neg (Fp2.mul line.lambda p.x) in
     let t = Fp2.add t line.neg_mu in
     Fp2.add t p.y
 
-  (** Assert that a line passes through two G2 points.
-      Matches nori's G2Line.assert_is_line(t, q). *)
+  (** Assert that a line passes through two G2 points. *)
   let assert_is_line (line : t) (t_point : G2.Circuit.t) (q : G2.Circuit.t) :
       unit =
     let e1 = evaluate line t_point in
@@ -39,8 +37,7 @@ module G2Line = struct
     Fp2.assert_equal e1 (Fp2.of_constant Fp2.Constant.zero) ;
     Fp2.assert_equal e2 (Fp2.of_constant Fp2.Constant.zero)
 
-  (** Assert that a line is tangent to the curve at point p.
-      Matches nori's G2Line.assert_is_tangent(p):
+  (** Assert that a line is tangent to the curve at point p:
         evaluate(p) == 0
         2*lambda*y == x^2 * 3 *)
   let assert_is_tangent (line : t) (p : G2.Circuit.t) : unit =
@@ -51,9 +48,8 @@ module G2Line = struct
     let three = FF.FpA.of_constant (Bignum_bigint.of_int 3) in
     Fp2.assert_equal dbl_lambda_y (Fp2.mul_by_fp x_square three)
 
-  (** Evaluate a line into a sparse Fp12 element.
-      Matches nori's G2Line.psi(cache):
-        c0 = (1, 0, 0), c1 = (lambda*xp_prime, neg_mu*yp_prime, 0) *)
+  (** Evaluate a line into a sparse Fp12 element:
+        c0 = (1, 0, 0), c1 = (lambda*x_over_y, neg_mu*y_inv, 0) *)
   let psi (line : t) ~(x_over_y : FF.FpA.t) ~(y_inv : FF.FpA.t) : Fp12.Circuit.t
       =
     let g0 : Fp2.Circuit.t =
@@ -90,14 +86,12 @@ module AffineCache = struct
     let x_over_y = FF.FpC.assert_canonical_ x_over_y ~f in
     { y_inv; x_over_y }
 
-  (** Extract FpA accessors matching nori's cache.xp_prime / cache.yp_prime. *)
   let x_over_y_fpa (c : t) : FF.FpA.t = FF.FpC.to_fpa c.x_over_y
 
   let y_inv_fpa (c : t) : FF.FpA.t = FF.FpC.to_fpa c.y_inv
 end
 
-(** Evaluate a line into a sparse Fp12 via psi, using an AffineCache.
-    Convenience wrapper matching nori's [line.psi(cache)]. *)
+(** Evaluate a line into a sparse Fp12 via psi, using an AffineCache. *)
 let psi (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
   G2Line.psi line
     ~x_over_y:(AffineCache.x_over_y_fpa cache)

@@ -13,8 +13,7 @@ end
 module Circuit = struct
   type t = { x : FpA.t; y : FpA.t }
 
-  (** Default Struct check: FpA check (MRC + weakBound) on each coordinate.
-      Matches nori's G1Affine which uses the default Struct check. *)
+  (** FpA check (MRC + weakBound) on each coordinate. *)
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
     let fpa_typ = FpA.typ ~f:p in
     Pickles.Impls.Step.Typ.transport
@@ -131,10 +130,9 @@ let double (pt : Circuit.t) : Circuit.t =
     Uses double-and-add with bit decomposition of the scalar.
     The scalar is a BN254 Fr element represented as Field3.
 
-    Note: for exact gate-level matching with o1js, this would need to
-    use windowed scalar mul with GLV decomposition. This simple
-    double-and-add version is functionally correct but produces a
-    different gate sequence. *)
+    Note: a production version should use windowed scalar mul with GLV
+    decomposition. This simple double-and-add version is functionally
+    correct but not gate-efficient. *)
 let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let module Step = Pickles.Impls.Step in
   (* Decompose scalar limbs into bits.

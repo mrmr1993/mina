@@ -27,8 +27,7 @@ let mul_by_non_residue (x : Fp2.Circuit.t) : Fp2.Circuit.t =
   let xi = Fp2.of_constant Bn254_params.fp2_non_residue in
   Fp2.mul x xi
 
-(** Multiply by v in Fp2[v]/(v^3 - xi).
-    Matches nori's Fp6.mul_by_v():
+(** Multiply by v in Fp2[v]/(v^3 - xi):
       { c0: c2 * xi, c1: c0, c2: c1 } *)
 let mul_by_v (a : Circuit.t) : Circuit.t =
   let c0 = Fp2.mul a.c2 (Fp2.of_constant Bn254_params.fp2_non_residue) in
@@ -52,8 +51,7 @@ let neg (a : Circuit.t) : Circuit.t =
   let c2 = Fp2.neg a.c2 in
   { c0; c1; c2 }
 
-(** Fp6 multiplication using Karatsuba (6 Fp2.mul instead of 9).
-    Matches nori's Fp6.mul. *)
+(** Fp6 multiplication using Karatsuba (6 Fp2.mul instead of 9). *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let t0 = Fp2.mul a.c0 b.c0 in
   let t1 = Fp2.mul a.c1 b.c1 in
@@ -98,8 +96,7 @@ let mul_by_fp2 (a : Circuit.t) (b : Fp2.Circuit.t) : Circuit.t =
   let c2 = Fp2.mul a.c2 b in
   { c0; c1; c2 }
 
-(** Multiply Fp6 by a sparse Fp6 element (rhs.c0, rhs.c1, 0).
-    Faithful conversion of nori's Fp6.mul_by_sparse_fp6(rhs). *)
+(** Multiply Fp6 by a sparse Fp6 element (rhs.c0, rhs.c1, 0). *)
 let mul_by_sparse_fp6 (a : Circuit.t) (rhs : Circuit.t) : Circuit.t =
   let t0 = Fp2.mul a.c0 rhs.c0 in
   let t1 = Fp2.mul a.c1 rhs.c1 in

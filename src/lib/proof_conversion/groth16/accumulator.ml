@@ -5,7 +5,7 @@
     accumulator as input (via Poseidon hash), processes a chunk of
     the verification, and outputs the updated accumulator.
 
-    Reference: nori-proof-conversion/src/groth/recursion/data.ts *)
+*)
 
 open! Core_kernel
 module Step = Pickles.Impls.Step
@@ -17,8 +17,7 @@ module G1_constant = G1.Constant
 
 module G2_constant = G2.Constant
 
-(** RecursionProof: the proof data carried through all circuits.
-    Matches nori's RecursionProof struct field order exactly. *)
+(** RecursionProof: the proof data carried through all circuits. *)
 module RecursionProof = struct
   module Circuit = struct
     type t =
@@ -81,8 +80,7 @@ module RecursionProof = struct
         } )
 end
 
-(** State: mutable pairing computation state.
-    Matches nori's State struct field order exactly. *)
+(** State: mutable pairing computation state. *)
 module State = struct
   module Circuit = struct
     type t =
@@ -113,8 +111,7 @@ module State = struct
         { t_point; f; g_digest } )
 end
 
-(** The full Accumulator = RecursionProof + State.
-    Matches nori's Accumulator struct field order exactly. *)
+(** The full Accumulator = RecursionProof + State. *)
 module Circuit = struct
   type t = { proof : RecursionProof.Circuit.t; state : State.Circuit.t }
 end
@@ -134,8 +131,7 @@ let typ : (Circuit.t, Constant.t) Step.Typ.t =
                            (unit, _) Snarky_backendless.H_list.t ) ->
       { proof; state } )
 
-(** Convert the accumulator to a Random_oracle Chunked input,
-    matching o1js's Provable.toInput() for the Accumulator struct.
+(** Convert the accumulator to a Random_oracle Chunked input.
 
     ForeignField limbs (88 bits each) are packed entries, not full fields.
     This allows packToFields to combine two 88-bit limbs into one field,
@@ -186,8 +182,7 @@ let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
      ; Random_oracle_input.Chunked.field s.g_digest
     |]
 
-(** Hash the accumulator using Poseidon with packing, matching nori's
-    Poseidon.hashPacked(Accumulator, acc).
+(** Hash the accumulator using Poseidon with packing.
     Uses Random_oracle.Checked.pack_input + hash. *)
 let hash (acc : Circuit.t) : Step.Field.t =
   let input = to_input acc in

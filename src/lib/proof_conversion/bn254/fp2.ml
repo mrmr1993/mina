@@ -1,7 +1,7 @@
 (** Fp2 = Fp[u] / (u^2 + 1) arithmetic over BN254 base field.
 
     Elements are pairs (c0, c1) of FpA values, representing c0 + c1 * u
-    where u^2 = -1. Mirrors nori's Fp2 which holds FpA components. *)
+    where u^2 = -1. *)
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
@@ -20,9 +20,7 @@ end
 module Circuit = struct
   type t = { c0 : FpA.t; c1 : FpA.t }
 
-  (** Typ for Fp2 using FpA.typ, matching nori's
-      Struct(\{ c0: FpA.provable, c1: FpA.provable \}).
-      Witnessing applies MRC + weakBound to each component. *)
+  (** Witnessing applies MRC + weakBound to each component. *)
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
     let fpa_typ = FpA.typ ~f:p in
     Pickles.Impls.Step.Typ.transport
@@ -37,7 +35,7 @@ end
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =
   { c0 = FpA.of_constant c0; c1 = FpA.of_constant c1 }
 
-(** Convert unreduced pair to Fp2. Matches nori's Fp2.fromUnreduced. *)
+(** Convert unreduced pair to Fp2. *)
 let from_unreduced (c0 : FF.FpU.t) (c1 : FF.FpU.t) : Circuit.t =
   match FpA.assert_almost_reduced [ c0; c1 ] ~f:p ~skip_mrc:true () with
   | [ c0a; c1a ] ->
@@ -45,7 +43,7 @@ let from_unreduced (c0 : FF.FpU.t) (c1 : FF.FpU.t) : Circuit.t =
   | _ ->
       failwith "from_unreduced: unexpected"
 
-(** Fp2 addition: FpA.add each component → unreduced, then fromUnreduced. *)
+(** Component-wise addition, reducing the result. *)
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c0 = FpA.add a.c0 b.c0 ~f:p in
   let c1 = FpA.add a.c1 b.c1 ~f:p in
@@ -57,7 +55,7 @@ let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   from_unreduced c0 c1
 
 (** Batched sum/difference of multiple Fp2 values.
-    Uses a single FF.sum chain per component, matching nori's Fp2.sum.
+    Uses a single FF.sum chain per component.
     More efficient than chaining add/sub for 3+ operands. *)
 let sum (inputs : Circuit.t list) (ops : FF.sign list) : Circuit.t =
   let c0s = List.map inputs ~f:(fun x -> FpA.to_field3 x.c0) in
@@ -75,8 +73,7 @@ let neg (a : Circuit.t) : Circuit.t =
 let conjugate (a : Circuit.t) : Circuit.t =
   { c0 = a.c0; c1 = FpA.neg a.c1 ~f:p }
 
-(** Fp2 multiplication using witness-and-assertMul pattern.
-    Matches nori's Fp2.mul. *)
+(** Fp2 multiplication using witness-and-assertMul pattern. *)
 let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let a0b0 = FpA.mul a.c0 b.c0 ~f:p in
   let a1b1 = FpA.mul a.c1 b.c1 ~f:p in
@@ -113,10 +110,8 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   from_unreduced c0 c1
 
 (** Fp2 squaring using witness-and-assertMul pattern.
-    Matches nori's Fp2.square:
       c0 = (a0+a1)(a0-a1) = a0^2-a1^2
-      c1 = (a0+a0)*a1     = 2*a0*a1
-    Witnesses c0,c1 directly, uses Sum accumulators for assertMul. *)
+      c1 = (a0+a0)*a1     = 2*a0*a1 *)
 let square (a : Circuit.t) : Circuit.t =
   let module Step = Pickles.Impls.Step in
   let c0, c1 =

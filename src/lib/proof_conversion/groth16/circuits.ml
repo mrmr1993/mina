@@ -20,7 +20,7 @@ let g1_of_tracker (p : WT.G1.t) : G1.Constant.t =
 type circuit_body = Step.Field.t -> Step.Field.t
 
 (** Number of ate loop iterations per circuit for zkp0-6.
-    Matches nori: [1,10), [10,20), [20,30), [30,40), [40,50), [50,59), [59,65) *)
+    [1,10), [10,20), [20,30), [30,40), [40,50), [50,59), [59,65) *)
 let ate_iterations_per_circuit = [| 9; 10; 10; 10; 10; 9; 6 |]
 
 (** Total number of circuits. *)
@@ -68,8 +68,7 @@ let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
   in
   { Fp12.Circuit.c0 = sel_fp6 a.c0 b.c0; c1 = sel_fp6 a.c1 b.c1 }
 
-(** Hash a G1 point's field elements (for zkp13 → zkp14 transition).
-    Matches nori's Poseidon.hashPacked(G1Affine, pi). *)
+(** Hash a G1 point's field elements (for zkp13 -> zkp14 transition). *)
 let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
   let l0_x, l1_x, l2_x = FF.FpA.to_field3 pt.x in
   let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
@@ -88,14 +87,12 @@ let vk_lines_to_circuit (lines : WT.Line.t array) : Lines.G2Line.t array =
     Takes the input hash and returns the output hash. *)
 let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
     circuit_body =
-  (* Convert VK lines to circuit constants at definition time,
-     matching nori's module-level: const delta_lines = LineParser.parse(...) *)
+  (* Convert VK lines to circuit constants at definition time *)
   let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
   let gamma_lines_const = vk_lines_to_circuit vk.gamma_lines in
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits: witness all private inputs up front (matching
-         nori's privateInputs: [Accumulator, Array(Field, N), Array(G2Line, 91)]),
+      (* Ate loop circuits: witness all private inputs up front,
          then run constraints and output hash. *)
       fun input_hash ->
        let acc =
@@ -158,8 +155,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       (* Ate loop [59,65) + Frobenius correction.
          Runs the final 6 ate iterations, then applies Frobenius line
          evaluations. Verifies c * c_inv = 1. Updates g_digest with
-         both ate g values and the Frobenius g hash.
-         Matches nori's zkp6.ts. *)
+         both ate g values and the Frobenius g hash. *)
       fun input_hash ->
        let acc =
          Step.exists Accumulator.typ ~compute:(fun () ->
@@ -172,7 +168,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
                  (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
        in
        let all_b_lines =
-         (* +2 for frobenius lines at the end, matching nori's 91-element array *)
+         (* +2 for frobenius lines at the end *)
          Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
              Step.exists Lines.G2Line.typ ~compute:(fun () ->
                  let line =
@@ -204,9 +200,8 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
            ~delta_lines:delta_slice ~gamma_lines:gamma_slice ~lines_hashes
            ~caches
        in
-       (* Frobenius part — matches nori's zkp6.ts frobenius section.
-          Uses sparse_mul (not full Fp12.mul) for line evaluations.
-          Does NOT update f. *)
+       (* Frobenius part: uses sparse_mul (not full Fp12.mul) for line
+          evaluations. Does NOT update f. *)
        let n_b = Array.length all_b_lines in
        (* Frobenius delta/gamma lines are VK constants (last 2 elements) *)
        let frob_b_lines = [| all_b_lines.(n_b - 2); all_b_lines.(n_b - 1) |] in
@@ -330,14 +325,12 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let result = select_fp12 is_2 f_shifted_2 result in
        (* Assert the final result equals Fp12.one — the pairing check *)
        Fp12.assert_one result ;
-       (* Domain transition: output hash of PI point, not accumulator.
-          Matches nori: return Poseidon.hashPacked(G1Affine, acc.proof.PI) *)
+       (* Domain transition: output hash of PI point, not accumulator *)
        hash_g1 acc.proof.pi
   | 14 ->
       (* VK IC accumulation (partial): ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2].
          Input is the PI hash from zkp13 (not an accumulator hash).
-         Outputs hash([input, pis_hash, acc_hash]).
-         Matches nori's zkp14.ts. *)
+         Outputs hash([input, pis_hash, acc_hash]). *)
       fun input_hash ->
        (* Witness the 5 public inputs *)
        let pis =
@@ -380,8 +373,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
   | 15 ->
       (* Final IC accumulation: partial_acc + ic4*pis[3] + ic5*pis[4].
          Asserts the result equals PI from the original proof.
-         Input chains from zkp14 output.
-         Matches nori's zkp15.ts. *)
+         Input chains from zkp14 output. *)
       fun input_hash ->
        (* Witness PI and partial accumulator *)
        let pi =
@@ -427,7 +419,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        (* Assert computed IC accumulation equals the proof's PI *)
        FF.assert_equal (FF.FpA.to_field3 full_acc.x) (FF.FpA.to_field3 pi.x) ;
        FF.assert_equal (FF.FpA.to_field3 full_acc.y) (FF.FpA.to_field3 pi.y) ;
-       (* Output pis_hash (matches nori's return value) *)
+       (* Output pis_hash *)
        pis_hash
   | n ->
       failwith (sprintf "Invalid circuit index: %d" n)

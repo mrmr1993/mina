@@ -1,12 +1,12 @@
 (** Precomputed verification key constants for Groth16 circuits.
 
-    Mirrors nori's GrothVk class: line coefficients are precomputed
-    from the VK's delta and gamma G2 points at circuit definition
-    time, and embedded as circuit constants (not witnesses).
+    Line coefficients are precomputed from the VK's delta and gamma
+    G2 points at circuit definition time, and embedded as circuit
+    constants (not witnesses).
 
-    The flat line arrays match nori's computeLineCoeffs output:
-    for each ate iteration, a double line followed by an add line
-    (when the ate bit is non-zero), plus 2 frobenius lines at the end. *)
+    The flat line arrays contain, for each ate iteration, a double
+    line followed by an add line (when the ate bit is non-zero),
+    plus 2 frobenius lines at the end. *)
 
 open! Core_kernel
 module WT = Witness_tracker
@@ -19,8 +19,8 @@ type t =
   ; ic : G1.Constant.t array
   }
 
-(** Compute all line coefficients from a G2 point, matching nori's
-    computeLineCoeffs.  Produces the flat array: for each ate
+(** Compute all line coefficients from a G2 point.  Produces the
+    flat array: for each ate
     iteration i in [1,65), a double line + optional add line,
     then 2 frobenius lines at the end. *)
 let compute_line_coeffs (pt : WT.G2.t) : WT.Line.t array =

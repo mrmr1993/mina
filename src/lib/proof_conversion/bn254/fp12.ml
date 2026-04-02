@@ -9,7 +9,6 @@ module Constant = struct
   type t = Fp6.Constant.t * Fp6.Constant.t
 end
 
-(** Fp12 element as a pair of Fp6 values. *)
 module Circuit = struct
   type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
 
@@ -23,15 +22,12 @@ module Circuit = struct
          ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
-(** Addition. *)
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   { c0 = Fp6.add a.c0 b.c0; c1 = Fp6.add a.c1 b.c1 }
 
-(** Subtraction. *)
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   { c0 = Fp6.sub a.c0 b.c0; c1 = Fp6.sub a.c1 b.c1 }
 
-(** Negation. *)
 let neg (a : Circuit.t) : Circuit.t = { c0 = Fp6.neg a.c0; c1 = Fp6.neg a.c1 }
 
 (** Multiplication using Karatsuba:
@@ -52,8 +48,7 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c1 = Fp6.sub (Fp6.sub t v0) v1 in
   { c0; c1 }
 
-(** Faithful conversion of nori's Fp12.square().
-    Chung-Hasan SQ2: uses 2 Fp6.mul instead of 3. *)
+(** Chung-Hasan SQ2: uses 2 Fp6.mul instead of 3. *)
 let square (a : Circuit.t) : Circuit.t =
   let c0 = Fp6.sub a.c0 a.c1 in
   let c3 = Fp6.sub a.c0 (Fp6.mul_by_v a.c1) in
@@ -75,7 +70,6 @@ let conjugate (a : Circuit.t) : Circuit.t = { c0 = a.c0; c1 = Fp6.neg a.c1 }
 let unitary_inverse (a : Circuit.t) : Circuit.t = conjugate a
 
 (** Sparse multiplication.
-    Faithful conversion of nori's Fp12.sparse_mul(rhs).
     The RHS has structure: c0 = (rhs.c0.c0, 0, 0), c1 = (rhs.c1.c0, rhs.c1.c1, 0). *)
 let sparse_mul (a : Circuit.t) (rhs : Circuit.t) : Circuit.t =
   let t0 = Fp6.mul_by_fp2 a.c0 rhs.c0.c0 in
@@ -92,11 +86,9 @@ let sparse_mul (a : Circuit.t) (rhs : Circuit.t) : Circuit.t =
   let c1 = Fp6.sub c1 t1 in
   { c0; c1 }
 
-(** Assert two Fp12 elements are equal. *)
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
   Fp6.assert_equal a.c0 b.c0 ; Fp6.assert_equal a.c1 b.c1
 
-(** Fp12 one as a circuit constant. *)
 let one : Circuit.t =
   let module Step = Pickles.Impls.Step in
   let zero_fp2 = Fp2.of_constant Fp2.Constant.zero in
@@ -105,7 +97,6 @@ let one : Circuit.t =
   ; c1 = { Fp6.Circuit.c0 = zero_fp2; c1 = zero_fp2; c2 = zero_fp2 }
   }
 
-(** Assert an Fp12 element equals one. *)
 let assert_one (a : Circuit.t) : unit = assert_equal a one
 
 (** Cyclotomic squaring (for elements in the cyclotomic subgroup).
@@ -159,7 +150,7 @@ let frobenius_pow_p_cubed (a : Circuit.t) : Circuit.t =
   ; c1 = { Fp6.Circuit.c0 = t2; c1 = t4; c2 = t6 }
   }
 
-(** Cyclotomic exponentiation by a small exponent. *)
+(** Cyclotomic exponentiation by a small exponent in NAF form. *)
 let cyclotomic_pow (base : Circuit.t) ~(exp : int array) : Circuit.t =
   let n = Array.length exp in
   let result = ref base in

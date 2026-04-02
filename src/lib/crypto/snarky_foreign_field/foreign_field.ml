@@ -274,7 +274,7 @@ let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
 (* ------------------------------------------------------------------ *)
 
 (** Seal a circuit variable — materializes compound Cvars into fresh
-    variables. Matches o1js Field.seal(). *)
+    variables. *)
 let seal (x : Circuit.Field.t) : Circuit.Field.t =
   match Circuit.Field.to_constant_and_terms x with
   | Some _, [] | None, [] ->
@@ -310,8 +310,7 @@ let to_var (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (v, x)) ;
       v
 
-(** Emit a Generic gate: ql*left + qr*right + qo*out + qm*left*right + qc = 0.
-    Matches o1js Gates.generic. *)
+(** Emit a Generic gate: ql*left + qr*right + qo*out + qm*left*right + qc = 0. *)
 let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
     ~(qo : Circuit.Field.Constant.t) ~(qm : Circuit.Field.Constant.t)
     ~(qc : Circuit.Field.Constant.t) ~(left : Circuit.Field.t)
@@ -319,8 +318,7 @@ let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
   Circuit.assert_
     (Basic { l = (ql, left); r = (qr, right); o = (qo, out); m = qm; c = qc })
 
-(** Witness z = a*x*y + b*x + c*y + d and emit a Generic gate constraining it.
-    Matches o1js bilinear(x, y, [a, b, c, d]). *)
+(** Witness z = a*x*y + b*x + c*y + d and emit a Generic gate constraining it. *)
 let bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
     ~(a : Circuit.Field.Constant.t) ~(b : Circuit.Field.Constant.t)
     ~(c : Circuit.Field.Constant.t) ~(d : Circuit.Field.Constant.t) :
@@ -337,8 +335,7 @@ let bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
     ~qm:a ~qc:d ~left:x ~right:y ~out:z ;
   z
 
-(** Assert a*x*y + b*x + c*y + d = 0.
-    Matches o1js assertBilinear(x, y, [a, b, c, d]). *)
+(** Assert a*x*y + b*x + c*y + d = 0. *)
 let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
     ~(a : Circuit.Field.Constant.t) ~(b : Circuit.Field.Constant.t)
     ~(c : Circuit.Field.Constant.t) ~(d : Circuit.Field.Constant.t) : unit =
@@ -351,7 +348,6 @@ let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
     ~right:y ~out:empty
 
 (** Assert x is one of the allowed values.
-    Matches o1js assertOneOf(x, allowed).
     Emits (n-1) Generic gates for n allowed values. *)
 let assert_one_of (x : Circuit.Field.t) (allowed : Circuit.Field.Constant.t list)
     : unit =
@@ -646,7 +642,7 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
     let r0, r1, r2 = !result in
     Circuit.assert_
       (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
-    (* Indirect range check matching o1js *)
+    (* Indirect range check *)
     let r0, r1, r2 = !result in
     let r0_trunc =
       Circuit.exists Circuit.Field.typ ~compute:(fun () ->
@@ -1042,8 +1038,7 @@ let bool_and (a : Circuit.Boolean.var) (b : Circuit.Boolean.var) :
   Circuit.assert_ (R1CS ((a :> Circuit.Field.t), (b :> Circuit.Field.t), r)) ;
   Circuit.Boolean.Unsafe.of_cvar r
 
-(** Check if a circuit field variable equals a bignum constant.
-    Matches o1js Field.equals(). *)
+(** Check if a circuit field variable equals a bignum constant. *)
 let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
     Circuit.Boolean.var =
   match (Circuit.Field.to_constant x, Circuit.Field.to_constant y) with
@@ -1081,7 +1076,7 @@ let field_equal (x : Circuit.Field.t) (c : Bignum_bigint.t) :
 
 (** Lazy accumulator for chaining additions/subtractions.
     Operations are collected and materialized at once when [finish]
-    is called, matching o1js Sum API. *)
+    is called. *)
 module Sum = struct
   type t =
     { summands : Field3.t list
@@ -1122,8 +1117,7 @@ module Sum = struct
 
   (** Simple finish: FFAdd chain + Zero gate only.
       No range check, no generic-gate low-limb constraints.
-      Matches nori's Sum.finish() used for the xy (result) operand
-      in assertMul. *)
+      Used for the xy (result) operand in assertMul. *)
   let finish_simple (t : t) ~(f : Bignum_bigint.t) : Field3.t =
     assert (Option.is_none t.result) ;
     if List.length t.ops = 0 then (
@@ -1191,7 +1185,7 @@ module Sum = struct
         in
         let f0 = Bignum_bigint.(f land limb_mask) in
         let n = List.length signs in
-        (* Generic gates for low limbs — mirrors o1js finishForMulInput *)
+        (* Generic gates for low limbs *)
         let x0 =
           ref
             (let l0, _, _ = List.hd_exn xs in
@@ -1244,8 +1238,7 @@ module Sum = struct
               (fst c, snd c)
             in
             overflows.(i) <- overflow ;
-            (* Constrain carry to {0, 1, -1}.
-               Matches nori's assertOneOf(carry, [0n, 1n, -1n]). *)
+            (* Constrain carry to {0, 1, -1}. *)
             let neg_one = Circuit.Field.Constant.(zero - one) in
             assert_one_of carry
               [ Circuit.Field.Constant.zero
@@ -1291,14 +1284,13 @@ type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
 (** Assert x * y = xy (mod f), accepting Sum accumulators as inputs.
     Finishes pending sums before performing the multiplication check.
 
-    Note: nori uses finishForMulInput which replaces the range check
-    with generic-gate low-limb constraints. Our Sum.finish uses the
-    standard range check approach. Matching nori's exact gate sequence
-    requires implementing the generic-gate low-limb tracking from o1js. *)
+    Note: finishForMulInput replaces the range check with generic-gate
+    low-limb constraints. Our Sum.finish uses the standard range check
+    approach. Matching the exact gate sequence requires implementing
+    generic-gate low-limb tracking. *)
 
 (** Convert a Field3 to variables if not already pure variables.
-    Matches nori's toVariable step in assertMul which ensures
-    finished sum values don't break the gate chain. *)
+    Ensures finished sum values don't break the gate chain. *)
 let to_var_field3 ((l0, l1, l2) : Field3.t) : Field3.t =
   (to_var l0, to_var l1, to_var l2)
 
@@ -1348,14 +1340,13 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
 (* ------------------------------------------------------------------ *)
 (* FpU / FpA: Typed foreign field hierarchy                            *)
 (*                                                                     *)
-(* Mirrors o1js foreign-field.ts:                                      *)
 (*   ForeignField (base)     — add, sub, neg, sum                      *)
 (*     └ UnreducedForeignField  — check = MRC                          *)
 (*     └ ForeignFieldWithMul    — mul, inv, div                        *)
 (*         └ AlmostForeignField — check = MRC + weakBound              *)
 (*         └ CanonicalForeignField — check = MRC + canonical           *)
 (*                                                                     *)
-(* Return types match o1js exactly:                                    *)
+(* Return types:                                                       *)
 (*   add/sub → Unreduced,  neg → AlmostReduced                        *)
 (*   mul → Unreduced,  inv/div → AlmostReduced                        *)
 (* ------------------------------------------------------------------ *)
@@ -1363,7 +1354,6 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
 (** Unreduced foreign field element. Limbs are range-checked (< 2^88)
     but the high limb is NOT weakly bounded.
 
-    Mirrors o1js UnreducedForeignField.
     Has add/sub (returns FpU), but NOT mul/inv/div.
     check = multiRangeCheck only. *)
 module FpU : sig
@@ -1380,7 +1370,7 @@ module FpU : sig
   val sub : t -> t -> f:Bignum_bigint.t -> t
 
   (** -FpU → FpU. Emits ForeignFieldAdd + indirectMRC.
-      Note: in o1js, neg returns AlmostReduced. We return FpU here
+      Note: neg canonically returns AlmostReduced. We return FpU here
       because FpA is not yet defined. Callers that need FpA should
       use FpA.neg instead. *)
   val neg : t -> f:Bignum_bigint.t -> t
@@ -1405,7 +1395,6 @@ end
 (** Almost-reduced foreign field element. Limbs are range-checked (< 2^88)
     AND the high limb is weakly bounded.
 
-    Mirrors o1js AlmostForeignField.
     Has add/sub (returns FpU), neg (returns FpA),
     mul (returns FpU), inv/div (returns FpA).
     check = multiRangeCheck + weakBound. *)
@@ -1454,22 +1443,21 @@ end = struct
 
   let of_constant (x : Bignum_bigint.t) : t = Field3.of_constant x
 
-  (* add/sub return FpU — matching o1js ForeignField.add/sub → Unreduced *)
+  (* add/sub return FpU *)
   let add (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
     FpU.of_field3_unsafe (add x y ~f)
 
   let sub (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
     FpU.of_field3_unsafe (sub x y ~f)
 
-  (* neg returns FpA — matching o1js ForeignField.neg → AlmostReduced
-     because negation proves r = f - x >= 0, so r < f *)
+  (* neg returns FpA because negation proves r = f - x >= 0, so r < f *)
   let neg (x : t) ~(f : Bignum_bigint.t) : t = negate x ~f
 
-  (* mul returns FpU — matching o1js ForeignFieldWithMul.mul → Unreduced *)
+  (* mul returns FpU *)
   let mul (x : t) (y : t) ~(f : Bignum_bigint.t) : FpU.t =
     FpU.of_field3_unsafe (mul x y ~f)
 
-  (* inv/div return FpA — matching o1js → AlmostReduced *)
+  (* inv/div return FpA *)
   let inv (x : t) ~(f : Bignum_bigint.t) : t = inv x ~f
 
   let div (x : t) (y : t) ~(f : Bignum_bigint.t) : t = div x y ~f
@@ -1499,7 +1487,6 @@ end
 (** Canonical foreign field element.  Limbs are range-checked (< 2^88)
     AND the full value is proven < f.
 
-    Mirrors o1js CanonicalForeignField.
     check = multiRangeCheck + assertCanonical (assertLessThan(f)). *)
 module FpC = struct
   type t = private FpA.t

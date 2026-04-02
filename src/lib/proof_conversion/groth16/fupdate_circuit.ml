@@ -4,7 +4,7 @@
     g values from the line accumulation and conditionally multiplying
     by c or c_inv based on the ate loop count bits.
 
-    Matches nori's zkp7.ts through zkp12.ts. *)
+*)
 
 open! Core_kernel
 module Step = Pickles.Impls.Step
