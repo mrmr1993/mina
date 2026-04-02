@@ -1290,7 +1290,10 @@ type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
 (** Convert a Field3 to variables if not already pure variables.
     Ensures finished sum values don't break the gate chain. *)
 let to_var_field3 ((l0, l1, l2) : Field3.t) : Field3.t =
-  (to_var l0, to_var l1, to_var l2)
+  let l0 = to_var l0 in
+  let l1 = to_var l1 in
+  let l2 = to_var l2 in
+  (l0, l1, l2)
 
 let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     ~(f : Bignum_bigint.t) : unit =
