@@ -56,11 +56,24 @@ let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
   in
   { Fp12.Circuit.c0 = sel_fp6 a.c0 b.c0; c1 = sel_fp6 a.c1 b.c1 }
 
-(** Hash a G1 point's field elements (for zkp13 -> zkp14 transition). *)
+(** Hash a G1 point matching nori's Poseidon.hashPacked(G1Affine, ...).
+    G1Affine has 6 limbs of 88 bits each. hashPacked packs pairs of limbs
+    into 176-bit fields (2 limbs fit in <255 bits), producing 3 packed
+    fields instead of 6, saving one Poseidon absorption round. *)
 let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
   let l0_x, l1_x, l2_x = FF.FpA.to_field3 pt.x in
   let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
-  Accumulator_hash.poseidon_hash [| l0_x; l1_x; l2_x; l0_y; l1_y; l2_y |]
+  let two_88 =
+    Step.Field.constant
+      (FF.bignum_to_field_const Bignum_bigint.(shift_left one 88))
+  in
+  (* Pack pairs of 88-bit limbs into 176-bit fields, matching nori's
+     packToFields: currentPacked = currentPacked * 2^88 + field.
+     packed0 = x0*2^88 + x1, packed1 = x2*2^88 + y0, packed2 = y1*2^88 + y2 *)
+  let packed0 = Step.Field.((l0_x * two_88) + l1_x) in
+  let packed1 = Step.Field.((l2_x * two_88) + l0_y) in
+  let packed2 = Step.Field.((l1_y * two_88) + l2_y) in
+  Accumulator_hash.poseidon_hash [| packed0; packed1; packed2 |]
 
 (** Convert VK constant lines to circuit constants (embedded in the
     constraint system, not witnesses).  Called at circuit definition
