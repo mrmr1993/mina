@@ -5,11 +5,6 @@
 
 open Core_kernel
 
-(** Re-export shared utilities. *)
-let dummy_constraints = Circuit_utils.dummy_constraints
-
-let public_input_typ = Circuit_utils.public_input_typ
-
 (** Re-export key modules for external access. *)
 module Witness_tracker = Witness_tracker
 
@@ -46,7 +41,8 @@ module Groth16 : PROOF_SYSTEM = struct
     Circuit_config.set_tracker tracker ;
     let vk_const = Vk_constants.create vk in
     let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const () in
-    (* Run compression tree *)
+    (* TODO: hash_pairs should use actual proof output hashes, not synthetic
+       values. Currently the compression tree operates on dummy data. *)
     let module Step = Pickles.Impls.Step in
     let hash_pairs =
       Array.init Circuits.num_circuits ~f:(fun i ->
@@ -80,7 +76,9 @@ module Plonk : PROOF_SYSTEM = struct
 
   let convert ~input_path:_ ~output_path =
     let proofs = Plonk_pickles_rules.compile_and_prove_all () in
-    (* Run compression tree *)
+    (* TODO: hash_pairs should use actual proof output hashes. The compression
+       tree below duplicates Compressor.compress logic — generalize compress
+       to handle arbitrary power-of-2 sizes. *)
     let module Step = Pickles.Impls.Step in
     let hash_pairs =
       Array.init Plonk_circuits.num_circuits ~f:(fun i ->

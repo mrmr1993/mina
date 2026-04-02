@@ -70,48 +70,60 @@ let merge_rule : _ Pickles.Inductive_rule.Promise.t =
   ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
   }
 
-(** Compile and prove a layer1 node. *)
+(** Compiled layer1 prover (lazily compiled on first use). *)
+let layer1_prover =
+  lazy
+    (let _tag, _cache, (module Proof), provers =
+       Pickles.compile_promise
+         ~public_input:
+           (Pickles.Inductive_rule.Input_and_output
+              ( Circuit_utils.public_input_typ 4
+              , Circuit_utils.public_input_typ 1 ) )
+         ~auxiliary_typ:Step.Typ.unit
+         ~max_proofs_verified:(module Pickles_types.Nat.N0)
+         ~name:"groth16-layer1" ~o1js_compatible_mode:false
+         ~choices:(fun ~self:_ -> [ layer1_rule ])
+         ()
+     in
+     let Pickles.Provers.[ prove ] = provers in
+     prove )
+
+(** Compiled merge prover (lazily compiled on first use). *)
+let merge_prover =
+  lazy
+    (let _tag, _cache, (module Proof), provers =
+       Pickles.compile_promise
+         ~public_input:
+           (Pickles.Inductive_rule.Input_and_output
+              ( Circuit_utils.public_input_typ 3
+              , Circuit_utils.public_input_typ 1 ) )
+         ~auxiliary_typ:Step.Typ.unit
+         ~max_proofs_verified:(module Pickles_types.Nat.N0)
+         ~name:"groth16-merge" ~o1js_compatible_mode:false
+         ~choices:(fun ~self:_ -> [ merge_rule ])
+         ()
+     in
+     let Pickles.Provers.[ prove ] = provers in
+     prove )
+
+(** Prove a layer1 node. *)
 let prove_layer1 ~(left_in : Step.Field.Constant.t)
     ~(left_out : Step.Field.Constant.t) ~(right_in : Step.Field.Constant.t)
     ~(right_out : Step.Field.Constant.t) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
-  let _tag, _cache, (module Proof), provers =
-    Pickles.compile_promise
-      ~public_input:
-        (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 4, Circuit_utils.public_input_typ 1)
-        )
-      ~auxiliary_typ:Step.Typ.unit
-      ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:"groth16-layer1" ~o1js_compatible_mode:false
-      ~choices:(fun ~self:_ -> [ layer1_rule ])
-      ()
-  in
-  let Pickles.Provers.[ prove ] = provers in
+  let prove = Lazy.force layer1_prover in
   let output, _aux, proof =
     Promise.block_on_async_exn (fun () ->
         prove [| left_in; left_out; right_in; right_out |] )
   in
   (output.(0), proof)
 
-(** Compile and prove a merge node. *)
+(** Prove a merge node. *)
 let prove_merge ~(left : Step.Field.Constant.t) ~(right : Step.Field.Constant.t)
     ~(layer : int) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
-  let _tag, _cache, (module Proof), provers =
-    Pickles.compile_promise
-      ~public_input:
-        (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 3, Circuit_utils.public_input_typ 1)
-        )
-      ~auxiliary_typ:Step.Typ.unit
-      ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:(sprintf "groth16-merge-l%d" layer)
-      ~o1js_compatible_mode:false
-      ~choices:(fun ~self:_ -> [ merge_rule ])
-      ()
-  in
-  let Pickles.Provers.[ prove ] = provers in
+  ignore (layer : int) ;
+  let prove = Lazy.force merge_prover in
   let output, _aux, proof =
     Promise.block_on_async_exn (fun () ->
         prove [| left; right; Step.Field.Constant.of_int layer |] )
