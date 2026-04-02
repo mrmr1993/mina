@@ -117,12 +117,18 @@ let cyclotomic_square = square
     result.c0 = (t1, t3, t5), result.c1 = (t2, t4, t6) *)
 let frobenius_pow_p (a : Circuit.t) : Circuit.t =
   let g = Bn254_params.gamma_1s in
+  (* Conjugate ALL components first, then multiply — matching nori's order *)
   let t1 = Fp2.conjugate a.c0.c0 in
-  let t2 = Fp2.mul (Fp2.conjugate a.c1.c0) (Fp2.of_constant g.(0)) in
-  let t3 = Fp2.mul (Fp2.conjugate a.c0.c1) (Fp2.of_constant g.(1)) in
-  let t4 = Fp2.mul (Fp2.conjugate a.c1.c1) (Fp2.of_constant g.(2)) in
-  let t5 = Fp2.mul (Fp2.conjugate a.c0.c2) (Fp2.of_constant g.(3)) in
-  let t6 = Fp2.mul (Fp2.conjugate a.c1.c2) (Fp2.of_constant g.(4)) in
+  let t2 = Fp2.conjugate a.c1.c0 in
+  let t3 = Fp2.conjugate a.c0.c1 in
+  let t4 = Fp2.conjugate a.c1.c1 in
+  let t5 = Fp2.conjugate a.c0.c2 in
+  let t6 = Fp2.conjugate a.c1.c2 in
+  let t2 = Fp2.mul t2 (Fp2.of_constant g.(0)) in
+  let t3 = Fp2.mul t3 (Fp2.of_constant g.(1)) in
+  let t4 = Fp2.mul t4 (Fp2.of_constant g.(2)) in
+  let t5 = Fp2.mul t5 (Fp2.of_constant g.(3)) in
+  let t6 = Fp2.mul t6 (Fp2.of_constant g.(4)) in
   { c0 = { Fp6.Circuit.c0 = t1; c1 = t3; c2 = t5 }
   ; c1 = { Fp6.Circuit.c0 = t2; c1 = t4; c2 = t6 }
   }
@@ -145,12 +151,18 @@ let frobenius_pow_p_squared (a : Circuit.t) : Circuit.t =
     Conjugate all Fp2 components, then multiply by gamma_3s constants. *)
 let frobenius_pow_p_cubed (a : Circuit.t) : Circuit.t =
   let g = Bn254_params.gamma_3s in
+  (* Conjugate ALL components first, then multiply — matching nori's order *)
   let t1 = Fp2.conjugate a.c0.c0 in
-  let t2 = Fp2.mul (Fp2.conjugate a.c1.c0) (Fp2.of_constant g.(0)) in
-  let t3 = Fp2.mul (Fp2.conjugate a.c0.c1) (Fp2.of_constant g.(1)) in
-  let t4 = Fp2.mul (Fp2.conjugate a.c1.c1) (Fp2.of_constant g.(2)) in
-  let t5 = Fp2.mul (Fp2.conjugate a.c0.c2) (Fp2.of_constant g.(3)) in
-  let t6 = Fp2.mul (Fp2.conjugate a.c1.c2) (Fp2.of_constant g.(4)) in
+  let t2 = Fp2.conjugate a.c1.c0 in
+  let t3 = Fp2.conjugate a.c0.c1 in
+  let t4 = Fp2.conjugate a.c1.c1 in
+  let t5 = Fp2.conjugate a.c0.c2 in
+  let t6 = Fp2.conjugate a.c1.c2 in
+  let t2 = Fp2.mul t2 (Fp2.of_constant g.(0)) in
+  let t3 = Fp2.mul t3 (Fp2.of_constant g.(1)) in
+  let t4 = Fp2.mul t4 (Fp2.of_constant g.(2)) in
+  let t5 = Fp2.mul t5 (Fp2.of_constant g.(3)) in
+  let t6 = Fp2.mul t6 (Fp2.of_constant g.(4)) in
   { c0 = { Fp6.Circuit.c0 = t1; c1 = t3; c2 = t5 }
   ; c1 = { Fp6.Circuit.c0 = t2; c1 = t4; c2 = t6 }
   }
