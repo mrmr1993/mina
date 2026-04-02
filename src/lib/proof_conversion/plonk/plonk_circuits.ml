@@ -18,13 +18,27 @@ type circuit_body = Step.Field.t -> Step.Field.t
 
 let num_circuits = 24
 
+(** SP1 PLONK domain size (2^24). *)
+let sp1_domain_size = 16777216
+
+(** Construct a dummy Fp12 circuit value (all-ones). *)
+let dummy_fp12 () : Fp12.Circuit.t =
+  let fp2 () : Fp2.Circuit.t =
+    { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
+    ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
+    }
+  in
+  let fp6 () : Fp6.Circuit.t =
+    { Fp6.Circuit.c0 = fp2 (); c1 = fp2 (); c2 = fp2 () }
+  in
+  { Fp12.Circuit.c0 = fp6 (); c1 = fp6 () }
+
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 ->
       (* Squeeze gamma: SHA-256 based Fiat-Shamir *)
       fun input_hash ->
        let transcript = Fiat_shamir.create () in
-       (* Absorb proof commitments *)
        let dummy_field =
          Step.exists Step.Field.typ ~compute:(fun () ->
              Step.Field.Constant.zero )
@@ -36,7 +50,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       (* Squeeze alpha/zeta, compute zeta^n *)
       fun input_hash ->
        let zeta = FF.Field3.of_constant FF.Bignum_bigint.one in
-       let _zeta_n = Piop.pow_fr zeta ~exp:16777216 in
+       let _zeta_n = Piop.pow_fr zeta ~exp:sp1_domain_size in
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 1 ]
   | 2 | 3 | 4 | 5 | 6 ->
       (* Quotient polynomial folding + linearized commitment *)
@@ -57,45 +71,21 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
   | 12 ->
       (* Initialize KZG accumulator *)
       fun input_hash ->
-       let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
-         }
-       in
-       let w6 () : Fp6.Circuit.t =
-         { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-       in
-       let c : Fp12.Circuit.t = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
+       let c = dummy_fp12 () in
        let _c_inv = Fp12.conjugate c in
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 12 ]
   | 13 | 14 | 15 | 16 ->
       (* Hash line coefficients: Fp12 values → Poseidon digest *)
       fun input_hash ->
-       let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
-         }
-       in
-       let w6 () : Fp6.Circuit.t =
-         { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-       in
-       let g : Fp12.Circuit.t = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
+       let g = dummy_fp12 () in
        let _hash = Accumulator_hash.hash_fp12 g in
        Accumulator_hash.combine_hashes
          [ input_hash; Step.Field.of_int circuit_index ]
   | 17 | 18 | 19 | 20 | 21 | 22 | 23 ->
       (* Miller loop computation (shared structure with Groth16) *)
       fun input_hash ->
-       let w () : Fp2.Circuit.t =
-         { Fp2.Circuit.c0 = FF.FpA.of_constant FF.Bignum_bigint.one
-         ; c1 = FF.FpA.of_constant FF.Bignum_bigint.one
-         }
-       in
-       let w6 () : Fp6.Circuit.t =
-         { Fp6.Circuit.c0 = w (); c1 = w (); c2 = w () }
-       in
-       let f : Fp12.Circuit.t = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
-       let g = { Fp12.Circuit.c0 = w6 (); c1 = w6 () } in
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
        let f_sq = Fp12.square f in
        let _result = Fp12.mul f_sq g in
        Accumulator_hash.combine_hashes

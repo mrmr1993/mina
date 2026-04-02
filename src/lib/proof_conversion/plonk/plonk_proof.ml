@@ -2,9 +2,7 @@
 
     The PLONK proof contains polynomial commitments (G1 points)
     and evaluation values (Fr scalars) that the verifier checks
-    via the PIOP and KZG pairing arguments.
-
-    Reference: nori-proof-conversion/src/plonk/proof.ts *)
+    via the PIOP and KZG pairing arguments. *)
 
 open! Core_kernel
 module FF = Snarky_foreign_field.Foreign_field
@@ -14,37 +12,44 @@ type proof =
   { (* Wire commitments *)
     l_com : G1.Constant.t
   ; r_com : G1.Constant.t
-  ; o_com : G1.Constant.t (* Quotient polynomial commitments *)
-  ; h0 : G1.Constant.t
+  ; o_com : G1.Constant.t
+  ; (* Quotient polynomial commitments *)
+    h0 : G1.Constant.t
   ; h1 : G1.Constant.t
-  ; h2 : G1.Constant.t (* Evaluation values at zeta *)
-  ; l_at_zeta : FF.Bignum_bigint.t
+  ; h2 : G1.Constant.t
+  ; (* Evaluation values at zeta *)
+    l_at_zeta : FF.Bignum_bigint.t
   ; r_at_zeta : FF.Bignum_bigint.t
   ; o_at_zeta : FF.Bignum_bigint.t
   ; s1_at_zeta : FF.Bignum_bigint.t
-  ; s2_at_zeta : FF.Bignum_bigint.t (* Grand product *)
-  ; grand_product : G1.Constant.t
-  ; grand_product_at_omega_zeta : FF.Bignum_bigint.t (* Opening proofs *)
-  ; batch_opening_at_zeta : G1.Constant.t
-  ; batch_opening_at_zeta_omega : G1.Constant.t (* Custom gate *)
-  ; qcp_0_at_zeta : FF.Bignum_bigint.t
+  ; s2_at_zeta : FF.Bignum_bigint.t
+  ; (* Grand product *)
+    grand_product : G1.Constant.t
+  ; grand_product_at_omega_zeta : FF.Bignum_bigint.t
+  ; (* Opening proofs *)
+    batch_opening_at_zeta : G1.Constant.t
+  ; batch_opening_at_zeta_omega : G1.Constant.t
+  ; (* Custom gate *)
+    qcp_0_at_zeta : FF.Bignum_bigint.t
   ; qcp_0_wire : G1.Constant.t
   }
 
 (** PLONK verification key (selector polynomial commitments). *)
 type vk =
   { domain_size : int
-  ; omega : FF.Bignum_bigint.t (* Selector commitments *)
-        (** Primitive root of unity *)
-  ; ql : G1.Constant.t
+  ; omega : FF.Bignum_bigint.t  (** Primitive root of unity *)
+  ; (* Selector commitments *)
+    ql : G1.Constant.t
   ; qr : G1.Constant.t
   ; qm : G1.Constant.t
   ; qo : G1.Constant.t
-  ; qk : G1.Constant.t (* Permutation commitments *)
-  ; s1 : G1.Constant.t
+  ; qk : G1.Constant.t
+  ; (* Permutation commitments *)
+    s1 : G1.Constant.t
   ; s2 : G1.Constant.t
-  ; s3 : G1.Constant.t (* Custom gate selector *)
-  ; qcp_0 : G1.Constant.t option
+  ; s3 : G1.Constant.t
+  ; (* Custom gate selector *)
+    qcp_0 : G1.Constant.t option
   }
 
 (** Parse a PLONK proof from JSON.
