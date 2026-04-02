@@ -53,7 +53,8 @@ let square (a : Circuit.t) : Circuit.t =
   let c0 = Fp6.sub a.c0 a.c1 in
   let c3 = Fp6.sub a.c0 (Fp6.mul_by_v a.c1) in
   let c2 = Fp6.mul a.c0 a.c1 in
-  let c0 = Fp6.add (Fp6.mul c0 c3) c2 in
+  let c0_c3 = Fp6.mul c0 c3 in
+  let c0 = Fp6.add c0_c3 c2 in
   let two =
     Snarky_foreign_field.Foreign_field.FpA.of_constant (Bignum_bigint.of_int 2)
   in
