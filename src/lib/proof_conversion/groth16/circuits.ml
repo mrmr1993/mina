@@ -32,29 +32,53 @@ let witness_and_verify_acc (input_hash : Step.Field.t) : Accumulator.Circuit.t =
   Step.Field.Assert.equal input_hash acc_hash ;
   acc
 
-(** Conditional Fp12 selection for shift_power. *)
-let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
-    (b : Fp12.Circuit.t) : Fp12.Circuit.t =
-  let sel (x : FF.Field3.t) (y : FF.Field3.t) : FF.Field3.t =
-    let x0, x1, x2 = x in
-    let y0, y1, y2 = y in
-    ( Step.Field.if_ cond ~then_:x0 ~else_:y0
-    , Step.Field.if_ cond ~then_:x1 ~else_:y1
-    , Step.Field.if_ cond ~then_:x2 ~else_:y2 )
+(** Provable.switch for Fp12: multiply each value's fields by mask, sum.
+    Matches nori's Provable.switch(mask, Fp12, values) exactly.
+    When values are constants, produces zero gates (pure linear combinations). *)
+let switch_fp12 (mask : Step.Boolean.var array)
+    (values : Fp12.Circuit.t array) : Fp12.Circuit.t =
+  (* Flatten Fp12 to 36 native fields in toFields order *)
+  let to_fields (x : Fp12.Circuit.t) : Step.Field.t array =
+    let fp2 (a : Fp2.Circuit.t) =
+      let c0_0, c0_1, c0_2 = FF.FpA.to_field3 a.c0 in
+      let c1_0, c1_1, c1_2 = FF.FpA.to_field3 a.c1 in
+      [| c0_0; c0_1; c0_2; c1_0; c1_1; c1_2 |]
+    in
+    let fp6 (a : Fp6.Circuit.t) =
+      Array.concat [ fp2 a.c0; fp2 a.c1; fp2 a.c2 ]
+    in
+    Array.concat [ fp6 x.c0; fp6 x.c1 ]
   in
-  let sel_fpa (x : FF.FpA.t) (y : FF.FpA.t) : FF.FpA.t =
-    FF.FpA.of_field3_unsafe (sel (FF.FpA.to_field3 x) (FF.FpA.to_field3 y))
-  in
-  let sel_fp2 (x : Fp2.Circuit.t) (y : Fp2.Circuit.t) : Fp2.Circuit.t =
-    { Fp2.Circuit.c0 = sel_fpa x.c0 y.c0; c1 = sel_fpa x.c1 y.c1 }
-  in
-  let sel_fp6 (x : Fp6.Circuit.t) (y : Fp6.Circuit.t) : Fp6.Circuit.t =
-    { Fp6.Circuit.c0 = sel_fp2 x.c0 y.c0
-    ; c1 = sel_fp2 x.c1 y.c1
-    ; c2 = sel_fp2 x.c2 y.c2
+  let n = Array.length mask in
+  let value_fields = Array.map values ~f:to_fields in
+  let size = Array.length value_fields.(0) in
+  let fields = Array.create ~len:size Step.Field.zero in
+  (* Outer loop over values, inner over fields — matching o1js iteration *)
+  for i = 0 to n - 1 do
+    let vf = value_fields.(i) in
+    let mf = (mask.(i) :> Step.Field.t) in
+    for j = 0 to size - 1 do
+      let maybe = Step.Field.mul vf.(j) mf in
+      fields.(j) <- Step.Field.add fields.(j) maybe
+    done
+  done ;
+  (* Reconstruct Fp12 from 36 fields *)
+  let fp2_of idx =
+    { Fp2.Circuit.c0 =
+        FF.FpA.of_field3_unsafe
+          (fields.(idx), fields.(idx + 1), fields.(idx + 2))
+    ; c1 =
+        FF.FpA.of_field3_unsafe
+          (fields.(idx + 3), fields.(idx + 4), fields.(idx + 5))
     }
   in
-  { Fp12.Circuit.c0 = sel_fp6 a.c0 b.c0; c1 = sel_fp6 a.c1 b.c1 }
+  let fp6_of idx =
+    { Fp6.Circuit.c0 = fp2_of idx
+    ; c1 = fp2_of (idx + 6)
+    ; c2 = fp2_of (idx + 12)
+    }
+  in
+  { Fp12.Circuit.c0 = fp6_of 0; c1 = fp6_of 18 }
 
 (** Hash a G1 point matching nori's Poseidon.hashPacked(G1Affine, ...).
     G1Affine has 6 limbs of 88 bits each. hashPacked packs pairs of limbs
@@ -309,7 +333,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        (* Multiply by alpha_beta from VK (circuit constant) *)
        let f = Fp12.mul f vk.alpha_beta in
-       (* Apply shift_power: select shift value first, then multiply once *)
+       (* Apply shift_power: Provable.switch pattern matching nori *)
        let is_0 =
          Step.Field.equal acc.proof.shift_power (Step.Field.of_int 0)
        in
@@ -319,10 +343,10 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let is_2 =
          Step.Field.equal acc.proof.shift_power (Step.Field.of_int 2)
        in
-       Step.Boolean.Assert.is_true
-         (Step.Boolean.( ||| ) is_0 (Step.Boolean.( ||| ) is_1 is_2)) ;
-       let shift = select_fp12 is_1 vk.w27 Fp12.one in
-       let shift = select_fp12 is_2 vk.w27_sq shift in
+       let shift =
+         switch_fp12 [| is_0; is_1; is_2 |]
+           [| Fp12.one; vk.w27; vk.w27_sq |]
+       in
        let f = Fp12.mul f shift in
        (* Assert final result equals Fp12.one *)
        Fp12.assert_one f ;
