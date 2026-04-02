@@ -213,12 +213,12 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let g = Fp12.sparse_mul g (Lines.psi frob_b_lines.(1) a_cache) in
        let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(1) c_cache) in
        let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(1) pi_cache) in
-       (* Verify c_inv * c = 1 *)
-       let product = Fp12.mul acc.proof.c_inv acc.proof.c_fp12 in
-       Fp12.assert_one product ;
-       (* Hash frobenius g into lines_hashes and compute final g_digest *)
+       (* Hash frobenius g into lines_hashes *)
        let n_total = Array.length Bn254_params.ate_loop_count in
        lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 g ;
+       (* Verify c_inv * c = 1 (after hashing, matching nori order) *)
+       let product = Fp12.mul acc.proof.c_inv acc.proof.c_fp12 in
+       Fp12.assert_one product ;
        let final_g_digest = Array_list_hasher.hash lines_hashes in
        let updated : Accumulator.Circuit.t =
          { proof = acc.proof

@@ -1312,7 +1312,8 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     | Field3_input f3 ->
         f3
   in
-  (* 1. finish b (y), finish c (xy)
+  (* Match nori's assertMul order:
+     1. finish b (y), finish c (xy)
      2. toVariable on b and c (if not all constant)
      3. finish a (x, chained) → assertMul *)
   let y_val = finish_for_mul y in
