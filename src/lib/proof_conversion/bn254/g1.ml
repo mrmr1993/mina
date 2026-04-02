@@ -456,22 +456,16 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
             Bignum_bigint.(shift_right bi k land one = one) ) )
   in
   let bit_fields = Array.map bits ~f:(fun b -> (b :> Step.Field.t)) in
-  (* Verify: sum of bits*2^i = x *)
-  let acc = ref Step.Field.zero in
-  for i = 0 to max_bits - 1 do
-    let coeff =
-      Step.Field.constant
-        (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
-    in
-    acc := Step.Field.(!acc + ((bits.(i) :> Step.Field.t) * coeff))
-  done ;
-  Step.Field.Assert.equal x !acc ;
-  (* Group bits into chunks, handling leftover from previous limb *)
+  (* Group bits into chunks, assertBool, seal, and verify reconstruction.
+     Matches nori's sliceField: seal each chunk, then accumulate sealed
+     chunks (not raw bits) for the reconstruction check. *)
   let all_bits =
     match leftover_bits with
     | None -> Array.to_list bit_fields
     | Some prev -> prev @ Array.to_list bit_fields
   in
+  let recon_sum = ref Step.Field.zero in
+  let bit_offset = ref 0 in
   let rec group acc remaining =
     match remaining with
     | [] -> (List.rev acc, [])
@@ -487,9 +481,27 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
                 (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
             in
             chunk_val := Step.Field.(!chunk_val + (bit * coeff)) ) ;
-        group (FF.seal !chunk_val :: acc) rest
+        let sealed = FF.seal !chunk_val in
+        (* Accumulate sealed chunk into reconstruction sum *)
+        let shift =
+          Step.Field.constant
+            (FF.bignum_to_field_const Bignum_bigint.(shift_left one !bit_offset))
+        in
+        recon_sum := Step.Field.(!recon_sum + (sealed * shift)) ;
+        bit_offset := !bit_offset + chunk_size ;
+        group (sealed :: acc) rest
   in
-  group [] all_bits
+  let chunks, leftover = group [] all_bits in
+  (* Also accumulate leftover bits into the sum *)
+  List.iteri leftover ~f:(fun i bit ->
+      let coeff =
+        Step.Field.constant
+          (FF.bignum_to_field_const Bignum_bigint.(shift_left one (Int.( + ) !bit_offset i)))
+      in
+      recon_sum := Step.Field.(!recon_sum + (bit * coeff)) ) ;
+  (* Verify reconstruction: sum of sealed chunks * 2^offset = x *)
+  Step.Field.Assert.equal x !recon_sum ;
+  (chunks, leftover)
 
 (** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total. *)
 let slice_field3 ((l0, l1, l2) : FF.Field3.t) ~(max_bits : int)
