@@ -681,27 +681,19 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let sj0 = chunks0.(chunk_idx) in
       let sj0_pt = array_get_point table0 sj0 in
       let added0 = add !sum sj0_pt in
-      sum := { x = FpA.of_field3_unsafe
-                     ( Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let l, _, _ = FpA.to_field3 !sum.x in l)
-                         ~else_:(let l, _, _ = FpA.to_field3 added0.x in l)
-                     , Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let _, l, _ = FpA.to_field3 !sum.x in l)
-                         ~else_:(let _, l, _ = FpA.to_field3 added0.x in l)
-                     , Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let _, _, l = FpA.to_field3 !sum.x in l)
-                         ~else_:(let _, _, l = FpA.to_field3 added0.x in l) )
-             ; y = FpA.of_field3_unsafe
-                     ( Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let l, _, _ = FpA.to_field3 !sum.y in l)
-                         ~else_:(let l, _, _ = FpA.to_field3 added0.y in l)
-                     , Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let _, l, _ = FpA.to_field3 !sum.y in l)
-                         ~else_:(let _, l, _ = FpA.to_field3 added0.y in l)
-                     , Step.Field.if_ (Step.Field.equal sj0 Step.Field.zero |> Fn.id)
-                         ~then_:(let _, _, l = FpA.to_field3 !sum.y in l)
-                         ~else_:(let _, _, l = FpA.to_field3 added0.y in l) )
-             } ;
+      let is_zero0 = Step.Field.equal sj0 Step.Field.zero in
+      let sel_if0 cond (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+        let sel_fpa fa fb =
+          let a0, a1, a2 = FpA.to_field3 fa in
+          let b0, b1, b2 = FpA.to_field3 fb in
+          FpA.of_field3_unsafe
+            ( Step.Field.if_ cond ~then_:b0 ~else_:a0
+            , Step.Field.if_ cond ~then_:b1 ~else_:a1
+            , Step.Field.if_ cond ~then_:b2 ~else_:a2 )
+        in
+        { x = sel_fpa a.x b.x; y = sel_fpa a.y b.y }
+      in
+      sum := sel_if0 is_zero0 added0 !sum ;
       (* Add from table1 *)
       let sj1 = chunks1.(chunk_idx) in
       let sj1_pt = array_get_point table1 sj1 in
