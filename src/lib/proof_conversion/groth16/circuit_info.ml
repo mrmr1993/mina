@@ -16,7 +16,7 @@ let get_gate_count ~(vk : Vk_constants.t) ~(n : int) : int =
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-info-zkp%d" n)
-      ~o1js_compatible_mode:false
+      ~o1js_compatible_mode:true
       ~choices:(fun ~self:_ -> [ rule ])
       ()
   in
