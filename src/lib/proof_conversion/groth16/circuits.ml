@@ -19,10 +19,6 @@ let g1_of_tracker (p : WT.G1.t) : G1.Constant.t =
     The hash links this circuit to its predecessor/successor. *)
 type circuit_body = Step.Field.t -> Step.Field.t
 
-(** Number of ate loop iterations per circuit for zkp0-6.
-    [1,10), [10,20), [20,30), [30,40), [40,50), [50,59), [59,65) *)
-let ate_iterations_per_circuit = [| 9; 10; 10; 10; 10; 9; 6 |]
-
 (** Total number of circuits. *)
 let num_circuits = 16
 
@@ -35,14 +31,6 @@ let witness_and_verify_acc (input_hash : Step.Field.t) : Accumulator.Circuit.t =
   let acc_hash = Accumulator.hash acc in
   Step.Field.Assert.equal input_hash acc_hash ;
   acc
-
-(** Hash an accumulator with an updated f value. *)
-let hash_with_updated_f (acc : Accumulator.Circuit.t) (f : Fp12.Circuit.t) :
-    Step.Field.t =
-  let updated : Accumulator.Circuit.t =
-    { proof = acc.proof; state = { acc.state with f } }
-  in
-  Accumulator.hash updated
 
 (** Conditional Fp12 selection for shift_power. *)
 let select_fp12 (cond : Step.Boolean.var) (a : Fp12.Circuit.t)
@@ -137,7 +125,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
        let t_updated =
-         Ate_circuit.run_circuit_chunk ~t_point:acc.state.t_point
+         Ate_circuit.run_chunk acc.state.t_point
            ~b_point:acc.proof.b ~neg_b ~begin_idx ~end_idx ~b_lines
            ~delta_lines:delta_slice ~gamma_lines:gamma_slice ~lines_hashes
            ~caches
@@ -195,7 +183,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
        (* Run ate loop iterations [59,65) *)
        let t_after_ate =
-         Ate_circuit.run_circuit_chunk ~t_point:acc.state.t_point
+         Ate_circuit.run_chunk acc.state.t_point
            ~b_point:acc.proof.b ~neg_b ~begin_idx ~end_idx ~b_lines
            ~delta_lines:delta_slice ~gamma_lines:gamma_slice ~lines_hashes
            ~caches

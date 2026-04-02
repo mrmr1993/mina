@@ -10,15 +10,14 @@ open! Core_kernel
 module Step = Pickles.Impls.Step
 
 (** Transcript state: accumulated bytes for hashing. *)
-type t = { mutable words : Uint32.t list; mutable word_count : int }
+type t = { mutable words : Uint32.t list }
 
 (** Create an empty transcript. *)
-let create () : t = { words = []; word_count = 0 }
+let create () : t = { words = [] }
 
 (** Absorb a UInt32 word into the transcript. *)
 let absorb_word (t : t) (w : Uint32.t) : unit =
-  t.words <- t.words @ [ w ] ;
-  t.word_count <- t.word_count + 1
+  t.words <- t.words @ [ w ]
 
 (** Absorb a field element as 8 UInt32 words (256 bits). *)
 let absorb_field (t : t) (x : Step.Field.t) : unit =
@@ -55,7 +54,6 @@ let squeeze (t : t) : Uint32.t array =
   let hash = Sha256.hash_padded blocks in
   (* Clear transcript for next squeeze *)
   t.words <- [] ;
-  t.word_count <- 0 ;
   hash
 
 (** Squeeze a single field element challenge. *)

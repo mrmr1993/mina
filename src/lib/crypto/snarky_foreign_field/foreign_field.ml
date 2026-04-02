@@ -21,8 +21,6 @@ let limb_mask = Bignum_bigint.(two_to_limb - one)
 
 let two_to_2limb = Bignum_bigint.(two_to_limb * two_to_limb)
 
-let _two_to_3limb = Bignum_bigint.(two_to_2limb * two_to_limb)
-
 (* ------------------------------------------------------------------ *)
 (* Conversion helpers                                                  *)
 (* ------------------------------------------------------------------ *)

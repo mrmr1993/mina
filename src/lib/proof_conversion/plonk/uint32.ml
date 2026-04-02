@@ -21,10 +21,6 @@ let to_field (x : t) : Field.t = x
 (** Constant UInt32 from int. *)
 let of_int (n : int) : t = Field.of_int n
 
-(** Witness a UInt32 from a computation. *)
-let witness (compute : unit -> int) : t =
-  Step.exists Field.typ ~compute:(fun () -> Field.Constant.of_int (compute ()))
-
 (** Add two UInt32 values modulo 2^32. *)
 let add (a : t) (b : t) : t =
   let sum =

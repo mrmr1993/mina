@@ -73,6 +73,8 @@ module AffineCache = struct
   let make (p : G1.Circuit.t) : t =
     let f = Bn254_params.p in
     let x_neg = FF.FpA.neg p.x ~f |> FF.FpC.assert_canonical ~f in
+    (* This computation is unused but must remain: it emits constraints
+       that are part of the circuit structure matching the TS reference. *)
     let _y_inv = FF.FpA.inv p.y ~f |> FF.FpC.assert_canonical ~f in
     let y_inv =
       Step.exists (FF.FpC.typ ~f) ~compute:(fun () ->
@@ -96,14 +98,6 @@ let psi (line : G2Line.t) (cache : AffineCache.t) : Fp12.Circuit.t =
   G2Line.psi line
     ~x_over_y:(AffineCache.x_over_y_fpa cache)
     ~y_inv:(AffineCache.y_inv_fpa cache)
-
-(** Evaluate a line at a cache, returning the two Fp2 components.
-    h0 = lambda * x_over_y, h1 = neg_mu * y_inv. *)
-let eval_line (line : G2Line.t) (cache : AffineCache.t) :
-    Fp2.Circuit.t * Fp2.Circuit.t =
-  let h0 = Fp2.mul_by_fp line.lambda (AffineCache.x_over_y_fpa cache) in
-  let h1 = Fp2.mul_by_fp line.neg_mu (AffineCache.y_inv_fpa cache) in
-  (h0, h1)
 
 (** Sparse-multiply f by a line evaluation: f.sparse_mul(line.psi(cache)).
     Convenience wrapper for the common pattern in ate loop iterations. *)

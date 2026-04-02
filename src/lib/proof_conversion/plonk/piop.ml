@@ -37,16 +37,6 @@ let eval_vanishing ~(zeta : FF.Field3.t) ~(domain_size : int) : FF.Field3.t =
     Used for public input contribution. *)
 let eval_l0 ~(zeta : FF.Field3.t) ~(domain_size : int) : FF.Field3.t =
   let zh = eval_vanishing ~zeta ~domain_size in
-  let n_inv =
-    FF.Field3.of_constant
-      ( match
-          FF.bignum_mod_inverse (FF.Bignum_bigint.of_int domain_size) ~f:r
-        with
-      | Some v ->
-          v
-      | None ->
-          failwith "eval_l0: domain_size has no inverse" )
-  in
   let zeta_minus_1 =
     FF.sub zeta (FF.Field3.of_constant FF.Bignum_bigint.one) ~f:r
   in
@@ -55,7 +45,7 @@ let eval_l0 ~(zeta : FF.Field3.t) ~(domain_size : int) : FF.Field3.t =
       (FF.Field3.of_constant (FF.Bignum_bigint.of_int domain_size))
       zeta_minus_1 ~f:r
   in
-  ignore n_inv ; FF.div zh denom ~f:r
+  FF.div zh denom ~f:r
 
 (** Compute the public input polynomial contribution:
     PI(zeta) = sum_i (pi_i * L_i(zeta)) *)

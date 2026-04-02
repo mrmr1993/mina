@@ -30,7 +30,7 @@ end
 
 (** Out-of-circuit Fp2 arithmetic. *)
 module Fp2 = struct
-  type t = BI.t * BI.t
+  type t = BI.t * BI.t [@@deriving sexp]
 
   let add (a0, a1) (b0, b1) : t = (Fp.add a0 b0, Fp.add a1 b1)
 
@@ -119,21 +119,9 @@ module Fp12 = struct
   let conjugate (a0, a1) : t = (a0, Fp6.neg a1)
 
   let inverse (a0, a1) : t =
-    let v0 = Fp6.mul a0 a0 in
-    let v1 = Fp6.mul a1 a1 in
-    (* norm = v0 + v1 * v (where v = non-residue shift) *)
-    let v1_nr =
-      let c0, c1, c2 = v1 in
-      (Fp6.mul_by_nr c2, c0, c1)
-    in
-    let norm_fp6 = Fp6.sub v0 v1_nr in
-    (* For a proper inverse we'd need Fp6.inverse, but for now
-       this is a placeholder — the actual inverse is computed via
-       conjugate/norm for unitary elements in the cyclotomic subgroup. *)
-    ignore norm_fp6 ;
+    (* Only valid for unitary elements in the cyclotomic subgroup,
+       where inverse = conjugate. *)
     conjugate (a0, a1)
-  (* Only valid for unitary elements *)
-
   (** Frobenius: f^p. Conjugate Fp2 components, multiply by gamma_1s. *)
   let frobenius_pow_p ((c0, c1) : t) : t =
     let c00, c01, c02 = c0 in
@@ -253,7 +241,7 @@ end
 
 (** Line coefficient from G2 point operations. *)
 module Line = struct
-  type t = { lambda : Fp2.t; neg_mu : Fp2.t }
+  type t = { lambda : Fp2.t; neg_mu : Fp2.t } [@@deriving sexp]
 end
 
 (** Compute the affine cache for a G1 point. *)
@@ -341,12 +329,6 @@ let get_full_ic_acc (t : t) : G1.t =
     must be asserted equal to this value. *)
 let get_pi (t : t) : G1.t = get_full_ic_acc t
 
-(** Get the current T point (G2). *)
-let get_t_point (t : t) : G2.t = t.t_point
-
-(** Get the g_digest (Poseidon hash of line evaluation array). *)
-let get_g_digest (t : t) : BI.t = t.g_digest
-
 (** Construct the full Accumulator.Constant from the current tracker state.
     This provides all the data needed to witness the accumulator in-circuit. *)
 let get_accumulator_constant (t : t) : Accumulator.Constant.t =
@@ -360,8 +342,6 @@ let get_accumulator_constant (t : t) : Accumulator.Constant.t =
      G1.Constant.t = {x:BI.t; y:BI.t} and our G1.t = {x:BI.t; y:BI.t},
      so the values are compatible — we just need the labels. *)
   let module FF = Snarky_foreign_field.Foreign_field in
-  let to_fp = FF.bignum_to_field_const in
-  ignore to_fp ;
   (* Build proof sub-struct. The neg_a, c, pi fields need G1.Constant.t
      which has the same structure as our local G1.t. *)
   let neg_a_c = { Accumulator.G1_constant.x = neg_a.x; y = neg_a.y } in
@@ -387,23 +367,11 @@ let get_accumulator_constant (t : t) : Accumulator.Constant.t =
 (** Get the current Miller loop accumulator. *)
 let get_f (t : t) : Fp12.t = t.f
 
-(** Update the Miller loop accumulator. *)
-let update_f (t : t) (f : Fp12.t) : unit = t.f <- f
-
 (** Get the precomputed g values (Fp12 line evaluations). *)
 let get_g_values (t : t) : Fp12.t array = t.g_values
 
 (** Get a specific g value by index. *)
 let get_g (t : t) (i : int) : Fp12.t = t.g_values.(i)
-
-(** Get the auxiliary witness c (Fp12). *)
-let get_c_fp12 (t : t) : Fp12.t = t.c
-
-(** Get the auxiliary witness c_inv (Fp12). *)
-let get_c_inv (t : t) : Fp12.t = t.c_inv
-
-(** Get the shift power (0, 1, or 2). *)
-let get_shift_power (t : t) : int = t.shift_power
 
 (** Get alpha_beta from the VK. *)
 let get_alpha_beta (t : t) : Fp12.t = t.vk.alpha_beta
@@ -467,26 +435,11 @@ let get_all_b_lines (t : t) : Line.t array =
   for i = 1 to Array.length ate - 1 do
     let iter = t.iterations.(i - 1) in
     Queue.enqueue lines iter.double_line ;
-    if ate.(i) <> 0 then
-      Queue.enqueue lines (Option.value_exn iter.add_line)
+    if ate.(i) <> 0 then Queue.enqueue lines (Option.value_exn iter.add_line)
   done ;
   (* Append frobenius b_lines (matches nori's slice(-2)) *)
   Array.iter t.frobenius_b_lines ~f:(Queue.enqueue lines) ;
   Queue.to_array lines
-
-(** Get a Frobenius correction line evaluation for zkp6. *)
-let get_frobenius_line (t : t) (i : int) : Fp12.t = t.frobenius_lines.(i)
-
-(** Get a Frobenius b_line (lambda, neg_mu) for zkp6 in-circuit computation. *)
-let get_frobenius_b_line (t : t) (i : int) : Line.t = t.frobenius_b_lines.(i)
-
-(** Get a Frobenius delta_line for zkp6. *)
-let get_frobenius_delta_line (t : t) (i : int) : Line.t =
-  t.frobenius_delta_lines.(i)
-
-(** Get a Frobenius gamma_line for zkp6. *)
-let get_frobenius_gamma_line (t : t) (i : int) : Line.t =
-  t.frobenius_gamma_lines.(i)
 
 (** Get c_inv^p (Frobenius of c_inv). *)
 let get_c_inv_frob_p (t : t) : Fp12.t = Fp12.frobenius_pow_p t.c_inv

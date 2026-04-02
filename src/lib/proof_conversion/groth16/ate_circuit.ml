@@ -152,14 +152,3 @@ let total_b_lines =
 (** B-line start offset in the flat array for a given circuit range. *)
 let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
 
-(** Run the ate loop for a circuit range.  All setup (g_digest
-    verification, cache computation, line slicing) is done by the
-    caller — this just runs the iteration chunk.
-    Returns updated_T. *)
-let run_circuit_chunk ~(t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
-    ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
-    ~(b_lines : Lines.G2Line.t array) ~(delta_lines : Lines.G2Line.t array)
-    ~(gamma_lines : Lines.G2Line.t array) ~(lines_hashes : Step.Field.t array)
-    ~(caches : three_cache) : G2.Circuit.t =
-  run_chunk t_point ~b_point ~neg_b ~begin_idx ~end_idx ~b_lines ~delta_lines
-    ~gamma_lines ~lines_hashes ~caches

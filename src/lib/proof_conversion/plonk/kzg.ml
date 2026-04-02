@@ -44,7 +44,6 @@ let batch_opening ~(commitments : G1.Circuit.t array)
   (* C_batch = sum_i (r^i * C_i) *)
   (* v_batch = sum_i (r^i * v_i) *)
   let p = Bn254_params.p in
-  let _r = Bn254_params.r in
   let c_x = ref (FF.Field3.of_constant FF.Bignum_bigint.zero) in
   let c_y = ref (FF.Field3.of_constant FF.Bignum_bigint.zero) in
   let v = ref (FF.Field3.of_constant FF.Bignum_bigint.zero) in
