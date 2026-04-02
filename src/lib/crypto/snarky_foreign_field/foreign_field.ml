@@ -3,8 +3,7 @@
     Implements Field3 — a representation of field elements as three 88-bit
     limbs suitable for 254-bit foreign field moduli (e.g. BN254 Fp/Fr).
 
-    Adapted from feature/groth16-and-kzg-foreign-field branch with
-    debugging artifacts removed. *)
+    Adapted from feature/groth16-and-kzg-foreign-field branch. *)
 
 open Core_kernel
 module Bignum_bigint = Bigint
@@ -318,13 +317,7 @@ let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
     ~(qc : Circuit.Field.Constant.t) ~(left : Circuit.Field.t)
     ~(right : Circuit.Field.t) ~(out : Circuit.Field.t) : unit =
   Circuit.assert_
-    (Basic
-       { l = (ql, left)
-       ; r = (qr, right)
-       ; o = (qo, out)
-       ; m = qm
-       ; c = qc
-       } )
+    (Basic { l = (ql, left); r = (qr, right); o = (qo, out); m = qm; c = qc })
 
 (** Witness z = a*x*y + b*x + c*y + d and emit a Generic gate constraining it.
     Matches o1js bilinear(x, y, [a, b, c, d]). *)
@@ -336,7 +329,7 @@ let bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
     Circuit.exists Circuit.Field.typ ~compute:(fun () ->
         let x0 = Circuit.As_prover.read_var x in
         let y0 = Circuit.As_prover.read_var y in
-        Circuit.Field.Constant.(a * x0 * y0 + b * x0 + c * y0 + d) )
+        Circuit.Field.Constant.((a * x0 * y0) + (b * x0) + (c * y0) + d) )
   in
   (* b*x + c*y - z + a*x*y + d = 0 *)
   generic ~ql:b ~qr:c
@@ -360,8 +353,8 @@ let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
 (** Assert x is one of the allowed values.
     Matches o1js assertOneOf(x, allowed).
     Emits (n-1) Generic gates for n allowed values. *)
-let assert_one_of (x : Circuit.Field.t)
-    (allowed : Circuit.Field.Constant.t list) : unit =
+let assert_one_of (x : Circuit.Field.t) (allowed : Circuit.Field.Constant.t list)
+    : unit =
   let x = to_var x in
   match allowed with
   | [] ->
@@ -374,13 +367,17 @@ let assert_one_of (x : Circuit.Field.t)
       let n = List.length rest in
       if n = 0 then
         (* (x - c1)*(x - c2) = 0 *)
-        assert_bilinear x x ~a:C.one ~b:C.(zero - (c1 + c2)) ~c:C.zero
+        assert_bilinear x x ~a:C.one
+          ~b:C.(zero - (c1 + c2))
+          ~c:C.zero
           ~d:C.(c1 * c2)
-      else (
+      else
         (* z = (x - c1)*(x - c2) *)
         let z =
           ref
-            (bilinear x x ~a:C.one ~b:C.(zero - (c1 + c2)) ~c:C.zero
+            (bilinear x x ~a:C.one
+               ~b:C.(zero - (c1 + c2))
+               ~c:C.zero
                ~d:C.(c1 * c2) )
         in
         List.iteri rest ~f:(fun i ci ->
@@ -389,8 +386,7 @@ let assert_one_of (x : Circuit.Field.t)
               z := bilinear !z x ~a:C.one ~b:C.(zero - ci) ~c:C.zero ~d:C.zero
             else
               (* z*(x - ci) = 0 *)
-              assert_bilinear !z x ~a:C.one ~b:C.(zero - ci) ~c:C.zero
-                ~d:C.zero ) )
+              assert_bilinear !z x ~a:C.one ~b:C.(zero - ci) ~c:C.zero ~d:C.zero )
 
 (* ------------------------------------------------------------------ *)
 (* Multi-range checks                                                  *)
@@ -1163,9 +1159,8 @@ module Sum = struct
   (** Materialize the sum for use as a multiplication input.
       Produces ForeignFieldAdd gates + Zero gate + Generic gates for
       low-limb tracking, but skips the multi_range_check.
-      Matches o1js finishForMulInput — uses Generic gates to constrain
-      the lowest limb individually, since FFAdd only constrains the
-      low+middle limbs together. *)
+      Uses Generic gates to constrain the lowest limb individually,
+      since FFAdd only constrains the low+middle limbs together. *)
   let finish_for_mul_input (t : t) ~(f : Bignum_bigint.t) : Field3.t =
     assert (Option.is_none t.result) ;
     if List.length t.ops = 0 then (
@@ -1173,7 +1168,7 @@ module Sum = struct
       t.result <- Some r ;
       r )
     else
-      let xs = t.summands in
+      (let xs = t.summands in
       let signs = t.ops in
       if List.for_all xs ~f:Field3.is_constant then (
         let x_bigs = List.map xs ~f:Field3.to_constant in
@@ -1186,10 +1181,13 @@ module Sum = struct
         let r = Field3.of_constant result_mod in
         t.result <- Some r ;
         r )
-      else
+      else (
         let xs =
           List.map xs ~f:(fun (l0, l1, l2) ->
-              (to_var l0, to_var l1, to_var l2) )
+              let l0 = to_var l0 in
+              let l1 = to_var l1 in
+              let l2 = to_var l2 in
+              (l0, l1, l2) )
         in
         let f0 = Bignum_bigint.(f land limb_mask) in
         let n = List.length signs in
@@ -1248,9 +1246,7 @@ module Sum = struct
             overflows.(i) <- overflow ;
             (* Constrain carry to {0, 1, -1}.
                Matches nori's assertOneOf(carry, [0n, 1n, -1n]). *)
-            let neg_one =
-              Circuit.Field.Constant.(zero - one)
-            in
+            let neg_one = Circuit.Field.Constant.(zero - one) in
             assert_one_of carry
               [ Circuit.Field.Constant.zero
               ; Circuit.Field.Constant.one
@@ -1285,7 +1281,7 @@ module Sum = struct
           Circuit.assert_
             (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ) ;
         t.result <- Some !result ;
-        !result
+        !result ))
 end
 
 (** Input type for assert_mul_sum: either a Sum accumulator or a
@@ -1326,18 +1322,17 @@ let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
     | Field3_input f3 ->
         f3
   in
-  (* Match nori's assertMul order:
-     1. finish b (y), finish c (xy)
+  (* 1. finish b (y), finish c (xy)
      2. toVariable on b and c (if not all constant)
      3. finish a (x, chained) → assertMul *)
   let y_val = finish_for_mul y in
   let xy_val = finish_simple xy in
   let all_constant =
-    (match x with
+    ( match x with
     | Sum_input s ->
         Sum.is_constant s
     | Field3_input f3 ->
-        Field3.is_constant f3)
+        Field3.is_constant f3 )
     && Field3.is_constant y_val && Field3.is_constant xy_val
   in
   let y_val, xy_val =
