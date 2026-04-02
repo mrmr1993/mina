@@ -571,9 +571,12 @@ let array_get (array : Step.Field.t array) (index : Step.Field.t) :
     a
 
 (** Lookup a G1 point from a table by index.
-    Each coordinate has 3 limbs, so 6 array_get calls total. *)
+    Each coordinate has 3 limbs, so 6 array_get calls total.
+    Pre-materializes the index to avoid repeated to_var inside arrayGet. *)
 let array_get_point (table : Circuit.t array) (index : Step.Field.t) :
     Circuit.t =
+  (* Pre-materialize index so arrayGet's to_var is a no-op *)
+  let index = FF.to_var index in
   let get_limb coord_fn limb_fn =
     let arr = Array.map table ~f:(fun pt ->
         let f3 = FpA.to_field3 (coord_fn pt) in
