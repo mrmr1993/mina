@@ -23,12 +23,19 @@ let of_constant ((c0, c1) : Constant.t) : Circuit.t =
   { c0 = Fp6.of_constant c0; c1 = Fp6.of_constant c1 }
 
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp6.add a.c0 b.c0; c1 = Fp6.add a.c1 b.c1 }
+  let c0 = Fp6.add a.c0 b.c0 in
+  let c1 = Fp6.add a.c1 b.c1 in
+  { c0; c1 }
 
 let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-  { c0 = Fp6.sub a.c0 b.c0; c1 = Fp6.sub a.c1 b.c1 }
+  let c0 = Fp6.sub a.c0 b.c0 in
+  let c1 = Fp6.sub a.c1 b.c1 in
+  { c0; c1 }
 
-let neg (a : Circuit.t) : Circuit.t = { c0 = Fp6.neg a.c0; c1 = Fp6.neg a.c1 }
+let neg (a : Circuit.t) : Circuit.t =
+  let c0 = Fp6.neg a.c0 in
+  let c1 = Fp6.neg a.c1 in
+  { c0; c1 }
 
 (** Multiplication using Karatsuba:
     (a0 + a1*w)(b0 + b1*w) = (a0*b0 + a1*b1*v) + (a0*b1 + a1*b0)*w
