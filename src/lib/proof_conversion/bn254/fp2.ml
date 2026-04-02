@@ -23,13 +23,10 @@ module Circuit = struct
   (** Witnessing applies MRC + weakBound to each component. *)
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
     let fpa_typ = FpA.typ ~f:p in
-    Pickles.Impls.Step.Typ.transport
+    Pickles.Impls.Step.Typ.transport_var
       (Pickles.Impls.Step.Typ.tuple2 fpa_typ fpa_typ)
-      ~there:(fun (c0, c1) -> (c0, c1))
-      ~back:(fun (c0, c1) -> (c0, c1))
-    |> Pickles.Impls.Step.Typ.transport_var
-         ~there:(fun { c0; c1 } -> (c0, c1))
-         ~back:(fun (c0, c1) -> { c0; c1 })
+      ~there:(fun { c0; c1 } -> (c0, c1))
+      ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
 let of_constant ((c0, c1) : Constant.t) : Circuit.t =
@@ -64,6 +61,14 @@ let sum (inputs : Circuit.t list) (ops : FF.sign list) : Circuit.t =
   let c1 = FF.FpU.of_field3_unsafe (FF.sum c1s ops ~f:p) in
   from_unreduced c0 c1
 
+(** Read a 3-limb foreign field element as a [Bignum_bigint]. *)
+let read_field3 (l0, l1, l2) =
+  let r v =
+    FF.field_const_to_bignum (Pickles.Impls.Step.As_prover.read_var v)
+  in
+  let open Bignum_bigint in
+  r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
+
 (* neg returns FpA directly (negation proves result < f) *)
 let neg (a : Circuit.t) : Circuit.t =
   let c0 = FpA.neg a.c0 ~f:p in
@@ -81,15 +86,10 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let module Step = Pickles.Impls.Step in
   let c1 =
     Step.exists FF.FpU.typ ~compute:(fun () ->
-        let read (l0, l1, l2) =
-          let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
-          let open Bignum_bigint in
-          r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
-        in
-        let a0 = read (FpA.to_field3 a.c0) in
-        let a1 = read (FpA.to_field3 a.c1) in
-        let b0 = read (FpA.to_field3 b.c0) in
-        let b1 = read (FpA.to_field3 b.c1) in
+        let a0 = read_field3 (FpA.to_field3 a.c0) in
+        let a1 = read_field3 (FpA.to_field3 a.c1) in
+        let b0 = read_field3 (FpA.to_field3 b.c0) in
+        let b1 = read_field3 (FpA.to_field3 b.c1) in
         Bignum_bigint.(((a0 * b1) + (a1 * b0)) % p) )
   in
   let lhs_x =
@@ -117,13 +117,8 @@ let square (a : Circuit.t) : Circuit.t =
   let c0, c1 =
     let c =
       Step.exists (Step.Typ.tuple2 FF.FpU.typ FF.FpU.typ) ~compute:(fun () ->
-          let read (l0, l1, l2) =
-            let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
-            let open Bignum_bigint in
-            r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb)
-          in
-          let a0 = read (FpA.to_field3 a.c0) in
-          let a1 = read (FpA.to_field3 a.c1) in
+          let a0 = read_field3 (FpA.to_field3 a.c0) in
+          let a1 = read_field3 (FpA.to_field3 a.c1) in
           Bignum_bigint.
             ( ((((a0 * a0) - (a1 * a1)) % p) + p) % p
             , ((a0 * a1 * of_int 2 % p) + p) % p ) )

@@ -6,6 +6,13 @@ module FpA = FF.FpA
 
 let p = Bn254_params.p
 
+let reduce (x : FF.FpU.t) : FpA.t =
+  match FpA.assert_almost_reduced [ x ] ~f:p ~skip_mrc:true () with
+  | [ a ] ->
+      a
+  | _ ->
+      assert false
+
 module Constant = struct
   type t = { x : FF.Bignum_bigint.t; y : FF.Bignum_bigint.t }
 end
@@ -33,20 +40,8 @@ let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FpA.neg pt.y ~f:p }
 let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
   let dx = FpA.sub p1.x p2.x ~f:p in
   let dy = FpA.sub p1.y p2.y ~f:p in
-  let dx_a =
-    match FpA.assert_almost_reduced [ dx ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "add_nonzero: dx"
-  in
-  let dy_a =
-    match FpA.assert_almost_reduced [ dy ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "add_nonzero: dy"
-  in
+  let dx_a = reduce dx in
+  let dy_a = reduce dy in
   let lambda = FpA.div dy_a dx_a ~f:p in
   let lambda_sq = FpA.mul lambda lambda ~f:p in
   let x3 =
@@ -54,76 +49,28 @@ let add_nonzero (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
       (FF.FpU.sub lambda_sq (FpA.to_fpu p1.x) ~f:p)
       (FpA.to_fpu p2.x) ~f:p
   in
-  let x3_a =
-    match FpA.assert_almost_reduced [ x3 ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "add_nonzero: x3"
-  in
+  let x3_a = reduce x3 in
   let dx1 = FpA.sub p1.x x3_a ~f:p in
-  let dx1_a =
-    match FpA.assert_almost_reduced [ dx1 ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "add_nonzero: dx1"
-  in
+  let dx1_a = reduce dx1 in
   let y3 = FF.FpU.sub (FpA.mul lambda dx1_a ~f:p) (FpA.to_fpu p1.y) ~f:p in
-  let y3_a =
-    match FpA.assert_almost_reduced [ y3 ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "add_nonzero: y3"
-  in
+  let y3_a = reduce y3 in
   { x = x3_a; y = y3_a }
 
 let double (pt : Circuit.t) : Circuit.t =
   let x_sq = FpA.mul pt.x pt.x ~f:p in
   let three_x_sq = FF.FpU.add (FF.FpU.add x_sq x_sq ~f:p) x_sq ~f:p in
-  let three_x_sq_a =
-    match FpA.assert_almost_reduced [ three_x_sq ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "double: three_x_sq"
-  in
+  let three_x_sq_a = reduce three_x_sq in
   let two_y = FpA.add pt.y pt.y ~f:p in
-  let two_y_a =
-    match FpA.assert_almost_reduced [ two_y ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "double: two_y"
-  in
+  let two_y_a = reduce two_y in
   let lambda = FpA.div three_x_sq_a two_y_a ~f:p in
   let lambda_sq = FpA.mul lambda lambda ~f:p in
   let two_x = FpA.add pt.x pt.x ~f:p in
   let x3 = FF.FpU.sub lambda_sq two_x ~f:p in
-  let x3_a =
-    match FpA.assert_almost_reduced [ x3 ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "double: x3"
-  in
+  let x3_a = reduce x3 in
   let dx = FpA.sub pt.x x3_a ~f:p in
-  let dx_a =
-    match FpA.assert_almost_reduced [ dx ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "double: dx"
-  in
+  let dx_a = reduce dx in
   let y3 = FF.FpU.sub (FpA.mul lambda dx_a ~f:p) (FpA.to_fpu pt.y) ~f:p in
-  let y3_a =
-    match FpA.assert_almost_reduced [ y3 ] ~f:p ~skip_mrc:true () with
-    | [ a ] ->
-        a
-    | _ ->
-        failwith "double: y3"
-  in
+  let y3_a = reduce y3 in
   { x = x3_a; y = y3_a }
 
 (** In-circuit scalar multiplication: point * scalar.

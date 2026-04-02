@@ -13,13 +13,10 @@ module Circuit = struct
   type t = { c0 : Fp6.Circuit.t; c1 : Fp6.Circuit.t }
 
   let typ : (t, Constant.t) Pickles.Impls.Step.Typ.t =
-    Pickles.Impls.Step.Typ.transport
+    Pickles.Impls.Step.Typ.transport_var
       (Pickles.Impls.Step.Typ.tuple2 Fp6.Circuit.typ Fp6.Circuit.typ)
-      ~there:(fun (c0, c1) -> (c0, c1))
-      ~back:(fun (c0, c1) -> (c0, c1))
-    |> Pickles.Impls.Step.Typ.transport_var
-         ~there:(fun { c0; c1 } -> (c0, c1))
-         ~back:(fun (c0, c1) -> { c0; c1 })
+      ~there:(fun { c0; c1 } -> (c0, c1))
+      ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
@@ -99,11 +96,8 @@ let one : Circuit.t =
 
 let assert_one (a : Circuit.t) : unit = assert_equal a one
 
-(** Cyclotomic squaring (for elements in the cyclotomic subgroup).
-    More efficient than general squaring. *)
-let cyclotomic_square (a : Circuit.t) : Circuit.t =
-  (* For now, use general squaring. The optimized version can be added later. *)
-  square a
+(** Cyclotomic squaring — currently uses general squaring. *)
+let cyclotomic_square = square
 
 (** Frobenius endomorphism: f^p.
     Conjugates all Fp2 components, then multiplies by gamma_1s constants.

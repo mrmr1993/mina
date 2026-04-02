@@ -69,6 +69,34 @@ let vk_lines_to_circuit (lines : WT.Line.t array) : Lines.G2Line.t array =
   Array.map lines ~f:(fun l ->
       Lines.G2Line.of_constant (l.WT.Line.lambda, l.WT.Line.neg_mu) )
 
+(** Witness the accumulator, line hashes, and b_lines; verify the
+    input hash matches the accumulator hash.  Shared setup for
+    circuits 0-6 (ate loop circuits). *)
+let witness_ate_common (input_hash : Step.Field.t) :
+    Accumulator.Circuit.t * Step.Field.t array * Lines.G2Line.t array =
+  let acc =
+    Step.exists Accumulator.typ ~compute:(fun () ->
+        WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+  in
+  let n_total = Array.length Bn254_params.ate_loop_count in
+  let lines_hashes =
+    Array.init n_total ~f:(fun i ->
+        Step.exists Step.Field.typ ~compute:(fun () ->
+            (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+  in
+  let all_b_lines =
+    (* +2 for frobenius lines *)
+    Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
+        Step.exists Lines.G2Line.typ ~compute:(fun () ->
+            let line =
+              (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
+            in
+            (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
+  in
+  let acc_hash = Accumulator.hash acc in
+  Step.Field.Assert.equal input_hash acc_hash ;
+  (acc, lines_hashes, all_b_lines)
+
 (** Build the circuit body for zkpN.
     [vk] provides precomputed VK constants (delta/gamma lines etc.)
     that are embedded as circuit constants, not witnesses.
@@ -83,27 +111,9 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       (* Ate loop circuits: witness all private inputs up front,
          then run constraints and output hash. *)
       fun input_hash ->
-       let acc =
-         Step.exists Accumulator.typ ~compute:(fun () ->
-             WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+       let acc, lines_hashes, all_b_lines =
+         witness_ate_common input_hash
        in
-       let n_total = Array.length Bn254_params.ate_loop_count in
-       let lines_hashes =
-         Array.init n_total ~f:(fun i ->
-             Step.exists Step.Field.typ ~compute:(fun () ->
-                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
-       in
-       let all_b_lines =
-         (* +2 for frobenius lines. *)
-         Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
-             Step.exists Lines.G2Line.typ ~compute:(fun () ->
-                 let line =
-                   (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
-                 in
-                 (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
-       in
-       let acc_hash = Accumulator.hash acc in
-       Step.Field.Assert.equal input_hash acc_hash ;
        let acc =
          if circuit_index = 0 then
            { acc with state = { acc.state with t_point = acc.proof.b } }
@@ -145,27 +155,9 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          evaluations. Verifies c * c_inv = 1. Updates g_digest with
          both ate g values and the Frobenius g hash. *)
       fun input_hash ->
-       let acc =
-         Step.exists Accumulator.typ ~compute:(fun () ->
-             WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+       let acc, lines_hashes, all_b_lines =
+         witness_ate_common input_hash
        in
-       let n_total = Array.length Bn254_params.ate_loop_count in
-       let lines_hashes =
-         Array.init n_total ~f:(fun i ->
-             Step.exists Step.Field.typ ~compute:(fun () ->
-                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
-       in
-       let all_b_lines =
-         (* +2 for frobenius lines at the end *)
-         Array.init (Ate_circuit.total_b_lines + 2) ~f:(fun i ->
-             Step.exists Lines.G2Line.typ ~compute:(fun () ->
-                 let line =
-                   (WT.get_all_b_lines (Circuit_config.get_tracker ())).(i)
-                 in
-                 (line.WT.Line.lambda, line.WT.Line.neg_mu) ) )
-       in
-       let acc_hash = Accumulator.hash acc in
-       Step.Field.Assert.equal input_hash acc_hash ;
        (* Verify lines_hashes against g_digest *)
        let digest = Array_list_hasher.hash lines_hashes in
        Step.Field.Assert.equal acc.state.g_digest digest ;

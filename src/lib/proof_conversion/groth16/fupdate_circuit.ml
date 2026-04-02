@@ -11,11 +11,16 @@ module Step = Pickles.Impls.Step
 module WT = Witness_tracker
 
 (** Number of ate loop iterations processed per f-update circuit.
-    zkp7: ATE[1..9], zkp8: ATE[10..20], ..., zkp12: ATE[54..64]. *)
+    zkp7: ATE[1..9], zkp8: ATE[10..20], ..., zkp12: ATE[54..64].
+    g_start values are cumulative sums of iterations_per_circuit. *)
 let iterations_per_circuit = [| 9; 11; 11; 11; 11; 11 |]
 
-(** Starting g-value index for each f-update circuit. *)
-let g_start_per_circuit = [| 0; 9; 20; 31; 42; 53 |]
+let g_start_per_circuit =
+  let starts = Array.create ~len:(Array.length iterations_per_circuit) 0 in
+  for i = 1 to Array.length starts - 1 do
+    starts.(i) <- starts.(i - 1) + iterations_per_circuit.(i - 1)
+  done ;
+  starts
 
 let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   assert (circuit_index >= 7 && circuit_index <= 12) ;
