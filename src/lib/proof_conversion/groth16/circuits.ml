@@ -213,8 +213,8 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let g = Fp12.sparse_mul g (Lines.psi frob_b_lines.(1) a_cache) in
        let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(1) c_cache) in
        let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(1) pi_cache) in
-       (* Verify c * c_inv = 1 *)
-       let product = Fp12.mul acc.proof.c_fp12 acc.proof.c_inv in
+       (* Verify c_inv * c = 1 *)
+       let product = Fp12.mul acc.proof.c_inv acc.proof.c_fp12 in
        Fp12.assert_one product ;
        (* Hash frobenius g into lines_hashes and compute final g_digest *)
        let n_total = Array.length Bn254_params.ate_loop_count in

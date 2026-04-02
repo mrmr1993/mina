@@ -41,9 +41,18 @@ let frobenius (pt : Circuit.t) : Circuit.t =
   let y = Fp2.mul (Fp2.conjugate pt.y) (Fp2.of_constant g.(2)) in
   { x; y }
 
-(** Negative Frobenius: frobenius then negate y. *)
+(** Negative Frobenius: conjugate coords, multiply x by gamma_1s[1],
+    multiply y by -gamma_1s[2] (pre-negated constant). *)
+let neg_gamma_1s_2 : Fp2.Constant.t =
+  let open Bignum_bigint in
+  let c0, c1 = Bn254_params.gamma_1s.(2) in
+  (Bn254_params.p - c0, Bn254_params.p - c1)
+
 let negative_frobenius (pt : Circuit.t) : Circuit.t =
-  negate (frobenius pt)
+  let g = Bn254_params.gamma_1s in
+  let x = Fp2.mul (Fp2.conjugate pt.x) (Fp2.of_constant g.(1)) in
+  let y = Fp2.mul (Fp2.conjugate pt.y) (Fp2.of_constant neg_gamma_1s_2) in
+  { x; y }
 
 (** G2 point doubling from a known tangent line lambda.
     x3 = lambda^2 - 2*x, y3 = lambda*(x - x3) - y *)
