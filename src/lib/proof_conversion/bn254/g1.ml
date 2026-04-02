@@ -189,6 +189,9 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       in
       acc := { x = sel added.x !acc.x; y = sel added.y !acc.y }
     else (
+      (* MSB is always 1 for BN254 scalars; the accumulator starts from
+         pt directly (equivalent to the first 1-bit), so we skip it.
+         The bit is still constrained by the field3 decomposition. *)
       started := true ;
       ignore (all_bits.(i) : Step.Boolean.var) )
   done ;

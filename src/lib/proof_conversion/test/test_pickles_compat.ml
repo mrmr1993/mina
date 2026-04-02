@@ -1,5 +1,5 @@
-(** Test that Pickles circuits compiled with [o1js_compatible_mode] produce
-    verification keys matching the equivalent o1js ZkProgram.
+(** Test that Pickles circuits produce verification keys matching the
+    equivalent o1js ZkProgram.
 
     Usage:
       dune exec src/lib/proof_conversion/test/test_pickles_compat.exe

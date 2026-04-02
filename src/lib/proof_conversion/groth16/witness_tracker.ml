@@ -491,7 +491,6 @@ let compute_miller_loop (t : t) : unit =
   let neg_a = get_neg_a t in
   let x_over_y, y_inv = compute_affine_cache neg_a in
   let b = G2.of_proof_json t.vk.beta in
-  (* Using beta as B placeholder *)
   let ate = Bn254_params.ate_loop_count in
   let n = Array.length ate in
   (* Initialize: T = B, f = 1 *)
@@ -615,8 +614,8 @@ let compute_miller_loop (t : t) : unit =
   t.frobenius_delta_lines <- [| pi_delta_line; pi2_delta_line |] ;
   t.frobenius_gamma_lines <- [| pi_gamma_line; pi2_gamma_line |]
 
-(** Get the Fp12 accumulator value at a specific ate loop iteration. *)
-let get_f_at_iteration (t : t) (i : int) : Fp12.t =
+(** Get the line evaluation product (g value) at a specific ate loop iteration. *)
+let get_g_at_iteration (t : t) (i : int) : Fp12.t =
   if Array.length t.g_values = 0 then Fp12.one (* Not computed yet *)
   else if i < Array.length t.g_values then t.g_values.(i)
   else t.f

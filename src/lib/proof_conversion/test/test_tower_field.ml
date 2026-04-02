@@ -138,7 +138,7 @@ let test_miller_loop () =
     let f00_is_one = Bignum_bigint.(fst f00 = one && snd f00 = zero) in
     assert (not f00_is_one) ;
     (* The first g value should not be identity either *)
-    let g0 = WT.get_f_at_iteration tracker 0 in
+    let g0 = WT.get_g_at_iteration tracker 0 in
     let (g00, _, _), _ = g0 in
     let g00_is_one = Bignum_bigint.(fst g00 = one && snd g00 = zero) in
     assert (not g00_is_one) ;

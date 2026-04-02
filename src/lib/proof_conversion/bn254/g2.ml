@@ -42,7 +42,7 @@ let frobenius (pt : Circuit.t) : Circuit.t =
   { x; y }
 
 (** Negative Frobenius: frobenius then negate y.
-    pi2B = (conj(piB.x) * gamma_1s[1], -conj(piB.y) * gamma_1s[2]) *)
+    (conj(x) * gamma_1s[1], -conj(y) * gamma_1s[2]) *)
 let negative_frobenius (pt : Circuit.t) : Circuit.t =
   let g = Bn254_params.gamma_1s in
   let x = Fp2.mul (Fp2.conjugate pt.x) (Fp2.of_constant g.(1)) in

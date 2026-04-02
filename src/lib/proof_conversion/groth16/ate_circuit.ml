@@ -59,8 +59,8 @@ let process_iteration (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
       let g = Fp12.sparse_mul g (Lines.psi d_add caches.c_cache) in
       let g = Fp12.sparse_mul g (Lines.psi g_add caches.pi_cache) in
       (g, t_point)
-  | _ ->
-      (g, t_point)
+  | bit, _, _, _ ->
+      failwith (sprintf "unexpected ate bit: %d" bit)
 
 (** Witness a G2Line from tracker iteration data. *)
 let witness_line (get : WT.iteration_data -> WT.Line.t) (iter_idx : int) :

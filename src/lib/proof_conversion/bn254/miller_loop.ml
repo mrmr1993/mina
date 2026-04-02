@@ -25,6 +25,8 @@ let ate_loop_iteration (f : Fp12.Circuit.t) ~(double_line : Lines.G2Line.t)
       f
   | 1, Some add_l | -1, Some add_l ->
       Lines.mul_by_line f add_l cache
+  | (1 | -1), None ->
+      failwith "non-zero ate bit requires an add line"
   | _ ->
       f
 
