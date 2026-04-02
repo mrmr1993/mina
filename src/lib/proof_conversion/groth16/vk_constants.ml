@@ -14,8 +14,9 @@ module WT = Witness_tracker
 type t =
   { delta_lines : WT.Line.t array  (** All delta line coefficients (91 entries) *)
   ; gamma_lines : WT.Line.t array  (** All gamma line coefficients (91 entries) *)
-  ; alpha_beta : Fp12.Constant.t
-  ; w27 : Fp12.Constant.t
+  ; alpha_beta : Fp12.Circuit.t  (** VK.alpha_beta as circuit constant *)
+  ; w27 : Fp12.Circuit.t  (** VK.w27 as circuit constant *)
+  ; w27_sq : Fp12.Circuit.t  (** VK.w27^2 as circuit constant *)
   ; ic : G1.Constant.t array
   }
 
@@ -55,9 +56,12 @@ let compute_line_coeffs (pt : WT.G2.t) : WT.Line.t array =
 let create (vk : Proof_json.vk) : t =
   let delta = WT.G2.of_proof_json vk.delta in
   let gamma = WT.G2.of_proof_json vk.gamma in
+  let w27_const = vk.w27 in
+  let w27_sq_const = WT.Fp12.mul w27_const w27_const in
   { delta_lines = compute_line_coeffs delta
   ; gamma_lines = compute_line_coeffs gamma
-  ; alpha_beta = vk.alpha_beta
-  ; w27 = vk.w27
+  ; alpha_beta = Fp12.of_constant vk.alpha_beta
+  ; w27 = Fp12.of_constant w27_const
+  ; w27_sq = Fp12.of_constant w27_sq_const
   ; ic = vk.ic
   }

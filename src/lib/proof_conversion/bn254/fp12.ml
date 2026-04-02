@@ -19,6 +19,9 @@ module Circuit = struct
       ~back:(fun (c0, c1) -> { c0; c1 })
 end
 
+let of_constant ((c0, c1) : Constant.t) : Circuit.t =
+  { c0 = Fp6.of_constant c0; c1 = Fp6.of_constant c1 }
+
 let add (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   { c0 = Fp6.add a.c0 b.c0; c1 = Fp6.add a.c1 b.c1 }
 

@@ -20,6 +20,9 @@ module Circuit = struct
       ~back:(fun (c0, c1, c2) -> { c0; c1; c2 })
 end
 
+let of_constant ((c0, c1, c2) : Constant.t) : Circuit.t =
+  { c0 = Fp2.of_constant c0; c1 = Fp2.of_constant c1; c2 = Fp2.of_constant c2 }
+
 let mul_by_non_residue (x : Fp2.Circuit.t) : Fp2.Circuit.t =
   let xi = Fp2.of_constant Bn254_params.fp2_non_residue in
   Fp2.mul x xi

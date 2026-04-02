@@ -235,59 +235,46 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          c/c_inv, multiplies by alpha_beta from VK, handles shift_power.
          Outputs hash(G1Affine, acc.proof.PI) — domain transition. *)
       fun input_hash ->
-       let acc = witness_and_verify_acc input_hash in
-       let f = acc.state.f in
-       (* Last g value — opened from g_digest *)
+       (* Witness all private inputs first (matching nori's ZkProgram) *)
+       let acc =
+         Step.exists Accumulator.typ ~compute:(fun () ->
+             WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+       in
        let n_total = Array.length Bn254_params.ate_loop_count in
        let g_idx = n_total - 1 in
+       let lhs_hashes =
+         Array.init g_idx ~f:(fun i ->
+             Step.exists Step.Field.typ ~compute:(fun () ->
+                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
+       in
        let g =
          Step.exists Fp12.Circuit.typ ~compute:(fun () ->
              let tracker = Circuit_config.get_tracker () in
              let gs = WT.get_g_values tracker in
              gs.(Array.length gs - 1) )
        in
-       (* Verify g_digest: open(lhs_64, [g], []) *)
-       let lhs_hashes =
-         Array.init g_idx ~f:(fun i ->
-             Step.exists Step.Field.typ ~compute:(fun () ->
-                 (WT.get_line_hashes (Circuit_config.get_tracker ())).(i) ) )
-       in
+       (* Circuit body — hash checks *)
+       let acc_hash = Accumulator.hash acc in
+       Step.Field.Assert.equal input_hash acc_hash ;
        let opening =
          Array_list_hasher.open_ ~lhs:lhs_hashes ~opening:[| g |] ~rhs:[||]
        in
        Step.Field.Assert.equal acc.state.g_digest opening ;
+       (* Multiply f by g and Frobenius powers (computed in-circuit) *)
+       let f = acc.state.f in
        let f = Fp12.mul f g in
-       (* Frobenius powers of c_inv and c *)
-       let c_inv_frob_p =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_c_inv_frob_p (Circuit_config.get_tracker ()) )
+       let f =
+         Fp12.mul f (Fp12.frobenius_pow_p acc.proof.c_inv)
        in
-       let f = Fp12.mul f c_inv_frob_p in
-       let c_frob_p2 =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_c_frob_p2 (Circuit_config.get_tracker ()) )
+       let f =
+         Fp12.mul f (Fp12.frobenius_pow_p_squared acc.proof.c_fp12)
        in
-       let f = Fp12.mul f c_frob_p2 in
-       let c_inv_frob_p3 =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_c_inv_frob_p3 (Circuit_config.get_tracker ()) )
+       let f =
+         Fp12.mul f (Fp12.frobenius_pow_p_cubed acc.proof.c_inv)
        in
-       let f = Fp12.mul f c_inv_frob_p3 in
-       (* Multiply by alpha_beta from the verification key *)
-       let alpha_beta =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_alpha_beta (Circuit_config.get_tracker ()) )
-       in
-       let f = Fp12.mul f alpha_beta in
-       (* Apply shift_power correction: multiply by w27^shift_power *)
-       let w27 =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_w27 (Circuit_config.get_tracker ()) )
-       in
-       let w27_sq =
-         Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-             WT.get_w27_square (Circuit_config.get_tracker ()) )
-       in
+       (* Multiply by alpha_beta from VK (circuit constant) *)
+       let f = Fp12.mul f vk.alpha_beta in
+       (* Apply shift_power: select shift value first, then multiply once *)
        let is_0 =
          Step.Field.equal acc.proof.shift_power (Step.Field.of_int 0)
        in
@@ -299,13 +286,12 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        Step.Boolean.Assert.is_true
          (Step.Boolean.( ||| ) is_0 (Step.Boolean.( ||| ) is_1 is_2)) ;
-       let f_shifted_1 = Fp12.mul f w27 in
-       let f_shifted_2 = Fp12.mul f w27_sq in
-       let result = select_fp12 is_1 f_shifted_1 f in
-       let result = select_fp12 is_2 f_shifted_2 result in
-       (* Assert the final result equals Fp12.one — the pairing check *)
-       Fp12.assert_one result ;
-       (* Domain transition: output hash of PI point, not accumulator *)
+       let shift = select_fp12 is_1 vk.w27 Fp12.one in
+       let shift = select_fp12 is_2 vk.w27_sq shift in
+       let f = Fp12.mul f shift in
+       (* Assert final result equals Fp12.one *)
+       Fp12.assert_one f ;
+       (* Domain transition: output hash of PI point *)
        hash_g1 acc.proof.pi
   | 14 ->
       (* VK IC accumulation (partial): ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2].
