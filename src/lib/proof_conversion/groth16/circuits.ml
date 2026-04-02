@@ -308,31 +308,16 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          Accumulator_hash.poseidon_hash
            (Array.concat_map pis ~f:(fun (l0, l1, l2) -> [| l0; l1; l2 |]))
        in
-       (* Witness IC points from VK (constants) *)
-       let ic0 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 0) )
-       in
-       let ic1 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 1) )
-       in
-       let ic2 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 2) )
-       in
-       let ic3 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 3) )
-       in
-       (* In-circuit scalar multiplication: ic_i * pis[i-1] *)
-       let scaled1 = G1.scale ic1 pis.(0) in
-       let scaled2 = G1.scale ic2 pis.(1) in
-       let scaled3 = G1.scale ic3 pis.(2) in
-       (* In-circuit accumulation: ic0 + scaled1 + scaled2 + scaled3 *)
-       let partial_acc = G1.add_nonzero ic0 scaled1 in
-       let partial_acc = G1.add_nonzero partial_acc scaled2 in
-       let partial_acc = G1.add_nonzero partial_acc scaled3 in
+       (* IC points from VK (circuit constants, not witnessed) *)
+       let ic0 = vk.ic.(0) in
+       let ic1 = vk.ic.(1) in
+       let ic2 = vk.ic.(2) in
+       let ic3 = vk.ic.(3) in
+       (* In-circuit: acc = ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2] *)
+       let acc = { G1.Circuit.x = ic0.x; y = ic0.y } in
+       let acc = G1.add acc (G1.scale ic1 pis.(0)) in
+       let acc = G1.add acc (G1.scale ic2 pis.(1)) in
+       let partial_acc = G1.add acc (G1.scale ic3 pis.(2)) in
        (* Output: hash([pi_hash, pis_hash, acc_hash]) *)
        let acc_hash = hash_g1 partial_acc in
        Accumulator_hash.poseidon_hash [| input_hash; pis_hash; acc_hash |]
@@ -368,20 +353,12 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          Accumulator_hash.poseidon_hash [| pi_hash; pis_hash; acc_hash_input |]
        in
        Step.Field.Assert.equal input_hash expected_input ;
-       (* In-circuit scalar multiplication for remaining IC points *)
-       let ic4 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 4) )
-       in
-       let ic5 =
-         Step.exists G1.Circuit.typ ~compute:(fun () ->
-             g1_of_tracker (WT.get_ic (Circuit_config.get_tracker ()) 5) )
-       in
-       let scaled4 = G1.scale ic4 pis.(3) in
-       let scaled5 = G1.scale ic5 pis.(4) in
-       (* Complete accumulation *)
-       let full_acc = G1.add_nonzero partial_acc scaled4 in
-       let full_acc = G1.add_nonzero full_acc scaled5 in
+       (* IC points from VK (circuit constants) *)
+       let ic4 = vk.ic.(4) in
+       let ic5 = vk.ic.(5) in
+       (* In-circuit: acc + ic4*pis[3] + ic5*pis[4] *)
+       let full_acc = G1.add partial_acc (G1.scale ic4 pis.(3)) in
+       let full_acc = G1.add full_acc (G1.scale ic5 pis.(4)) in
        (* Assert computed IC accumulation equals the proof's PI *)
        FF.assert_equal (FF.FpA.to_field3 full_acc.x) (FF.FpA.to_field3 pi.x) ;
        FF.assert_equal (FF.FpA.to_field3 full_acc.y) (FF.FpA.to_field3 pi.y) ;

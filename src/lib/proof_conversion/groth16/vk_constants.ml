@@ -17,7 +17,7 @@ type t =
   ; alpha_beta : Fp12.Circuit.t  (** VK.alpha_beta as circuit constant *)
   ; w27 : Fp12.Circuit.t  (** VK.w27 as circuit constant *)
   ; w27_sq : Fp12.Circuit.t  (** VK.w27^2 as circuit constant *)
-  ; ic : G1.Constant.t array
+  ; ic : G1.Circuit.t array  (** VK IC points as circuit constants *)
   }
 
 (** Compute all line coefficients from a G2 point.  Produces the
@@ -63,5 +63,5 @@ let create (vk : Proof_json.vk) : t =
   ; alpha_beta = Fp12.of_constant vk.alpha_beta
   ; w27 = Fp12.of_constant w27_const
   ; w27_sq = Fp12.of_constant w27_sq_const
-  ; ic = vk.ic
+  ; ic = Array.map vk.ic ~f:G1.of_constant
   }
