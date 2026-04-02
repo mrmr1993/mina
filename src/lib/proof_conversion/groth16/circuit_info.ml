@@ -32,28 +32,6 @@ let get_gate_count ~(vk : Vk_constants.t) ~(n : int) : int =
 
 (** Report circuit information for all 16 Groth16 circuits. *)
 let report_all ~(vk : Vk_constants.t) () =
-  printf "Groth16 Circuit Information\n" ;
-  printf "==========================\n" ;
-  printf "%-8s %-20s %s\n" "Circuit" "Description" "Status" ;
-  let descriptions =
-    [| "ate loop (12 iters)"
-     ; "ate loop (11 iters)"
-     ; "ate loop (11 iters)"
-     ; "ate loop (12 iters)"
-     ; "ate loop (12 iters)"
-     ; "ate loop (6 iters)"
-     ; "Frobenius corrections"
-     ; "f-update (10 sq)"
-     ; "f-update (10 sq)"
-     ; "f-update (10 sq)"
-     ; "f-update (10 sq)"
-     ; "f-update (10 sq)"
-     ; "f-update (12 sq)"
-     ; "final exponentiation"
-     ; "Fp multiplication"
-     ; "pairing check"
-    |]
-  in
   let circuits =
     match Stdlib.Sys.getenv_opt "COMPILE_ZKP" with
     | Some s ->
@@ -62,8 +40,4 @@ let report_all ~(vk : Vk_constants.t) () =
     | None ->
         Array.init Circuits.num_circuits ~f:Fn.id
   in
-  Array.iter circuits ~f:(fun n ->
-      printf "  zkp%-3d %-20s compiling... %!" n descriptions.(n) ;
-      let _count = get_gate_count ~vk ~n in
-      printf "done\n%!" ) ;
-  printf "\nUse DUMP_PCS_GATES=<dir> for full gate JSON dumps.\n"
+  Array.iter circuits ~f:(fun n -> ignore (get_gate_count ~vk ~n : int))

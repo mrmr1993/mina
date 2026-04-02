@@ -124,32 +124,25 @@ let compress
     ~(hash_pairs : (Step.Field.Constant.t * Step.Field.Constant.t) array) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   assert (Array.length hash_pairs = 16) ;
-  printf "Compression tree: 16 → 8 → 4 → 2 → 1\n%!" ;
   (* Layer 1: combine pairs *)
-  printf "  Layer 1 (8 nodes)... %!" ;
   let layer1_hashes =
     Array.init 8 ~f:(fun i ->
         let left_in, left_out = hash_pairs.(i * 2) in
         let right_in, right_out = hash_pairs.((i * 2) + 1) in
         fst (prove_layer1 ~left_in ~left_out ~right_in ~right_out) )
   in
-  printf "done\n%!" ;
   (* Layer 2-4: merge pairs *)
   let current = ref layer1_hashes in
   for layer = 2 to 4 do
     let n = Array.length !current in
-    printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
     current :=
       Array.init (n / 2) ~f:(fun i ->
           fst
             (prove_merge
                ~left:!current.(i * 2)
                ~right:!current.((i * 2) + 1)
-               ~layer ) ) ;
-    printf "done\n%!"
+               ~layer ) )
   done ;
   let final_hash = !current.(0) in
-  printf "  Final hash: %s\n%!" (Kimchi_pasta.Pasta.Fp.to_string final_hash) ;
-  (* Return final hash with a dummy proof for now *)
   let _, proof = prove_merge ~left:final_hash ~right:final_hash ~layer:5 in
   (final_hash, proof)

@@ -131,19 +131,18 @@ let test_miller_loop () =
     let tracker = WT.create ~proof ~vk ~aux in
     (* Check that g_values were computed *)
     let g_vals = WT.get_g_values tracker in
-    printf "g_values=%d... " (Array.length g_vals) ;
     assert (Array.length g_vals > 0) ;
     (* Check f is not identity (it should have changed from 1) *)
     let f = WT.get_f tracker in
     let (f00, _, _), _ = f in
     let f00_is_one = Bignum_bigint.(fst f00 = one && snd f00 = zero) in
-    printf "f00_is_one=%b... " f00_is_one ;
-    (* The Miller loop result should not be the identity *)
+    assert (not f00_is_one) ;
+    (* The first g value should not be identity either *)
     let g0 = WT.get_f_at_iteration tracker 0 in
     let (g00, _, _), _ = g0 in
     let g00_is_one = Bignum_bigint.(fst g00 = one && snd g00 = zero) in
-    printf "g0_is_one=%b... " g00_is_one ;
-    printf "✓\n"
+    assert (not g00_is_one) ;
+    printf "OK\n"
 
 let test_witness_tracker_creation () =
   printf "Testing witness tracker with real proof data... %!" ;

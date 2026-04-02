@@ -22,7 +22,6 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
 
 let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
-  printf "  [plonk-zkp%d] compiling... %!" n ;
   let rule = make_rule ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
@@ -37,7 +36,6 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  printf "proving... %!" ;
   let output, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove [| input_hash |])
   in
@@ -48,14 +46,13 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
   in
   ( match verified with
   | Ok () ->
-      printf "verified ✓\n%!"
+      ()
   | Error e ->
-      printf "VERIFY FAILED: %s\n%!" (Error.to_string_hum e) ) ;
+      failwith
+        (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof)
 
 let compile_and_prove_all () : Pickles_types.Nat.N0.n Pickles.Proof.t array =
-  printf "Compiling and proving %d PLONK circuits (chained)...\n%!"
-    Plonk_circuits.num_circuits ;
   let current_hash = ref Step.Field.Constant.zero in
   let proofs =
     Array.init Plonk_circuits.num_circuits ~f:(fun n ->
@@ -65,6 +62,4 @@ let compile_and_prove_all () : Pickles_types.Nat.N0.n Pickles.Proof.t array =
         current_hash := output_hash ;
         proof )
   in
-  printf "Final PLONK chain hash: %s\n%!"
-    (Kimchi_pasta.Pasta.Fp.to_string !current_hash) ;
   proofs

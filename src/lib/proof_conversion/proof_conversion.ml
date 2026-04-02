@@ -37,28 +37,16 @@ module Groth16 : PROOF_SYSTEM = struct
   let name = "groth16"
 
   let convert ~input_path ~output_path =
-    printf "Loading proof from %s\n" input_path ;
     let proof = Proof_json.load_proof input_path in
-    printf "Loaded proof: %d public inputs\n" (Array.length proof.public_inputs) ;
-    printf "Loading VK...\n" ;
-    (* VK path is derived from input path for now *)
     let vk_path = Filename.dirname input_path ^ "/vk.json" in
     let vk = Proof_json.load_vk vk_path in
-    printf "Loaded VK: %d IC points\n" (Array.length vk.ic) ;
     let aux_path = Filename.dirname input_path ^ "/aux_witness.json" in
     let aux = Proof_json.load_aux_witness aux_path in
     let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
     let vk_const = Vk_constants.create vk in
-    printf "Witness data prepared: %d IC points, %d public inputs\n"
-      (Witness_tracker.num_ic tracker)
-      (Witness_tracker.num_public_inputs tracker) ;
-    printf "Compiling and proving all %d circuits (chained)...\n"
-      Circuits.num_circuits ;
     let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const () in
-    printf "Generated %d proofs successfully.\n%!" (Array.length proofs) ;
     (* Run compression tree *)
-    printf "Running compression tree...\n%!" ;
     let module Step = Pickles.Impls.Step in
     let hash_pairs =
       Array.init Circuits.num_circuits ~f:(fun i ->
@@ -69,9 +57,7 @@ module Groth16 : PROOF_SYSTEM = struct
           let output = Step.Field.Constant.of_int (i + 1) in
           (input, output) )
     in
-    let final_hash, _final_proof = Compressor.compress ~hash_pairs in
-    printf "Compression complete. Final hash: %s\n"
-      (Kimchi_pasta.Pasta.Fp.to_string final_hash) ;
+    let _final_hash, _final_proof = Compressor.compress ~hash_pairs in
     (* Serialize proofs to JSON *)
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
@@ -85,24 +71,16 @@ module Groth16 : PROOF_SYSTEM = struct
         ; ("proofs", `List (Array.to_list json_proofs))
         ]
     in
-    Yojson.Safe.to_file output_path output_json ;
-    printf "Wrote %d proofs to %s\n" (Array.length proofs) output_path
+    Yojson.Safe.to_file output_path output_json
 end
 
 (** PLONK proof conversion (SP1). *)
 module Plonk : PROOF_SYSTEM = struct
   let name = "plonk"
 
-  let convert ~input_path ~output_path =
-    printf "PLONK proof conversion\n" ;
-    printf "  Input: %s\n" input_path ;
-    printf "  SHA-256: %d round constants\n" (Array.length Sha256.k) ;
-    printf "Compiling and proving %d PLONK circuits...\n"
-      Plonk_circuits.num_circuits ;
+  let convert ~input_path:_ ~output_path =
     let proofs = Plonk_pickles_rules.compile_and_prove_all () in
-    printf "Generated %d PLONK proofs.\n%!" (Array.length proofs) ;
     (* Run compression tree *)
-    printf "Running PLONK compression tree...\n%!" ;
     let module Step = Pickles.Impls.Step in
     let hash_pairs =
       Array.init Plonk_circuits.num_circuits ~f:(fun i ->
@@ -120,28 +98,23 @@ module Plonk : PROOF_SYSTEM = struct
           else (Step.Field.Constant.zero, Step.Field.Constant.zero) )
     in
     (* Layer 1: 16 nodes *)
-    Printf.printf "  Layer 1 (16 nodes)... %!" ;
     let layer1 =
       Array.init 16 ~f:(fun i ->
           let left_in, left_out = padded.(i * 2) in
           let right_in, right_out = padded.((i * 2) + 1) in
           fst (Compressor.prove_layer1 ~left_in ~left_out ~right_in ~right_out) )
     in
-    Printf.printf "done\n%!" ;
     let current = ref layer1 in
     for layer = 2 to 5 do
       let n = Array.length !current in
-      Printf.printf "  Layer %d (%d nodes)... %!" layer (n / 2) ;
       current :=
         Array.init (n / 2) ~f:(fun i ->
             fst
               (Compressor.prove_merge
                  ~left:!current.(i * 2)
                  ~right:!current.((i * 2) + 1)
-                 ~layer ) ) ;
-      Printf.printf "done\n%!"
+                 ~layer ) )
     done ;
-    Printf.printf "  PLONK compression complete.\n%!" ;
     let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->
@@ -154,6 +127,5 @@ module Plonk : PROOF_SYSTEM = struct
         ; ("proofs", `List (Array.to_list json_proofs))
         ]
     in
-    Yojson.Safe.to_file output_path output_json ;
-    printf "Wrote %d proofs to %s\n" (Array.length proofs) output_path
+    Yojson.Safe.to_file output_path output_json
 end
