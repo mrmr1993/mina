@@ -358,15 +358,18 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
   | 14 ->
       (* VK IC accumulation (partial): ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2].
          Input is the PI hash from zkp13 (not an accumulator hash).
-         Outputs hash([input, pis_hash, acc_hash]). *)
+         Outputs hash([input, pis_hash, acc_hash]).
+         Mirrors nori zkp14: pis witnessed as FrC (canonical over r),
+         result point assertCanonical'd before hashing. *)
       fun input_hash ->
-       (* Witness the 5 public inputs *)
+       (* Witness the 5 public inputs as canonical scalars (FrC) *)
        let pis =
          Array.init 5 ~f:(fun i ->
-             Step.exists FF.Field3.typ ~compute:(fun () ->
+             Step.exists (FF.FpC.typ ~f:Bn254_params.r) ~compute:(fun () ->
                  WT.get_public_input (Circuit_config.get_tracker ()) i ) )
        in
-       let pis_hash = hash_packed_field3_array pis in
+       let pis_f3 = Array.map pis ~f:FF.FpC.to_field3 in
+       let pis_hash = hash_packed_field3_array pis_f3 in
        (* IC points from VK (circuit constants, not witnessed) *)
        let ic0 = vk.ic.(0) in
        let ic1 = vk.ic.(1) in
@@ -374,18 +377,32 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let ic3 = vk.ic.(3) in
        (* In-circuit: acc = ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2] *)
        let acc = { G1.Circuit.x = ic0.x; y = ic0.y } in
-       let acc = G1.add acc (G1.scale ic1 pis.(0)) in
-       let acc = G1.add acc (G1.scale ic2 pis.(1)) in
-       let partial_acc = G1.add acc (G1.scale ic3 pis.(2)) in
-       (* Output: hash([pi_hash, pis_hash, acc_hash]) *)
-       let acc_hash = hash_g1 partial_acc in
+       let acc = G1.add acc (G1.scale ic1 pis_f3.(0)) in
+       let acc = G1.add acc (G1.scale ic2 pis_f3.(1)) in
+       let partial_acc = G1.add acc (G1.scale ic3 pis_f3.(2)) in
+       (* assertCanonical on result point, matching nori *)
+       let acc_x =
+         FF.FpC.assert_canonical partial_acc.x ~f:Bn254_params.p
+       in
+       let acc_y =
+         FF.FpC.assert_canonical partial_acc.y ~f:Bn254_params.p
+       in
+       let acc_pt =
+         { G1.Circuit.x = FF.FpC.to_fpa acc_x
+         ; y = FF.FpC.to_fpa acc_y
+         }
+       in
+       (* Output: hash([input, pis_hash, acc_hash]) *)
+       let acc_hash = hash_g1 acc_pt in
        Accumulator_hash.poseidon_hash [| input_hash; pis_hash; acc_hash |]
   | 15 ->
       (* Final IC accumulation: partial_acc + ic4*pis[3] + ic5*pis[4].
          Asserts the result equals PI from the original proof.
-         Input chains from zkp14 output. *)
+         Input chains from zkp14 output.
+         Mirrors nori zkp15: witnesses PI, acc, pis as separate inputs;
+         result assertCanonical'd then assertEquals'd against PI. *)
       fun input_hash ->
-       (* Witness PI and partial accumulator *)
+       (* Witness PI and partial accumulator as G1Affine *)
        let pi =
          Step.exists G1.Circuit.typ ~compute:(fun () ->
              let tracker = Circuit_config.get_tracker () in
@@ -396,14 +413,16 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
              g1_of_tracker
                (WT.get_partial_ic_acc (Circuit_config.get_tracker ())) )
        in
+       (* Witness pis as canonical scalars (FrC) *)
        let pis =
          Array.init 5 ~f:(fun i ->
-             Step.exists FF.Field3.typ ~compute:(fun () ->
+             Step.exists (FF.FpC.typ ~f:Bn254_params.r) ~compute:(fun () ->
                  WT.get_public_input (Circuit_config.get_tracker ()) i ) )
        in
+       let pis_f3 = Array.map pis ~f:FF.FpC.to_field3 in
        (* Verify input hash: hash([pi_hash, pis_hash, acc_hash]) *)
        let pi_hash = hash_g1 pi in
-       let pis_hash = hash_packed_field3_array pis in
+       let pis_hash = hash_packed_field3_array pis_f3 in
        let acc_hash_input = hash_g1 partial_acc in
        let expected_input =
          Accumulator_hash.poseidon_hash [| pi_hash; pis_hash; acc_hash_input |]
@@ -413,11 +432,13 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let ic4 = vk.ic.(4) in
        let ic5 = vk.ic.(5) in
        (* In-circuit: acc + ic4*pis[3] + ic5*pis[4] *)
-       let full_acc = G1.add partial_acc (G1.scale ic4 pis.(3)) in
-       let full_acc = G1.add full_acc (G1.scale ic5 pis.(4)) in
-       (* Assert computed IC accumulation equals the proof's PI *)
-       FF.assert_equal (FF.FpA.to_field3 full_acc.x) (FF.FpA.to_field3 pi.x) ;
-       FF.assert_equal (FF.FpA.to_field3 full_acc.y) (FF.FpA.to_field3 pi.y) ;
+       let full_acc = G1.add partial_acc (G1.scale ic4 pis_f3.(3)) in
+       let full_acc = G1.add full_acc (G1.scale ic5 pis_f3.(4)) in
+       (* assertCanonical on result, then assertEquals against PI *)
+       let res_x = FF.FpC.assert_canonical full_acc.x ~f:Bn254_params.p in
+       let res_y = FF.FpC.assert_canonical full_acc.y ~f:Bn254_params.p in
+       FF.assert_equal (FF.FpC.to_field3 res_x) (FF.FpA.to_field3 pi.x) ;
+       FF.assert_equal (FF.FpC.to_field3 res_y) (FF.FpA.to_field3 pi.y) ;
        (* Output pis_hash *)
        pis_hash
   | n ->
