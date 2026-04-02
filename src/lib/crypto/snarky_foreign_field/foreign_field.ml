@@ -1036,7 +1036,10 @@ let bool_and (a : Circuit.Boolean.var) (b : Circuit.Boolean.var) :
   Circuit.assert_ (R1CS ((a :> Circuit.Field.t), (b :> Circuit.Field.t), r)) ;
   Circuit.Boolean.Unsafe.of_cvar r
 
-(** Check if a circuit field variable equals a bignum constant. *)
+(** Check if a circuit field variable equals another field variable.
+    Matches o1js's Field.equals() gate sequence exactly:
+    seal(x-y), exists [b,z] as raw fields (no boolean check),
+    assertMul(b, diff, 0), assertMul(z, diff, 1-b). *)
 let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
     Circuit.Boolean.var =
   match (Circuit.Field.to_constant x, Circuit.Field.to_constant y) with
@@ -1045,24 +1048,26 @@ let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
       else Circuit.Boolean.false_
   | _ ->
       let diff = seal Circuit.Field.(x - y) in
-      let r =
-        Circuit.exists Circuit.Boolean.typ ~compute:(fun () ->
-            let dv = Circuit.As_prover.read_var diff in
-            Circuit.Field.Constant.(equal dv zero) )
-      in
-      let z =
-        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+      (* Allocate b and z as raw fields — no Boolean check constraint.
+         o1js uses exists(2, ...) + Bool.Unsafe.fromField, which skips
+         the boolean constraint since R1CS constraints already imply it. *)
+      let b, z =
+        Circuit.exists
+          Circuit.Typ.(tuple2 field field)
+          ~compute:(fun () ->
             let dv = Circuit.As_prover.read_var diff in
             if Circuit.Field.Constant.(equal dv zero) then
-              Circuit.Field.Constant.zero
-            else Circuit.Field.Constant.(inv dv) )
+              (Circuit.Field.Constant.one, Circuit.Field.Constant.zero)
+            else
+              ( Circuit.Field.Constant.zero
+              , Circuit.Field.Constant.(inv dv) ) )
       in
       (* b * diff = 0 (if b=true then diff must be 0) *)
-      Circuit.assert_ (R1CS ((r :> Circuit.Field.t), diff, Circuit.Field.zero)) ;
+      Circuit.assert_ (R1CS (b, diff, Circuit.Field.zero)) ;
       (* z * diff = 1 - b (if diff != 0 then b must be false) *)
       Circuit.assert_
-        (R1CS (z, diff, Circuit.Field.(constant Constant.one - (r :> t)))) ;
-      r
+        (R1CS (z, diff, Circuit.Field.(constant Constant.one - b))) ;
+      Circuit.Boolean.Unsafe.of_cvar b
 
 let field_equal (x : Circuit.Field.t) (c : Bignum_bigint.t) :
     Circuit.Boolean.var =

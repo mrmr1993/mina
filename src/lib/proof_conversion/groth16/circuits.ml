@@ -333,15 +333,18 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        in
        (* Multiply by alpha_beta from VK (circuit constant) *)
        let f = Fp12.mul f vk.alpha_beta in
-       (* Apply shift_power: Provable.switch pattern matching nori *)
+       (* Apply shift_power: Provable.switch pattern matching nori.
+          Use field_var_equal (seals diff first) to match o1js's equals()
+          which calls .seal() before assertMul, avoiding redundant
+          reduce_lincom sealing in each R1CS constraint. *)
        let is_0 =
-         Step.Field.equal acc.proof.shift_power (Step.Field.of_int 0)
+         FF.field_var_equal acc.proof.shift_power (Step.Field.of_int 0)
        in
        let is_1 =
-         Step.Field.equal acc.proof.shift_power (Step.Field.of_int 1)
+         FF.field_var_equal acc.proof.shift_power (Step.Field.of_int 1)
        in
        let is_2 =
-         Step.Field.equal acc.proof.shift_power (Step.Field.of_int 2)
+         FF.field_var_equal acc.proof.shift_power (Step.Field.of_int 2)
        in
        let shift =
          switch_fp12 [| is_0; is_1; is_2 |]
