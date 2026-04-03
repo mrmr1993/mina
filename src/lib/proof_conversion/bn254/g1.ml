@@ -395,13 +395,13 @@ let glv_decompose (s : FF.Field3.t) :
       Bignum_bigint.((r - lambda) % r) in
   let lambda_f3 = FF.Field3.of_constant lambda in
   let lambda_sel =
-    ( Step.Field.if_ (Step.Boolean.Unsafe.of_cvar s1_neg)
+    ( FF.if_field s1_neg
         ~then_:(let l0, _, _ = neg_lambda in l0)
         ~else_:(let l0, _, _ = lambda_f3 in l0)
-    , Step.Field.if_ (Step.Boolean.Unsafe.of_cvar s1_neg)
+    , FF.if_field s1_neg
         ~then_:(let _, l1, _ = neg_lambda in l1)
         ~else_:(let _, l1, _ = lambda_f3 in l1)
-    , Step.Field.if_ (Step.Boolean.Unsafe.of_cvar s1_neg)
+    , FF.if_field s1_neg
         ~then_:(let _, _, l2 = neg_lambda in l2)
         ~else_:(let _, _, l2 = lambda_f3 in l2) )
   in
@@ -422,19 +422,18 @@ let glv_decompose (s : FF.Field3.t) :
         let s_minus_s0 =
           FF.Sum.finish_simple (FF.Sum.sub (FF.Sum.of_field3 s) s0) ~f:r
         in
-        let b = Step.Boolean.Unsafe.of_cvar s0_neg in
         let rhs0 =
-          Step.Field.if_ b
+          FF.if_field s0_neg
             ~then_:(let l0, _, _ = s_plus_s0 in l0)
             ~else_:(let l0, _, _ = s_minus_s0 in l0)
         in
         let rhs1 =
-          Step.Field.if_ b
+          FF.if_field s0_neg
             ~then_:(let _, l1, _ = s_plus_s0 in l1)
             ~else_:(let _, l1, _ = s_minus_s0 in l1)
         in
         let rhs2 =
-          Step.Field.if_ b
+          FF.if_field s0_neg
             ~then_:(let _, _, l2 = s_plus_s0 in l2)
             ~else_:(let _, _, l2 = s_minus_s0 in l2)
         in
@@ -636,12 +635,11 @@ let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
   let neg_y = FpA.neg pt.y ~f:p in
   let y0_n, y1_n, y2_n = FpA.to_field3 neg_y in
   let y0_p, y1_p, y2_p = FpA.to_field3 pt.y in
-  let b = Step.Boolean.Unsafe.of_cvar cond in
   let y : FpA.t =
     FpA.of_field3_unsafe
-      ( Step.Field.if_ b ~then_:y0_n ~else_:y0_p
-      , Step.Field.if_ b ~then_:y1_n ~else_:y1_p
-      , Step.Field.if_ b ~then_:y2_n ~else_:y2_p )
+      ( FF.if_field cond ~then_:y0_n ~else_:y0_p
+      , FF.if_field cond ~then_:y1_n ~else_:y1_p
+      , FF.if_field cond ~then_:y2_n ~else_:y2_p )
   in
   { x = pt.x; y }
 
@@ -725,14 +723,15 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let sj0_pt = array_get_point table0 sj0 in
       let added0 = add !sum sj0_pt in
       let is_zero0 = Step.Field.equal sj0 Step.Field.zero in
-      let sel_if0 cond (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+      let sel_if0 (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+        let c = (cond :> Step.Field.t) in
         let sel_fpa fa fb =
           let a0, a1, a2 = FpA.to_field3 fa in
           let b0, b1, b2 = FpA.to_field3 fb in
           FpA.of_field3_unsafe
-            ( Step.Field.if_ cond ~then_:b0 ~else_:a0
-            , Step.Field.if_ cond ~then_:b1 ~else_:a1
-            , Step.Field.if_ cond ~then_:b2 ~else_:a2 )
+            ( FF.if_field c ~then_:b0 ~else_:a0
+            , FF.if_field c ~then_:b1 ~else_:a1
+            , FF.if_field c ~then_:b2 ~else_:a2 )
         in
         { x = sel_fpa a.x b.x; y = sel_fpa a.y b.y }
       in
@@ -742,14 +741,15 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let sj1_pt = array_get_point table1 sj1 in
       let added1 = add !sum sj1_pt in
       let is_zero1 = Step.Field.equal sj1 Step.Field.zero in
-      let sel_if cond (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+      let sel_if (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+        let c = (cond :> Step.Field.t) in
         let sel_fpa fa fb =
           let a0, a1, a2 = FpA.to_field3 fa in
           let b0, b1, b2 = FpA.to_field3 fb in
           FpA.of_field3_unsafe
-            ( Step.Field.if_ cond ~then_:b0 ~else_:a0
-            , Step.Field.if_ cond ~then_:b1 ~else_:a1
-            , Step.Field.if_ cond ~then_:b2 ~else_:a2 )
+            ( FF.if_field c ~then_:b0 ~else_:a0
+            , FF.if_field c ~then_:b1 ~else_:a1
+            , FF.if_field c ~then_:b2 ~else_:a2 )
         in
         { x = sel_fpa a.x b.x; y = sel_fpa a.y b.y }
       in

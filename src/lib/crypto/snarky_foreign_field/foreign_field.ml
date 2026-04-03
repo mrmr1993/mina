@@ -291,6 +291,14 @@ let seal (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (x, v)) ;
       v
 
+(** Matches o1js's ifField: b*(x - y) + y, sealed.
+    Unlike snarky's Field.if_ which uses an R1CS constraint with a different
+    layout, this computes the linear combination then seals it, producing
+    the same gate sequence as o1js. *)
+let if_field (b : Circuit.Field.t) ~(then_ : Circuit.Field.t)
+    ~(else_ : Circuit.Field.t) : Circuit.Field.t =
+  seal Circuit.Field.(b * (then_ - else_) + else_)
+
 (** Convert to a simple variable, sealing if compound. *)
 let to_var (x : Circuit.Field.t) : Circuit.Field.t =
   match Circuit.Field.to_constant_and_terms x with
