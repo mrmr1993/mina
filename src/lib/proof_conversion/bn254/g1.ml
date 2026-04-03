@@ -395,15 +395,19 @@ let glv_decompose (s : FF.Field3.t) :
       Bignum_bigint.((r - lambda) % r) in
   let lambda_f3 = FF.Field3.of_constant lambda in
   let lambda_sel =
-    ( FF.if_field s1_neg
+    let l0 = FF.if_field s1_neg
         ~then_:(let l0, _, _ = neg_lambda in l0)
         ~else_:(let l0, _, _ = lambda_f3 in l0)
-    , FF.if_field s1_neg
+    in
+    let l1 = FF.if_field s1_neg
         ~then_:(let _, l1, _ = neg_lambda in l1)
         ~else_:(let _, l1, _ = lambda_f3 in l1)
-    , FF.if_field s1_neg
+    in
+    let l2 = FF.if_field s1_neg
         ~then_:(let _, _, l2 = neg_lambda in l2)
-        ~else_:(let _, _, l2 = lambda_f3 in l2) )
+        ~else_:(let _, _, l2 = lambda_f3 in l2)
+    in
+    (l0, l1, l2)
   in
   let rhs =
     (* rhs = s - s0 or s + s0 depending on s0_neg.
@@ -635,12 +639,10 @@ let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
   let neg_y = FpA.neg pt.y ~f:p in
   let y0_n, y1_n, y2_n = FpA.to_field3 neg_y in
   let y0_p, y1_p, y2_p = FpA.to_field3 pt.y in
-  let y : FpA.t =
-    FpA.of_field3_unsafe
-      ( FF.if_field cond ~then_:y0_n ~else_:y0_p
-      , FF.if_field cond ~then_:y1_n ~else_:y1_p
-      , FF.if_field cond ~then_:y2_n ~else_:y2_p )
-  in
+  let yl0 = FF.if_field cond ~then_:y0_n ~else_:y0_p in
+  let yl1 = FF.if_field cond ~then_:y1_n ~else_:y1_p in
+  let yl2 = FF.if_field cond ~then_:y2_n ~else_:y2_p in
+  let y : FpA.t = FpA.of_field3_unsafe (yl0, yl1, yl2) in
   { x = pt.x; y }
 
 (* --- Initial aggregator ------------------------------------------------ *)
@@ -723,37 +725,27 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let sj0_pt = array_get_point table0 sj0 in
       let added0 = add !sum sj0_pt in
       let is_zero0 = FF.field_var_equal sj0 Step.Field.zero in
-      let sel_if0 (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+      let sel_if_pt (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
         let c = (cond :> Step.Field.t) in
         let sel_fpa fa fb =
           let a0, a1, a2 = FpA.to_field3 fa in
           let b0, b1, b2 = FpA.to_field3 fb in
-          FpA.of_field3_unsafe
-            ( FF.if_field c ~then_:b0 ~else_:a0
-            , FF.if_field c ~then_:b1 ~else_:a1
-            , FF.if_field c ~then_:b2 ~else_:a2 )
+          let r0 = FF.if_field c ~then_:b0 ~else_:a0 in
+          let r1 = FF.if_field c ~then_:b1 ~else_:a1 in
+          let r2 = FF.if_field c ~then_:b2 ~else_:a2 in
+          FpA.of_field3_unsafe (r0, r1, r2)
         in
-        { x = sel_fpa a.x b.x; y = sel_fpa a.y b.y }
+        let x = sel_fpa a.x b.x in
+        let y = sel_fpa a.y b.y in
+        { x; y }
       in
-      sum := sel_if0 is_zero0 added0 !sum ;
+      sum := sel_if_pt is_zero0 added0 !sum ;
       (* Add from table1 *)
       let sj1 = chunks1.(chunk_idx) in
       let sj1_pt = array_get_point table1 sj1 in
       let added1 = add !sum sj1_pt in
       let is_zero1 = FF.field_var_equal sj1 Step.Field.zero in
-      let sel_if (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-        let c = (cond :> Step.Field.t) in
-        let sel_fpa fa fb =
-          let a0, a1, a2 = FpA.to_field3 fa in
-          let b0, b1, b2 = FpA.to_field3 fb in
-          FpA.of_field3_unsafe
-            ( FF.if_field c ~then_:b0 ~else_:a0
-            , FF.if_field c ~then_:b1 ~else_:a1
-            , FF.if_field c ~then_:b2 ~else_:a2 )
-        in
-        { x = sel_fpa a.x b.x; y = sel_fpa a.y b.y }
-      in
-      sum := sel_if is_zero1 added1 !sum ) ;
+      sum := sel_if_pt is_zero1 added1 !sum ) ;
     if i > 0 then sum := double !sum
   done ;
 
