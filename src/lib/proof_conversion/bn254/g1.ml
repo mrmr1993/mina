@@ -759,24 +759,38 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
 
   (* 5. Final correction: subtract 2^127 * IA *)
   let ia_neg = of_constant { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) } in
-  (* Assert sum != iaFinal (the result is non-zero) *)
-  let ia_f = of_constant ia_final in
-  let x_eq =
-    let x0, x1, x2 = FpA.to_field3 !sum.x in
-    let a0, a1, a2 = FpA.to_field3 ia_f.x in
-    let e0 = Step.Field.equal x0 a0 in
-    let e1 = Step.Field.equal x1 a1 in
-    let e2 = Step.Field.equal x2 a2 in
-    Step.Boolean.( &&& ) e0 (Step.Boolean.( &&& ) e1 e2)
+  (* Assert sum != iaFinal (the result is non-zero).
+     Matches nori's equals(sum, iaFinal, Curve) which uses
+     ForeignField.equals per coordinate: pack x01 = x0 + x1*2^88,
+     then check (x01, x2) == (c01, c2) or (c01+f01, c2+f2). *)
+  let ff_equals (x : FpA.t) (c : Bignum_bigint.t) : Step.Boolean.var =
+    let x0, x1, x2 = FpA.to_field3 x in
+    let x01 = FF.seal Step.Field.(x0 + (x1 * constant (FF.bignum_to_field_const FF.two_to_limb))) in
+    let l2_mask = Bignum_bigint.(FF.two_to_2limb - one) in
+    let two_l = Int.( * ) 2 FF.limb_bits in
+    let c01 = Bignum_bigint.(c land l2_mask) in
+    let c2 = Bignum_bigint.(shift_right c two_l) in
+    let c_plus_f = Bignum_bigint.(c + p) in
+    let cpf01 = Bignum_bigint.(c_plus_f land l2_mask) in
+    let cpf2 = Bignum_bigint.(shift_right c_plus_f two_l) in
+    let is_c =
+      let e01 = FF.field_var_equal x01
+          (Step.Field.constant (FF.bignum_to_field_const c01)) in
+      let e2 = FF.field_var_equal x2
+          (Step.Field.constant (FF.bignum_to_field_const c2)) in
+      Step.Boolean.( &&& ) e01 e2
+    in
+    let is_cpf =
+      let e01 = FF.field_var_equal x01
+          (Step.Field.constant (FF.bignum_to_field_const cpf01)) in
+      let e2 = FF.field_var_equal x2
+          (Step.Field.constant (FF.bignum_to_field_const cpf2)) in
+      Step.Boolean.( &&& ) e01 e2
+    in
+    Step.Boolean.( ||| ) is_c is_cpf
   in
-  let y_eq =
-    let y0, y1, y2 = FpA.to_field3 !sum.y in
-    let a0, a1, a2 = FpA.to_field3 ia_f.y in
-    let e0 = Step.Field.equal y0 a0 in
-    let e1 = Step.Field.equal y1 a1 in
-    let e2 = Step.Field.equal y2 a2 in
-    Step.Boolean.( &&& ) e0 (Step.Boolean.( &&& ) e1 e2)
-  in
+  let x_eq = ff_equals !sum.x ia_final.x in
+  let y_eq = ff_equals !sum.y ia_final.y in
   let is_zero = Step.Boolean.( &&& ) x_eq y_eq in
   Step.Boolean.Assert.is_true (Step.Boolean.not is_zero) ;
   add !sum ia_neg

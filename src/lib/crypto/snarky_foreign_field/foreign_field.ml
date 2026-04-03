@@ -291,14 +291,6 @@ let seal (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (x, v)) ;
       v
 
-(** Matches o1js's ifField: b*(x - y) + y, sealed.
-    Unlike snarky's Field.if_ which uses an R1CS constraint with a different
-    layout, this computes the linear combination then seals it, producing
-    the same gate sequence as o1js. *)
-let if_field (b : Circuit.Field.t) ~(then_ : Circuit.Field.t)
-    ~(else_ : Circuit.Field.t) : Circuit.Field.t =
-  seal Circuit.Field.(b * (then_ - else_) + else_)
-
 (** Convert to a simple variable, sealing if compound. *)
 let to_var (x : Circuit.Field.t) : Circuit.Field.t =
   match Circuit.Field.to_constant_and_terms x with
@@ -316,6 +308,10 @@ let to_var (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (v, x)) ;
       v
 
+(** Matches o1js's ifField: b*(x - y) + y, sealed.
+    Manually reduces operands in o1js order (left→right) and emits
+    R1CS + Equal constraints directly, avoiding snarky's unspecified
+    tuple evaluation order in the R1CS handler. *)
 (** Emit a Generic gate: ql*left + qr*right + qo*out + qm*left*right + qc = 0. *)
 let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
     ~(qo : Circuit.Field.Constant.t) ~(qm : Circuit.Field.Constant.t)
@@ -352,6 +348,18 @@ let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
   (* b*x + c*y + 0*out + a*x*y + d = 0 *)
   generic ~ql:b ~qr:c ~qo:Circuit.Field.Constant.zero ~qm:a ~qc:d ~left:x
     ~right:y ~out:empty
+
+(** Matches o1js's ifField: b*(x - y) + y, sealed.
+    Uses bilinear to emit Generic gates directly, bypassing PCS
+    R1CS/Equal handlers that have unspecified evaluation order.
+    Step 1: diff = then_ - else_ (witnessed + constrained via Generic)
+    Step 2: prod = b * diff       (witnessed + constrained via Generic)
+    Step 3: result = prod + else_  (witnessed + constrained via Generic) *)
+let if_field (b : Circuit.Field.t) ~(then_ : Circuit.Field.t)
+    ~(else_ : Circuit.Field.t) : Circuit.Field.t =
+  (* Match o1js's ifField: b*(x-y)+y, sealed.
+     b.mul(x.sub(y)).add(y).seal() *)
+  seal Circuit.Field.(b * (then_ - else_) + else_)
 
 (** Assert x is one of the allowed values.
     Emits (n-1) Generic gates for n allowed values. *)
