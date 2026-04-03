@@ -416,8 +416,12 @@ let glv_decompose (s : FF.Field3.t) :
         if is_neg then FF.Sum.add (FF.Sum.of_field3 s) s0
         else FF.Sum.sub (FF.Sum.of_field3 s) s0
       else
-        let s_plus_s0 = FF.sum [ s; s0 ] [ FF.Add ] ~f:r in
-        let s_minus_s0 = FF.sum [ s; s0 ] [ FF.Sub ] ~f:r in
+        let s_plus_s0 =
+          FF.Sum.finish_simple (FF.Sum.add (FF.Sum.of_field3 s) s0) ~f:r
+        in
+        let s_minus_s0 =
+          FF.Sum.finish_simple (FF.Sum.sub (FF.Sum.of_field3 s) s0) ~f:r
+        in
         let b = Step.Boolean.Unsafe.of_cvar s0_neg in
         let rhs0 =
           Step.Field.if_ b
