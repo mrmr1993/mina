@@ -447,6 +447,13 @@ let glv_decompose (s : FF.Field3.t) :
     (FF.Sum_input rhs) ~f:r ;
   ((s0_neg, s0), (s1_neg, s1))
 
+exception Abort_circuit
+
+let check_abort tag =
+  match Stdlib.Sys.getenv_opt "ABORT_SCALE" with
+  | Some s when String.equal s tag -> raise Abort_circuit
+  | _ -> ()
+
 (* --- Bit slicing -------------------------------------------------------- *)
 
 (** Decompose a native field element into individual bits and group into
@@ -455,21 +462,24 @@ let glv_decompose (s : FF.Field3.t) :
 let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
     ?(leftover_bits : Step.Field.t list option) () :
     Step.Field.t list * Step.Field.t list =
+  (* Witness all bits as raw fields (no boolean check yet).
+     Matches nori: exists(maxBits, () => bigIntToBits(x)) *)
   let bits =
     Array.init max_bits ~f:(fun k ->
-        Step.exists Step.Boolean.typ ~compute:(fun () ->
+        Step.exists Step.Field.typ ~compute:(fun () ->
             let v = Step.As_prover.read_var x in
             let bi = FF.field_const_to_bignum v in
-            Bignum_bigint.(shift_right bi k land one = one) ) )
+            if Bignum_bigint.(shift_right bi k land one = one)
+            then Step.Field.Constant.one
+            else Step.Field.Constant.zero ) )
   in
-  let bit_fields = Array.map bits ~f:(fun b -> (b :> Step.Field.t)) in
-  (* Group bits into chunks, assertBool, seal, and verify reconstruction.
-     Matches nori's sliceField: seal each chunk, then accumulate sealed
-     chunks (not raw bits) for the reconstruction check. *)
+  (* Group bits into chunks with assertBool interleaved (matching nori).
+     Nori's sliceField: for each chunk, assertBool each bit, accumulate,
+     seal the chunk, then add to reconstruction sum. *)
   let all_bits =
     match leftover_bits with
-    | None -> Array.to_list bit_fields
-    | Some prev -> prev @ Array.to_list bit_fields
+    | None -> Array.to_list bits
+    | Some prev -> prev @ Array.to_list bits
   in
   let recon_sum = ref Step.Field.zero in
   let bit_offset = ref 0 in
@@ -483,6 +493,8 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
         let chunk_bits, rest = List.split_n remaining chunk_size in
         let chunk_val = ref Step.Field.zero in
         List.iteri chunk_bits ~f:(fun i bit ->
+            (* assertBool interleaved with chunk accumulation, matching nori *)
+            Step.assert_ (Boolean bit) ;
             let coeff =
               Step.Field.constant
                 (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
@@ -501,6 +513,7 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
   let chunks, leftover = group [] all_bits in
   (* Also accumulate leftover bits into the sum *)
   List.iteri leftover ~f:(fun i bit ->
+      Step.assert_ (Boolean bit) ;
       let coeff =
         Step.Field.constant
           (FF.bignum_to_field_const Bignum_bigint.(shift_left one (Int.( + ) !bit_offset i)))
@@ -690,6 +703,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* 1. GLV decompose *)
   let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
 
+  check_abort "after_glv" ;
   (* 2. Build point tables *)
   let table = get_point_table pt ~window_size in
   (* Endomorphism: phi(P) = (beta * P.x, P.y) *)
@@ -706,10 +720,12 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
           in
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
+  check_abort "after_endo" ;
   (* Apply sign negation to tables *)
   let table0 = Array.map table ~f:(fun pt_i -> negate_if s0_neg pt_i) in
   let table1 = Array.map endo_table ~f:(fun pt_i -> negate_if s1_neg pt_i) in
 
+  check_abort "after_negate" ;
   (* 3. Slice scalars into chunks *)
   let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in

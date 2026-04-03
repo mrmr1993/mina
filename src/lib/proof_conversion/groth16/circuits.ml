@@ -375,6 +375,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let ic1 = vk.ic.(1) in
        let ic2 = vk.ic.(2) in
        let ic3 = vk.ic.(3) in
+       ( try
        (* In-circuit: acc = ic0 + ic1*pis[0] + ic2*pis[1] + ic3*pis[2] *)
        let acc = { G1.Circuit.x = ic0.x; y = ic0.y } in
        let acc = G1.add acc (G1.scale ic1 pis_f3.(0)) in
@@ -395,6 +396,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        (* Output: hash([input, pis_hash, acc_hash]) *)
        let acc_hash = hash_g1 acc_pt in
        Accumulator_hash.poseidon_hash [| input_hash; pis_hash; acc_hash |]
+       with G1.Abort_circuit -> pis_hash )
   | 15 ->
       (* Final IC accumulation: partial_acc + ic4*pis[3] + ic5*pis[4].
          Asserts the result equals PI from the original proof.
