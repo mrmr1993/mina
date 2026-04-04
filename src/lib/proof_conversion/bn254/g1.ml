@@ -514,8 +514,15 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
           (FF.bignum_to_field_const Bignum_bigint.(shift_left one (Int.( + ) !bit_offset i)))
       in
       recon_sum := Step.Field.(!recon_sum + (bit * coeff)) ) ;
+  (* For limb 1 (has leftover), use distinct abort tags *)
+  ( if Option.is_some leftover_bits
+    then FF.check_abort "before_assertEqual_l1"
+    else FF.check_abort "before_assertEqual" ) ;
   (* Verify reconstruction: sum of sealed chunks * 2^offset = x *)
   Step.Field.Assert.equal x !recon_sum ;
+  ( if Option.is_some leftover_bits
+    then FF.check_abort "after_assertEqual_l1"
+    else FF.check_abort "after_assertEqual" ) ;
   (chunks, leftover)
 
 (** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total. *)
@@ -531,6 +538,7 @@ let slice_field3 ((l0, l1, l2) : FF.Field3.t) ~(max_bits : int)
     let chunks1, leftover1 =
       slice_field l1 ~max_bits:bits1 ~chunk_size ~leftover_bits:leftover0 ()
     in
+    FF.check_abort "after_limb1" ;
     let remaining2 = remaining - bits1 in
     if remaining2 <= 0 then Array.of_list (chunks0 @ chunks1)
     else
