@@ -10,6 +10,22 @@ module Bignum_bigint = Bigint
 module Circuit = Kimchi_pasta_snarky_backend.Step_impl
 
 (* ------------------------------------------------------------------ *)
+(* Circuit abort infrastructure for gate comparison debugging          *)
+(* ------------------------------------------------------------------ *)
+
+exception Circuit_abort
+
+let abort_enabled = ref false
+
+let enable_abort () = abort_enabled := true
+
+let check_abort tag =
+  if !abort_enabled then
+    match Stdlib.Sys.getenv_opt "ABORT_SCALE" with
+    | Some s when String.equal s tag -> raise Circuit_abort
+    | _ -> ()
+
+(* ------------------------------------------------------------------ *)
 (* Constants                                                           *)
 (* ------------------------------------------------------------------ *)
 

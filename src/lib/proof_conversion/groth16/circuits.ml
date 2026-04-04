@@ -362,6 +362,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          Mirrors nori zkp14: pis witnessed as FrC (canonical over r),
          result point assertCanonical'd before hashing. *)
       fun input_hash ->
+       FF.enable_abort () ;
        (* Witness the 5 public inputs as canonical scalars (FrC) *)
        let pis =
          Array.init 5 ~f:(fun i ->
@@ -396,7 +397,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        (* Output: hash([input, pis_hash, acc_hash]) *)
        let acc_hash = hash_g1 acc_pt in
        Accumulator_hash.poseidon_hash [| input_hash; pis_hash; acc_hash |]
-       with G1.Abort_circuit -> pis_hash )
+       with FF.Circuit_abort -> pis_hash )
   | 15 ->
       (* Final IC accumulation: partial_acc + ic4*pis[3] + ic5*pis[4].
          Asserts the result equals PI from the original proof.

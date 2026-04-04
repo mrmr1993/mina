@@ -447,13 +447,6 @@ let glv_decompose (s : FF.Field3.t) :
     (FF.Sum_input rhs) ~f:r ;
   ((s0_neg, s0), (s1_neg, s1))
 
-exception Abort_circuit
-
-let check_abort tag =
-  match Stdlib.Sys.getenv_opt "ABORT_SCALE" with
-  | Some s when String.equal s tag -> raise Abort_circuit
-  | _ -> ()
-
 (* --- Bit slicing -------------------------------------------------------- *)
 
 (** Decompose a native field element into individual bits and group into
@@ -703,7 +696,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* 1. GLV decompose *)
   let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
 
-  check_abort "after_glv" ;
+  FF.check_abort "after_glv" ;
   (* 2. Build point tables *)
   let table = get_point_table pt ~window_size in
   (* Endomorphism: phi(P) = (beta * P.x, P.y) *)
@@ -720,12 +713,12 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
           in
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
-  check_abort "after_endo" ;
+  FF.check_abort "after_endo" ;
   (* Apply sign negation to tables *)
   let table0 = Array.map table ~f:(fun pt_i -> negate_if s0_neg pt_i) in
   let table1 = Array.map endo_table ~f:(fun pt_i -> negate_if s1_neg pt_i) in
 
-  check_abort "after_negate" ;
+  FF.check_abort "after_negate" ;
   (* 3. Slice scalars into chunks *)
   let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
