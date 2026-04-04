@@ -173,11 +173,13 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
     let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
     let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
     let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
+    FF.check_abort "after_exists9" ;
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
       | _ -> assert false
     in
+    FF.check_abort "after_mrc" ;
     let m_f3 = FpA.to_field3 m_a in
     let x3_f3 = FpA.to_field3 x3_a in
     let y3_f3 = FpA.to_field3 y3_a in
@@ -722,6 +724,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* 3. Slice scalars into chunks *)
   let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
+  FF.check_abort "after_slice" ;
 
   (* 4. Main loop *)
   let ia = of_constant initial_aggregator in
@@ -732,6 +735,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let chunk_idx = i / window_size in
       let sj0 = chunks0.(chunk_idx) in
       let sj0_pt = array_get_point table0 sj0 in
+      FF.check_abort "before_add0" ;
       let added0 = add !sum sj0_pt in
       let is_zero0 = FF.field_var_equal sj0 Step.Field.zero in
       let sel_if_pt (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
