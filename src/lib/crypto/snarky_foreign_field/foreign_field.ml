@@ -505,8 +505,14 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
     | _ ->
         ()
   in
+  let mrc_count = ref 0 in
   List.iter xs ~f:(fun ((_, _, x2) as x) ->
-      if not skip_mrc then multi_range_check x ;
+      if not skip_mrc then (
+        let was_constant = Field3.is_constant x in
+        multi_range_check x ;
+        if not was_constant then (
+          incr mrc_count ;
+          check_abort (sprintf "after_mrc%d" !mrc_count) ) ) ;
       bounds := !bounds @ [ weak_bound x2 ~f ] ;
       if List.length !bounds = 3 then flush_bounds () ) ;
   match !bounds with
