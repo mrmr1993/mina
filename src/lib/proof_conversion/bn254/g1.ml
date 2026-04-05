@@ -173,13 +173,11 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
     let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
     let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
     let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
-    FF.check_abort "after_exists9" ;
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
       | _ -> assert false
     in
-    FF.check_abort "after_mrc" ;
     let m_f3 = FpA.to_field3 m_a in
     let x3_f3 = FpA.to_field3 x3_a in
     let y3_f3 = FpA.to_field3 y3_a in
@@ -544,14 +542,8 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
     chunks := !chunks @ [ sealed ] ;
     i := !i + chunk_size
   done ;
-  ( if Option.is_some leftover
-    then FF.check_abort "before_assertEqual_l1"
-    else FF.check_abort "before_assertEqual" ) ;
   (* sum.assertEquals(x) *)
   Step.Field.Assert.equal !the_sum x ;
-  ( if Option.is_some leftover
-    then FF.check_abort "after_assertEqual_l1"
-    else FF.check_abort "after_assertEqual" ) ;
   let leftover_size = !i - max_bits in
   { chunks = !chunks; leftover_size }
 
@@ -569,7 +561,6 @@ let slice_field3 ((x0, x1, x2) : FF.Field3.t) ~(max_bits : int)
     let result1 =
       slice_field x1 ~max_bits:(min l max_bits) ~chunk_size ~leftover:result0 ()
     in
-    FF.check_abort "after_limb1" ;
     let max_bits = max_bits - l in
     if max_bits <= 0 then Array.of_list (result0.chunks @ result1.chunks)
     else
@@ -698,19 +689,17 @@ let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
     Computed via SHA256("initial-aggregator" || p || r || a || b)
     then simpleMapToCurve. Must match o1js initialAggregator(). *)
 let initial_aggregator : Constant.t =
-  (* These values are precomputed from the o1js algorithm.
-     TODO: verify these match by running nori and comparing gate dumps. *)
   { x = Bignum_bigint.of_string
         "657865848190250950586043384551149334256032752579024067073124622351051783979"
   ; y = Bignum_bigint.of_string
         "8359021910448911796605974533522365839990844082424982413428358974708560872337"
   }
 
-(** 2^(maxBits-1) * IA, precomputed out-of-circuit. *)
+(** 2^(maxBits-1) * IA, precomputed out-of-circuit.
+    Matches: let iaFinal = Curve.scale(Curve.fromNonzero(ia), 1n << BigInt(maxBits - 1)) *)
 let ia_final : Constant.t =
   let open Bignum_bigint in
   let ia = initial_aggregator in
-  (* Compute 2^127 * IA using repeated doubling *)
   let md a = ((a % p) + p) % p in
   let dbl (x, y) =
     let x_sq = md (x * x) in
@@ -720,101 +709,28 @@ let ia_final : Constant.t =
     (x3, y3)
   in
   let pt = ref (ia.x, ia.y) in
-  for _ = 1 to 127 do
+  for _ = 1 to glv_max_bits - 1 do
     pt := dbl !pt
   done ;
   let x, y = !pt in
   { x; y }
 
-(* --- Main scale (GLV + windowed MSM) ----------------------------------- *)
+(* --- Point equality (matching nori equals) ------------------------------ *)
 
-(** Scalar multiplication using GLV decomposition + windowed MSM.
-    Matches o1js EllipticCurve.scale → multiScalarMul.
-    For constant points (IC points), window_size = 4. *)
-let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
-  let window_size = 4 in
-
-  (* 1. GLV decompose *)
-  let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
-
-  FF.check_abort "after_glv" ;
-  (* 2. Build point tables *)
-  let table = get_point_table pt ~window_size in
-  (* Endomorphism: phi(P) = (beta * P.x, P.y) *)
-  let endo_table =
-    Array.mapi table ~f:(fun i pt_i ->
-        if i = 0 then pt_i
-        else
-          let beta_x = FF.mul (FpA.to_field3 pt_i.x)
-              (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
-          let beta_x_a =
-            match FpA.assert_almost_reduced [ FF.FpU.of_field3_unsafe beta_x ] ~f:p () with
-            | [ a ] -> a
-            | _ -> assert false
-          in
-          { Circuit.x = beta_x_a; y = pt_i.y } )
-  in
-  FF.check_abort "after_endo" ;
-  (* Apply sign negation to tables *)
-  let table0 = Array.map table ~f:(fun pt_i -> negate_if s0_neg pt_i) in
-  let table1 = Array.map endo_table ~f:(fun pt_i -> negate_if s1_neg pt_i) in
-
-  FF.check_abort "after_negate" ;
-  (* 3. Slice scalars into chunks *)
-  let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
-  let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
-  FF.check_abort "after_slice" ;
-
-  (* 4. Main loop *)
-  let ia = of_constant initial_aggregator in
-  let sum = ref ia in
-  for i = glv_max_bits - 1 downto 0 do
-    (* Add from table0 every window_size bits *)
-    if i mod window_size = 0 then (
-      let chunk_idx = i / window_size in
-      let sj0 = chunks0.(chunk_idx) in
-      let sj0_pt = array_get_point table0 sj0 in
-      FF.check_abort "before_add0" ;
-      let added0 = add !sum sj0_pt in
-      let is_zero0 = FF.field_var_equal sj0 Step.Field.zero in
-      let sel_if_pt (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
-        let c = (cond :> Step.Field.t) in
-        let sel_fpa fa fb =
-          let a0, a1, a2 = FpA.to_field3 fa in
-          let b0, b1, b2 = FpA.to_field3 fb in
-          let r0 = FF.if_field c ~then_:b0 ~else_:a0 in
-          let r1 = FF.if_field c ~then_:b1 ~else_:a1 in
-          let r2 = FF.if_field c ~then_:b2 ~else_:a2 in
-          FpA.of_field3_unsafe (r0, r1, r2)
-        in
-        let x = sel_fpa a.x b.x in
-        let y = sel_fpa a.y b.y in
-        { x; y }
-      in
-      sum := sel_if_pt is_zero0 added0 !sum ;
-      (* Add from table1 *)
-      let sj1 = chunks1.(chunk_idx) in
-      let sj1_pt = array_get_point table1 sj1 in
-      let added1 = add !sum sj1_pt in
-      let is_zero1 = FF.field_var_equal sj1 Step.Field.zero in
-      sum := sel_if_pt is_zero1 added1 !sum ) ;
-    if i > 0 then sum := double !sum
-  done ;
-
-  (* 5. Final correction: subtract 2^127 * IA *)
-  let ia_neg = of_constant { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) } in
-  (* Assert sum != iaFinal (the result is non-zero).
-     Matches nori's equals(sum, iaFinal, Curve) which uses
-     ForeignField.equals per coordinate: pack x01 = x0 + x1*2^88,
-     then check (x01, x2) == (c01, c2) or (c01+f01, c2+f2). *)
-  let ff_equals (x : FpA.t) (c : Bignum_bigint.t) : Step.Boolean.var =
+(** Check whether a point equals a constant point.
+    Matches nori's equals(p1, p2, Curve) which uses
+    ForeignField.equals per coordinate: pack x01 = x0 + x1*2^88,
+    then check (x01, x2) == (c01, c2) or (c01+f01, c2+f2).
+    cf. elliptic-curve.ts:211 *)
+let point_equals (pt : Circuit.t) (c : Constant.t) : Step.Boolean.var =
+  let ff_equals (x : FpA.t) (cv : Bignum_bigint.t) : Step.Boolean.var =
     let x0, x1, x2 = FpA.to_field3 x in
     let x01 = FF.seal Step.Field.(x0 + (x1 * constant (FF.bignum_to_field_const FF.two_to_limb))) in
     let l2_mask = Bignum_bigint.(FF.two_to_2limb - one) in
     let two_l = Int.( * ) 2 FF.limb_bits in
-    let c01 = Bignum_bigint.(c land l2_mask) in
-    let c2 = Bignum_bigint.(shift_right c two_l) in
-    let c_plus_f = Bignum_bigint.(c + p) in
+    let c01 = Bignum_bigint.(cv land l2_mask) in
+    let c2 = Bignum_bigint.(shift_right cv two_l) in
+    let c_plus_f = Bignum_bigint.(cv + p) in
     let cpf01 = Bignum_bigint.(c_plus_f land l2_mask) in
     let cpf2 = Bignum_bigint.(shift_right c_plus_f two_l) in
     let is_c =
@@ -833,8 +749,179 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
     in
     Step.Boolean.( ||| ) is_c is_cpf
   in
-  let x_eq = ff_equals !sum.x ia_final.x in
-  let y_eq = ff_equals !sum.y ia_final.y in
-  let is_zero = Step.Boolean.( &&& ) x_eq y_eq in
+  let x_eq = ff_equals pt.x c.x in
+  let y_eq = ff_equals pt.y c.y in
+  Step.Boolean.( &&& ) x_eq y_eq
+
+(* --- Provable.if for points (matching nori) ----------------------------- *)
+
+(** Conditional select for G1 points.
+    Matches nori's Provable.if(condition, Point, if_true, if_false).
+    cf. elliptic-curve.ts:498:
+      sum = Provable.if(sj.equals(0), Point, sum, added)
+    When condition is true, returns if_true; when false, returns if_false. *)
+let provable_if_point (condition : Step.Field.t)
+    ~(if_true : Circuit.t) ~(if_false : Circuit.t) : Circuit.t =
+  let sel_fpa fa fb =
+    let a0, a1, a2 = FpA.to_field3 fa in
+    let b0, b1, b2 = FpA.to_field3 fb in
+    let r0 = FF.if_field condition ~then_:a0 ~else_:b0 in
+    let r1 = FF.if_field condition ~then_:a1 ~else_:b1 in
+    let r2 = FF.if_field condition ~then_:a2 ~else_:b2 in
+    FpA.of_field3_unsafe (r0, r1, r2)
+  in
+  let x = sel_fpa if_true.x if_false.x in
+  let y = sel_fpa if_true.y if_false.y in
+  { Circuit.x; y }
+
+(* --- Multi-scalar multiplication (matching nori multiScalarMul) --------- *)
+
+(** Multi-scalar multiplication: s_0 * P_0 + ... + s_(n-1) * P_(n-1)
+    with GLV decomposition and windowed tables.
+
+    Matches o1js multiScalarMul (elliptic-curve.ts:409-526).
+
+    The function takes pre-decomposed arrays:
+    - [n] is the total number of effective scalars (2 * original n after GLV)
+    - [scalars]: the absolute-value GLV sub-scalars
+    - [tables]: point tables with sign-negation already applied
+    - [window_sizes]: per-scalar window sizes
+    - [max_bits]: number of bits per sub-scalar (glv_max_bits)
+    - [scalar_chunks]: pre-sliced scalar bit-chunks *)
+let multi_scalar_mul
+    ~(n : int)
+    ~(tables : Circuit.t array array)
+    ~(points : Circuit.t array)
+    ~(window_sizes : int array)
+    ~(max_bits : int)
+    ~(scalar_chunks : Step.Field.t array array)
+    : Circuit.t =
+
+  (* initialize sum to the initial aggregator
+     cf. elliptic-curve.ts:483-484:
+       ia ??= initialAggregator(Curve);
+       let sum = Point.from(ia); *)
+  let sum = ref (of_constant initial_aggregator) in
+
+  (* Main loop: for (let i = maxBits - 1; i >= 0; i--)
+     cf. elliptic-curve.ts:486-509 *)
+  for i = max_bits - 1 downto 0 do
+
+    (* add in multiple of each point
+       cf. elliptic-curve.ts:488: for (let j = 0; j < n; j++) *)
+    for j = 0 to n - 1 do
+      let window_size = window_sizes.(j) in
+      if i mod window_size = 0 then begin
+        let chunk_idx = i / window_size in
+
+        (* pick point to add based on the scalar chunk
+           cf. elliptic-curve.ts:492-493:
+             let sj = scalarChunks[j][i / windowSize];
+             let sjP = windowSize === 1 ? points[j] : arrayGetGeneric(...) *)
+        let sj = scalar_chunks.(j).(chunk_idx) in
+        let sj_p =
+          if window_size = 1 then points.(j)
+          else array_get_point tables.(j) sj
+        in
+
+        (* ec addition
+           cf. elliptic-curve.ts:495: let added = add(sum, sjP, Curve) *)
+        let added = add !sum sj_p in
+
+        (* handle degenerate case (if sj = 0, Gj is all zeros and the add result is garbage)
+           cf. elliptic-curve.ts:498:
+             sum = Provable.if(sj.equals(0), Point, sum, added) *)
+        let is_zero = FF.field_var_equal sj Step.Field.zero in
+        sum := provable_if_point (is_zero :> Step.Field.t)
+            ~if_true:!sum ~if_false:added
+      end
+    done ;
+
+    (* cf. elliptic-curve.ts:504: if (i === 0) break *)
+    if i > 0 then
+      (* jointly double all points
+         cf. elliptic-curve.ts:508: sum = double(sum, Curve) *)
+      sum := double !sum
+  done ;
+
+  (* the sum is now 2^(b-1)*IA + sum_i s_i*P_i
+     cf. elliptic-curve.ts:513:
+       let iaFinal = Curve.scale(Curve.fromNonzero(ia), 1n << BigInt(maxBits - 1)) *)
+  let is_zero = point_equals !sum ia_final in
+
+  (* cf. elliptic-curve.ts:516-518:
+       isZero.assertFalse();
+       sum = add(sum, Point.from(Curve.negate(iaFinal)), Curve) *)
   Step.Boolean.Assert.is_true (Step.Boolean.not is_zero) ;
+  let ia_neg = of_constant
+      { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) }
+  in
   add !sum ia_neg
+
+(* --- Scale (GLV + MSM entry point) -------------------------------------- *)
+
+(** Scalar multiplication: scalar * point.
+    Matches o1js EllipticCurve.scale (elliptic-curve.ts:189-201)
+    which delegates to multiScalarMul after GLV decomposition.
+
+    For constant points (IC points in Groth16), window_size = 4. *)
+let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
+  let window_size = 4 in
+  let n_original = 1 in
+
+  (* GLV decompose: s = s0 + s1 * lambda (mod r)
+     cf. elliptic-curve.ts:435-471 *)
+  let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
+
+  (* Build point table: [0, P, 2P, ..., (2^w - 1)*P]
+     cf. elliptic-curve.ts:429-431 *)
+  let table = get_point_table pt ~window_size in
+
+  (* Endomorphism table: phi(P) = (beta * P.x, P.y), with MRC stack
+     cf. elliptic-curve.ts:452-457:
+       let endoTable = table.map((P, i) => {
+         if (i === 0) return P;
+         let [phiP, betaXBound] = endomorphism(Curve, P);
+         mrcStack.push(betaXBound);
+         return phiP;
+       }) *)
+  let endo_table =
+    Array.mapi table ~f:(fun i pt_i ->
+        if i = 0 then pt_i
+        else
+          let beta_x = FF.mul (FpA.to_field3 pt_i.x)
+              (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
+          let beta_x_a =
+            match FpA.assert_almost_reduced
+                    [ FF.FpU.of_field3_unsafe beta_x ] ~f:p () with
+            | [ a ] -> a
+            | _ -> assert false
+          in
+          { Circuit.x = beta_x_a; y = pt_i.y } )
+  in
+
+  (* Apply sign negation to tables
+     cf. elliptic-curve.ts:458-459:
+       tables2[2*i]   = table.map(P => negateIf(s0.isNegative, P, f));
+       tables2[2*i+1] = endoTable.map(P => negateIf(s1.isNegative, P, f)); *)
+  let table0 = Array.map table ~f:(negate_if s0_neg) in
+  let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
+
+  (* After GLV, n doubles: n = 2 * n_original
+     cf. elliptic-curve.ts:460-471 *)
+  let n = 2 * n_original in
+  let tables = [| table0; table1 |] in
+  let points = [| table0.(1); table1.(1) |] in
+  let window_sizes = [| window_size; window_size |] in
+
+  (* Slice scalars into chunks
+     cf. elliptic-curve.ts:476-478:
+       scalarChunks.push(sliceField3(scalars[si], { maxBits, chunkSize: windowSizes[si] })) *)
+  let scalar_chunks =
+    [| slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size
+     ; slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size
+     |]
+  in
+
+  multi_scalar_mul ~n ~tables ~points ~window_sizes
+    ~max_bits:glv_max_bits ~scalar_chunks
