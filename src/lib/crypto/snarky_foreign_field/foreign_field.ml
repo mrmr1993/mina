@@ -637,13 +637,6 @@ let single_add (x : Field3.t) (y : Field3.t) ~(sign : sign)
        } ) ;
   ((r0, r1, r2), overflow)
 
-let sum_trace = ref false
-
-let marker_if_tracing id =
-  if !sum_trace then
-    Circuit.assert_
-      (Raw { kind = Zero; values = [||]; coeffs = Array.map ~f:Circuit.Field.Constant.of_int [| id; 1; 2; 3; 4; 5; 6 |] })
-
 (** Sum a list of Field3 values with given signs.
     [xs] has one more element than [signs]:
     result = xs[0] +/- xs[1] +/- xs[2] ... *)
@@ -660,27 +653,20 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
     let result_mod = Bignum_bigint.(((result % f) + f) % f) in
     Field3.of_constant result_mod
   else
-    let tovar_idx = ref 0 in
     let xs =
       List.map xs ~f:(fun (l0, l1, l2) ->
-          marker_if_tracing (6630 + !tovar_idx * 2) ; (* before toVars for element *)
           let v0 = to_var l0 in
           let v1 = to_var l1 in
           let v2 = to_var l2 in
-          marker_if_tracing (6631 + !tovar_idx * 2) ; (* after toVars for element *)
-          incr tovar_idx ;
           (v0, v1, v2) )
     in
-    marker_if_tracing 6620 ; (* after all to_var *)
     let result = ref (List.hd_exn xs) in
     List.iter2_exn (List.tl_exn xs) signs ~f:(fun xi sign_i ->
         let r, _overflow = single_add !result xi ~sign:sign_i ~f in
         result := r ) ;
-    marker_if_tracing 6621 ; (* after single_add *)
     let r0, r1, r2 = !result in
     Circuit.assert_
       (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
-    marker_if_tracing 6622 ; (* after Zero gate *)
     (* Indirect range check *)
     let r0, r1, r2 = !result in
     let r0_trunc =
