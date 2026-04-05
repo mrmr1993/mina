@@ -901,7 +901,10 @@ let multi_scalar_mul
   (* cf. elliptic-curve.ts:516-518:
        isZero.assertFalse();
        sum = add(sum, Point.from(Curve.negate(iaFinal)), Curve) *)
-  Step.Boolean.Assert.is_true (Step.Boolean.not is_zero) ;
+  (* isZero.assertFalse(): assert is_zero = 0.
+     Using assert_equal directly avoids the extra NOT gate from
+     Assert.is_true (Boolean.not is_zero). *)
+  Step.assert_ (Equal ((is_zero :> Step.Field.t), Step.Field.zero)) ;
   let ia_neg = of_constant
       { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) }
   in
