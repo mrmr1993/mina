@@ -318,7 +318,16 @@ let add_nonzero = add
 
 (* --- GLV decomposition -------------------------------------------------- *)
 
-let glv_max_bits = 128
+(** Computed from GLV lattice vectors as ceil(log2(max(maxS0, maxS1)))
+    where maxS_i = (|v_i0| + |v_i1|) / 2 + 1.
+    Matches nori's Curve.Endo.decomposeMaxBits. *)
+let glv_max_bits =
+  let open Bignum_bigint in
+  let max_s0 = (abs Bn254_params.glv_n11 + abs Bn254_params.glv_n12) / of_int 2 + one in
+  let max_s1 = (abs Bn254_params.glv_n12 + abs Bn254_params.glv_n22) / of_int 2 + one in
+  let m = max max_s0 max_s1 in
+  (* bit_length = ceil(log2(m+1)), matching nori's log2 *)
+  Z.log2up (Bigint.to_zarith_bigint m)
 
 (** GLV decompose: s = s0 + s1*lambda (mod r).
     Out-of-circuit: uses lattice basis to find small s0, s1.
