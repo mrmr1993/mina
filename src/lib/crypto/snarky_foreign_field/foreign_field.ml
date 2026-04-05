@@ -1168,7 +1168,10 @@ module Sum = struct
     else
       let xs =
         List.map t.summands ~f:(fun (l0, l1, l2) ->
-            (to_var l0, to_var l1, to_var l2) )
+            let l0 = to_var l0 in
+            let l1 = to_var l1 in
+            let l2 = to_var l2 in
+            (l0, l1, l2) )
       in
       let result = ref (List.hd_exn xs) in
       List.iter2_exn (List.tl_exn xs) t.ops ~f:(fun xi sign_i ->

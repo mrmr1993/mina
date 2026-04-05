@@ -200,8 +200,24 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
       ~c01:Step.Field.Constant.zero ~c2:Step.Field.Constant.zero ;
     assert_not_vector_equals deltaX01 deltaX_2
       ~c01:(FF.bignum_to_field_const f01) ~c2:(FF.bignum_to_field_const f2) ;
-    Step.Field.Assert.not_equal deltaX_2
-      (Step.Field.constant (FF.bignum_to_field_const f2x2)) ;
+    (* deltaX[2].assertNotEquals(fx22): single-gate pattern matching nori.
+       Witness z = 1/(deltaX_2 - f2x2), assert (deltaX_2 - f2x2)*z = 1
+       via assertBilinear: 1*x*z + 0*x + (-c)*z + (-1) = 0 *)
+    ( let x = FF.to_var deltaX_2 in
+      let c = FF.bignum_to_field_const f2x2 in
+      let z =
+        Step.exists Step.Field.typ ~compute:(fun () ->
+            let xv = Step.As_prover.read_var x in
+            let diff = Step.Field.Constant.(xv - c) in
+            if Step.Field.Constant.(equal diff zero) then
+              Step.Field.Constant.zero
+            else Step.Field.Constant.(one / diff) )
+      in
+      FF.assert_bilinear x z
+        ~a:Step.Field.Constant.one
+        ~b:Step.Field.Constant.zero
+        ~c:Step.Field.Constant.(zero - c)
+        ~d:Step.Field.Constant.(zero - one) ) ;
     (* (x1 - x2) * m = y1 - y2 *)
     let deltaY = FF.Sum.sub (FF.Sum.of_field3 y1) y2 in
     FF.assert_mul_sum (FF.Field3_input deltaX) (FF.Field3_input m_f3)

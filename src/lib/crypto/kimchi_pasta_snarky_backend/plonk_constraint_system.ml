@@ -1517,6 +1517,13 @@ end = struct
       every other generic gate.
       *)
   let add_generic_constraint ?l ?r ?o coeffs sys : unit =
+    if Option.is_some (Stdlib.Sys.getenv_opt "NO_HALF_GENERIC_PAIRING") then (
+      (* Emit each half-generic as its own row for debugging *)
+      let empty_coeffs = Array.create ~len:5 Fp.zero in
+      let coeffs = Array.append coeffs empty_coeffs in
+      add_row sys [| l; r; o; None; None; None |] Generic coeffs ;
+      () )
+    else
     match sys.pending_generic_gate with
     (* if the queue of generic gate is empty, queue this *)
     | None ->
