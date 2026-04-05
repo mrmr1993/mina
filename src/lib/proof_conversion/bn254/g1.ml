@@ -732,9 +732,9 @@ let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
     then simpleMapToCurve. Must match o1js initialAggregator(). *)
 let initial_aggregator : Constant.t =
   { x = Bignum_bigint.of_string
-        "657865848190250950586043384551149334256032752579024067073124622351051783979"
+        "925560712106327729116340086837536977183562003487089906983067512920808412789"
   ; y = Bignum_bigint.of_string
-        "8359021910448911796605974533522365839990844082424982413428358974708560872337"
+        "14709485000385153721183901169571846879126873127405486996471845713246758905208"
   }
 
 (** 2^(maxBits-1) * IA, precomputed out-of-circuit.
@@ -857,26 +857,16 @@ let multi_scalar_mul
       if i mod window_size = 0 then begin
         let chunk_idx = i / window_size in
 
-        (* pick point to add based on the scalar chunk
-           cf. elliptic-curve.ts:492-493:
-             let sj = scalarChunks[j][i / windowSize];
-             let sjP = windowSize === 1 ? points[j] : arrayGetGeneric(...) *)
         let sj = scalar_chunks.(j).(chunk_idx) in
         let sj_p =
           if window_size = 1 then points.(j)
           else array_get_point tables.(j) sj
         in
-
-        (* ec addition
-           cf. elliptic-curve.ts:495: let added = add(sum, sjP, Curve) *)
         let added = add !sum sj_p in
 
-        (* handle degenerate case (if sj = 0, Gj is all zeros and the add result is garbage)
-           cf. elliptic-curve.ts:498:
-             sum = Provable.if(sj.equals(0), Point, sum, added) *)
         let is_zero = FF.field_var_equal sj Step.Field.zero in
         sum := provable_if_point (is_zero :> Step.Field.t)
-            ~if_true:!sum ~if_false:added
+            ~if_true:!sum ~if_false:added ;
       end
     done ;
 
@@ -943,28 +933,17 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
 
-  (* Apply sign negation to tables
-     cf. elliptic-curve.ts:458-459:
-       tables2[2*i]   = table.map(P => negateIf(s0.isNegative, P, f));
-       tables2[2*i+1] = endoTable.map(P => negateIf(s1.isNegative, P, f)); *)
   let table0 = Array.map table ~f:(negate_if s0_neg) in
   let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
 
-  (* After GLV, n doubles: n = 2 * n_original
-     cf. elliptic-curve.ts:460-471 *)
   let n = 2 * n_original in
   let tables = [| table0; table1 |] in
   let points = [| table0.(1); table1.(1) |] in
   let window_sizes = [| window_size; window_size |] in
 
-  (* Slice scalars into chunks
-     cf. elliptic-curve.ts:476-478:
-       scalarChunks.push(sliceField3(scalars[si], { maxBits, chunkSize: windowSizes[si] })) *)
-  let scalar_chunks =
-    [| slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size
-     ; slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size
-     |]
-  in
+  let chunks_s0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
+  let chunks_s1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
+  let scalar_chunks = [| chunks_s0; chunks_s1 |] in
 
   multi_scalar_mul ~n ~tables ~points ~window_sizes
     ~max_bits:glv_max_bits ~scalar_chunks
