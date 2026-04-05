@@ -173,13 +173,11 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
     let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
     let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
     let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
-    FF.check_abort "after_exists9" ;
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
       | _ -> assert false
     in
-    FF.check_abort "after_mrc" ;
     let m_f3 = FpA.to_field3 m_a in
     let x3_f3 = FpA.to_field3 x3_a in
     let y3_f3 = FpA.to_field3 y3_a in
@@ -488,7 +486,7 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
   (* if there's a leftover chunk from a previous sliceField() call,
      we complete it *)
   ( match leftover with
-  | Some { chunks = previous; leftover_size = size } when size > 0 ->
+  | Some { chunks = previous; leftover_size = size } ->
       let remaining_chunk = ref Step.Field.zero in
       for i = 0 to size - 1 do
         let bit = bits.(i) in
@@ -499,6 +497,7 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
         in
         remaining_chunk := Step.Field.(!remaining_chunk + (bit * coeff))
       done ;
+      (* sum = remainingChunk = remainingChunk.seal() *)
       let sealed = FF.seal !remaining_chunk in
       the_sum := sealed ;
       (* previous[previous.length - 1] += remaining * 2^(chunkSize - size) *)
@@ -509,13 +508,9 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
           (FF.bignum_to_field_const Bignum_bigint.(shift_left one shift_amt))
       in
       let patched = Step.Field.(prev + (sealed * shift_c)) in
-      (* Replace last element of previous chunks list *)
       chunks :=
         List.mapi previous ~f:(fun j c ->
             if j = List.length previous - 1 then patched else c )
-  | Some { chunks = previous; _ } ->
-      (* leftover_size = 0: no bits to process, but copy previous chunks *)
-      chunks := previous
   | None ->
       () ) ;
   (* let i = leftover?.leftoverSize ?? 0 *)
@@ -544,14 +539,8 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
     chunks := !chunks @ [ sealed ] ;
     i := !i + chunk_size
   done ;
-  ( if Option.is_some leftover
-    then FF.check_abort "before_assertEqual_l1"
-    else FF.check_abort "before_assertEqual" ) ;
   (* sum.assertEquals(x) *)
   Step.Field.Assert.equal !the_sum x ;
-  ( if Option.is_some leftover
-    then FF.check_abort "after_assertEqual_l1"
-    else FF.check_abort "after_assertEqual" ) ;
   let leftover_size = !i - max_bits in
   { chunks = !chunks; leftover_size }
 
@@ -569,7 +558,6 @@ let slice_field3 ((x0, x1, x2) : FF.Field3.t) ~(max_bits : int)
     let result1 =
       slice_field x1 ~max_bits:(min l max_bits) ~chunk_size ~leftover:result0 ()
     in
-    FF.check_abort "after_limb1" ;
     let max_bits = max_bits - l in
     if max_bits <= 0 then Array.of_list (result0.chunks @ result1.chunks)
     else
@@ -737,7 +725,6 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   (* 1. GLV decompose *)
   let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
 
-  FF.check_abort "after_glv" ;
   (* 2. Build point tables *)
   let table = get_point_table pt ~window_size in
   (* Endomorphism: phi(P) = (beta * P.x, P.y) *)
@@ -754,16 +741,13 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
           in
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
-  FF.check_abort "after_endo" ;
   (* Apply sign negation to tables *)
   let table0 = Array.map table ~f:(fun pt_i -> negate_if s0_neg pt_i) in
   let table1 = Array.map endo_table ~f:(fun pt_i -> negate_if s1_neg pt_i) in
 
-  FF.check_abort "after_negate" ;
   (* 3. Slice scalars into chunks *)
   let chunks0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
-  FF.check_abort "after_slice" ;
 
   (* 4. Main loop *)
   let ia = of_constant initial_aggregator in
@@ -774,30 +758,29 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
       let chunk_idx = i / window_size in
       let sj0 = chunks0.(chunk_idx) in
       let sj0_pt = array_get_point table0 sj0 in
-      FF.check_abort "before_add0" ;
       let added0 = add !sum sj0_pt in
       let is_zero0 = FF.field_var_equal sj0 Step.Field.zero in
-      let sel_if_pt (cond : Step.Boolean.var) (a : Circuit.t) (b : Circuit.t) : Circuit.t =
+      let sel_if_pt (cond : Step.Boolean.var) ~(if_true : Circuit.t) ~(if_false : Circuit.t) : Circuit.t =
         let c = (cond :> Step.Field.t) in
-        let sel_fpa fa fb =
-          let a0, a1, a2 = FpA.to_field3 fa in
-          let b0, b1, b2 = FpA.to_field3 fb in
-          let r0 = FF.if_field c ~then_:b0 ~else_:a0 in
-          let r1 = FF.if_field c ~then_:b1 ~else_:a1 in
-          let r2 = FF.if_field c ~then_:b2 ~else_:a2 in
+        let sel_fpa ft ff =
+          let t0, t1, t2 = FpA.to_field3 ft in
+          let f0, f1, f2 = FpA.to_field3 ff in
+          let r0 = FF.if_field c ~then_:t0 ~else_:f0 in
+          let r1 = FF.if_field c ~then_:t1 ~else_:f1 in
+          let r2 = FF.if_field c ~then_:t2 ~else_:f2 in
           FpA.of_field3_unsafe (r0, r1, r2)
         in
-        let x = sel_fpa a.x b.x in
-        let y = sel_fpa a.y b.y in
+        let x = sel_fpa if_true.x if_false.x in
+        let y = sel_fpa if_true.y if_false.y in
         { x; y }
       in
-      sum := sel_if_pt is_zero0 added0 !sum ;
+      sum := sel_if_pt is_zero0 ~if_true:!sum ~if_false:added0 ;
       (* Add from table1 *)
       let sj1 = chunks1.(chunk_idx) in
       let sj1_pt = array_get_point table1 sj1 in
       let added1 = add !sum sj1_pt in
       let is_zero1 = FF.field_var_equal sj1 Step.Field.zero in
-      sum := sel_if_pt is_zero1 added1 !sum ) ;
+      sum := sel_if_pt is_zero1 ~if_true:!sum ~if_false:added1 ) ;
     if i > 0 then sum := double !sum
   done ;
 
