@@ -451,14 +451,20 @@ let glv_decompose (s : FF.Field3.t) :
 
 (* --- Bit slicing -------------------------------------------------------- *)
 
-(** Decompose a native field element into individual bits and group into
-    chunks of [chunk_size]. Returns chunks as native field elements.
-    Matches o1js sliceField / sliceField3. *)
+(** Provable method for slicing a field element into bit chunks of
+    [chunk_size]. Serves as a range check that the input is in
+    [0, 2^max_bits).  Matches o1js sliceField exactly.
+
+    Returns { chunks; leftover_size } where leftover_size is the
+    number of unfilled bit positions in the last chunk. *)
+type slice_result =
+  { chunks : Step.Field.t list
+  ; leftover_size : int
+  }
+
 let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
-    ?(leftover_bits : Step.Field.t list option) () :
-    Step.Field.t list * Step.Field.t list =
-  (* Witness all bits as raw fields (no boolean check yet).
-     Matches nori: exists(maxBits, () => bigIntToBits(x)) *)
+    ?(leftover : slice_result option) () : slice_result =
+  (* let bits = exists(maxBits, () => bigIntToBits(x)) *)
   let bits =
     Array.init max_bits ~f:(fun k ->
         Step.exists Step.Field.typ ~compute:(fun () ->
@@ -468,85 +474,101 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
             then Step.Field.Constant.one
             else Step.Field.Constant.zero ) )
   in
-  (* Group bits into chunks with assertBool interleaved (matching nori).
-     Nori's sliceField: for each chunk, assertBool each bit, accumulate,
-     seal the chunk, then add to reconstruction sum. *)
-  let all_bits =
-    match leftover_bits with
-    | None -> Array.to_list bits
-    | Some prev -> prev @ Array.to_list bits
-  in
-  let recon_sum = ref Step.Field.zero in
-  let bit_offset = ref 0 in
-  let rec group acc remaining =
-    match remaining with
-    | [] -> (List.rev acc, [])
-    | _ ->
-      if List.length remaining < chunk_size then
-        (List.rev acc, remaining)
-      else
-        let chunk_bits, rest = List.split_n remaining chunk_size in
-        let chunk_val = ref Step.Field.zero in
-        List.iteri chunk_bits ~f:(fun i bit ->
-            (* assertBool interleaved with chunk accumulation, matching nori *)
-            Step.assert_ (Boolean bit) ;
-            let coeff =
-              Step.Field.constant
-                (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
-            in
-            chunk_val := Step.Field.(!chunk_val + (bit * coeff)) ) ;
-        let sealed = FF.seal !chunk_val in
-        (* Accumulate sealed chunk into reconstruction sum *)
-        let shift =
+  let chunks = ref [] in
+  let the_sum = ref Step.Field.zero in
+  (* if there's a leftover chunk from a previous sliceField() call,
+     we complete it *)
+  ( match leftover with
+  | Some { chunks = previous; leftover_size = size } when size > 0 ->
+      let remaining_chunk = ref Step.Field.zero in
+      for i = 0 to size - 1 do
+        let bit = bits.(i) in
+        Step.assert_ (Boolean bit) ;
+        let coeff =
           Step.Field.constant
-            (FF.bignum_to_field_const Bignum_bigint.(shift_left one !bit_offset))
+            (FF.bignum_to_field_const Bignum_bigint.(shift_left one i))
         in
-        recon_sum := Step.Field.(!recon_sum + (sealed * shift)) ;
-        bit_offset := !bit_offset + chunk_size ;
-        group (sealed :: acc) rest
-  in
-  let chunks, leftover = group [] all_bits in
-  (* Also accumulate leftover bits into the sum *)
-  List.iteri leftover ~f:(fun i bit ->
+        remaining_chunk := Step.Field.(!remaining_chunk + (bit * coeff))
+      done ;
+      let sealed = FF.seal !remaining_chunk in
+      the_sum := sealed ;
+      (* previous[previous.length - 1] += remaining * 2^(chunkSize - size) *)
+      let prev = List.last_exn previous in
+      let shift_amt = chunk_size - size in
+      let shift_c =
+        Step.Field.constant
+          (FF.bignum_to_field_const Bignum_bigint.(shift_left one shift_amt))
+      in
+      let patched = Step.Field.(prev + (sealed * shift_c)) in
+      (* Replace last element of previous chunks list *)
+      chunks :=
+        List.mapi previous ~f:(fun j c ->
+            if j = List.length previous - 1 then patched else c )
+  | Some { chunks = previous; _ } ->
+      (* leftover_size = 0: no bits to process, but copy previous chunks *)
+      chunks := previous
+  | None ->
+      () ) ;
+  (* let i = leftover?.leftoverSize ?? 0 *)
+  let start_i = match leftover with Some l -> l.leftover_size | None -> 0 in
+  let i = ref start_i in
+  while !i < max_bits do
+    (* prove that chunk has chunkSize bits *)
+    let chunk = ref Step.Field.zero in
+    let size = min (max_bits - !i) chunk_size in
+    for j = 0 to size - 1 do
+      let bit = bits.(!i + j) in
       Step.assert_ (Boolean bit) ;
       let coeff =
         Step.Field.constant
-          (FF.bignum_to_field_const Bignum_bigint.(shift_left one (Int.( + ) !bit_offset i)))
+          (FF.bignum_to_field_const Bignum_bigint.(shift_left one j))
       in
-      recon_sum := Step.Field.(!recon_sum + (bit * coeff)) ) ;
-  (* For limb 1 (has leftover), use distinct abort tags *)
-  ( if Option.is_some leftover_bits
+      chunk := Step.Field.(!chunk + (bit * coeff))
+    done ;
+    let sealed = FF.seal !chunk in
+    (* prove that chunks add up to x *)
+    let shift =
+      Step.Field.constant
+        (FF.bignum_to_field_const Bignum_bigint.(shift_left one !i))
+    in
+    the_sum := Step.Field.(!the_sum + (sealed * shift)) ;
+    chunks := !chunks @ [ sealed ] ;
+    i := !i + chunk_size
+  done ;
+  ( if Option.is_some leftover
     then FF.check_abort "before_assertEqual_l1"
     else FF.check_abort "before_assertEqual" ) ;
-  (* Verify reconstruction: sum of sealed chunks * 2^offset = x *)
-  Step.Field.Assert.equal x !recon_sum ;
-  ( if Option.is_some leftover_bits
+  (* sum.assertEquals(x) *)
+  Step.Field.Assert.equal !the_sum x ;
+  ( if Option.is_some leftover
     then FF.check_abort "after_assertEqual_l1"
     else FF.check_abort "after_assertEqual" ) ;
-  (chunks, leftover)
+  let leftover_size = !i - max_bits in
+  { chunks = !chunks; leftover_size }
 
-(** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total. *)
-let slice_field3 ((l0, l1, l2) : FF.Field3.t) ~(max_bits : int)
+(** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total.
+    Matches o1js sliceField3 exactly. *)
+let slice_field3 ((x0, x1, x2) : FF.Field3.t) ~(max_bits : int)
     ~(chunk_size : int) : Step.Field.t array =
-  let limb_bits = FF.limb_bits in
-  let bits0 = min limb_bits max_bits in
-  let chunks0, leftover0 = slice_field l0 ~max_bits:bits0 ~chunk_size () in
-  let remaining = max_bits - bits0 in
-  if remaining <= 0 then Array.of_list chunks0
+  let l = FF.limb_bits in
+  (* first limb *)
+  let result0 = slice_field x0 ~max_bits:(min l max_bits) ~chunk_size () in
+  let max_bits = max_bits - l in
+  if max_bits <= 0 then Array.of_list result0.chunks
   else
-    let bits1 = min limb_bits remaining in
-    let chunks1, leftover1 =
-      slice_field l1 ~max_bits:bits1 ~chunk_size ~leftover_bits:leftover0 ()
+    (* second limb *)
+    let result1 =
+      slice_field x1 ~max_bits:(min l max_bits) ~chunk_size ~leftover:result0 ()
     in
     FF.check_abort "after_limb1" ;
-    let remaining2 = remaining - bits1 in
-    if remaining2 <= 0 then Array.of_list (chunks0 @ chunks1)
+    let max_bits = max_bits - l in
+    if max_bits <= 0 then Array.of_list (result0.chunks @ result1.chunks)
     else
-      let chunks2, _leftover2 =
-        slice_field l2 ~max_bits:remaining2 ~chunk_size
-          ~leftover_bits:leftover1 ()
+      (* third limb *)
+      let result2 =
+        slice_field x2 ~max_bits ~chunk_size ~leftover:result1 ()
       in
-      Array.of_list (chunks0 @ chunks1 @ chunks2)
+      Array.of_list (result0.chunks @ result1.chunks @ result2.chunks)
 
 (* --- Array lookup ------------------------------------------------------- *)
 
