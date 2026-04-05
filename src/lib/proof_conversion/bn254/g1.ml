@@ -628,27 +628,69 @@ let array_get (array : Step.Field.t array) (index : Step.Field.t) :
     a
 
 (** Lookup a G1 point from a table by index.
-    Each coordinate has 3 limbs, so 6 array_get calls total.
-    Pre-materializes the index to avoid repeated to_var inside arrayGet. *)
+    Matches nori's arrayGetGeneric (basic.ts:374-389):
+      1. Witness result point
+      2. For each of 6 limbs: arrayGet + assertEquals
+    This ensures half-generic pairing matches nori. *)
 let array_get_point (table : Circuit.t array) (index : Step.Field.t) :
     Circuit.t =
-  (* Pre-materialize index so arrayGet's to_var is a no-op *)
-  let index = FF.to_var index in
-  let get_limb coord_fn limb_fn =
-    let arr = Array.map table ~f:(fun pt ->
-        let f3 = FpA.to_field3 (coord_fn pt) in
-        limb_fn f3 )
-    in
-    array_get arr index
+  (* 1. Witness result: let a = Provable.witness(type, () => array[Number(index)])
+     cf. basic.ts:377 *)
+  let ax0 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).x in let l, _, _ = f3 in
+      Step.As_prover.read_var l)
   in
-  let x0 = get_limb (fun pt -> pt.x) (fun (l, _, _) -> l) in
-  let x1 = get_limb (fun pt -> pt.x) (fun (_, l, _) -> l) in
-  let x2 = get_limb (fun pt -> pt.x) (fun (_, _, l) -> l) in
-  let y0 = get_limb (fun pt -> pt.y) (fun (l, _, _) -> l) in
-  let y1 = get_limb (fun pt -> pt.y) (fun (_, l, _) -> l) in
-  let y2 = get_limb (fun pt -> pt.y) (fun (_, _, l) -> l) in
-  { x = FpA.of_field3_unsafe (x0, x1, x2)
-  ; y = FpA.of_field3_unsafe (y0, y1, y2)
+  let ax1 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).x in let _, l, _ = f3 in
+      Step.As_prover.read_var l)
+  in
+  let ax2 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).x in let _, _, l = f3 in
+      Step.As_prover.read_var l)
+  in
+  let ay0 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).y in let l, _, _ = f3 in
+      Step.As_prover.read_var l)
+  in
+  let ay1 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).y in let _, l, _ = f3 in
+      Step.As_prover.read_var l)
+  in
+  let ay2 = Step.exists Step.Field.typ ~compute:(fun () ->
+      let iv = Step.As_prover.read_var index in
+      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
+      let f3 = FpA.to_field3 table.(idx).y in let _, _, l = f3 in
+      Step.As_prover.read_var l)
+  in
+  let a_fields = [| ax0; ax1; ax2; ay0; ay1; ay2 |] in
+  (* 2. For each field: arrayGet + assertEquals
+     cf. basic.ts:384-387:
+       for (let j = 0; j < size; j++) {
+         arrayGet(arrayFieldsJ, index).assertEquals(aFields[j]);
+       } *)
+  let arrays =
+    Array.map table ~f:(fun pt ->
+        let x0, x1, x2 = FpA.to_field3 pt.x in
+        let y0, y1, y2 = FpA.to_field3 pt.y in
+        [| x0; x1; x2; y0; y1; y2 |] )
+  in
+  for j = 0 to 5 do
+    let arr_j = Array.map arrays ~f:(fun fields -> fields.(j)) in
+    let got = array_get arr_j index in
+    Step.Field.Assert.equal got a_fields.(j)
+  done ;
+  { x = FpA.of_field3_unsafe (ax0, ax1, ax2)
+  ; y = FpA.of_field3_unsafe (ay0, ay1, ay2)
   }
 
 (* --- Point table -------------------------------------------------------- *)
@@ -698,6 +740,7 @@ let initial_aggregator : Constant.t =
 (** 2^(maxBits-1) * IA, precomputed out-of-circuit.
     Matches: let iaFinal = Curve.scale(Curve.fromNonzero(ia), 1n << BigInt(maxBits - 1)) *)
 let ia_final : Constant.t =
+  let num_doublings = glv_max_bits - 1 in
   let open Bignum_bigint in
   let ia = initial_aggregator in
   let md a = ((a % p) + p) % p in
@@ -709,7 +752,7 @@ let ia_final : Constant.t =
     (x3, y3)
   in
   let pt = ref (ia.x, ia.y) in
-  for _ = 1 to glv_max_bits - 1 do
+  for _ = 1 to num_doublings do
     pt := dbl !pt
   done ;
   let x, y = !pt in
