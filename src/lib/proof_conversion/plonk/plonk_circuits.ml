@@ -35,10 +35,19 @@ let dummy_fp12 () : Fp12.Circuit.t =
 
 (** Placeholder PLONK VK with zero values.
     TODO: Load actual VK constants from SP1 Verifier contract. *)
+(** SP1 PLONK domain size as bit array (MSB first): 2^24 = [1, 0, ..., 0]. *)
+let domain_size_bits = Array.init 25 ~f:(fun i -> if i = 0 then 1 else 0)
+
 let plonk_vk : Plonk_proof.vk =
   let zero_g1 = { G1.Constant.x = Bignum_bigint.zero; y = Bignum_bigint.zero } in
   { domain_size = sp1_domain_size
-  ; omega = Bignum_bigint.zero
+  ; domain_size_bits
+  ; inv_domain_size =
+      Bignum_bigint.of_string
+        "21888241567198334088790460357988866238279339518792980768180410072331574733841"
+  ; omega = Bignum_bigint.zero  (* TODO: fill from VK *)
+  ; coset_shift = Bignum_bigint.zero  (* TODO *)
+  ; g1_gen = zero_g1  (* TODO *)
   ; ql = zero_g1
   ; qr = zero_g1
   ; qm = zero_g1
@@ -48,6 +57,8 @@ let plonk_vk : Plonk_proof.vk =
   ; s2 = zero_g1
   ; s3 = zero_g1
   ; qcp_0 = Some zero_g1
+  ; omega_pow_i = Bignum_bigint.zero  (* TODO *)
+  ; omega_pow_i_div_n = Bignum_bigint.zero  (* TODO *)
   }
 
 (** Witness a full PLONK Accumulator as private input.
@@ -158,13 +169,100 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Hash updated accumulator for output *)
        Plonk_accumulator.hash_packed acc
   | 1 ->
-      (* Squeeze alpha/zeta, compute zeta^n *)
+      (* Squeeze alpha/zeta, compute zeta^n, vanishing eval, alpha^2*L_0.
+         Matches nori zkp1. *)
       fun input_hash ->
-       let zeta = FF.Field3.of_constant FF.Bignum_bigint.one in
-       let _zeta_n = Piop.pow_fr zeta ~exp:sp1_domain_size in
-       Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 1 ]
-  | 2 | 3 | 4 | 5 | 6 ->
-      (* Quotient polynomial folding + linearized commitment *)
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       (* squeezeAlpha and squeezeZeta — TODO: implement in fiat_shamir.ml.
+          For now, use the fs.alpha/zeta values already in the accumulator. *)
+       (* Compute zeta^n and vanishing evaluation *)
+       let zeta_pow_n, zh_eval =
+         Piop.eval_vanishing acc.fs.zeta
+           ~domain_size_bits:plonk_vk.domain_size_bits
+       in
+       let inv_domain_size =
+         FF.FpA.of_constant plonk_vk.inv_domain_size
+       in
+       let alpha_2_l0 =
+         Piop.compute_alpha_square_lagrange_0
+           ~zh_eval ~zeta:acc.fs.zeta ~alpha:acc.fs.alpha
+           ~inv_domain_size
+       in
+       acc.state.zeta_pow_n <- zeta_pow_n ;
+       acc.state.zh_eval <- zh_eval ;
+       acc.state.alpha_2_l0 <- alpha_2_l0 ;
+       Plonk_accumulator.hash_packed acc
+  | 2 ->
+      (* Fold quotient polynomial (split 0): combine h0, h1, h2.
+         Matches nori zkp2. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let hx, hy =
+         Piop.fold_quotient_split_0
+           ~h0_x:acc.proof.h0_x ~h0_y:acc.proof.h0_y
+           ~h1_x:acc.proof.h1_x ~h1_y:acc.proof.h1_y
+           ~h2_x:acc.proof.h2_x ~h2_y:acc.proof.h2_y
+           ~zeta:acc.fs.zeta ~zeta_pow_n:acc.state.zeta_pow_n
+       in
+       acc.state.hx <- hx ;
+       acc.state.hy <- hy ;
+       Plonk_accumulator.hash_packed acc
+  | 3 ->
+      (* Fold quotient (split 1) + PI contribution + linearized opening.
+         Matches nori zkp3. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       (* Scale folded quotient by zh_eval *)
+       let hx, hy =
+         Piop.fold_quotient_split_1
+           ~hx:acc.state.hx ~hy:acc.state.hy
+           ~zh_eval:acc.state.zh_eval
+       in
+       acc.state.hx <- hx ;
+       acc.state.hy <- hy ;
+       (* Public input contribution *)
+       let inv_domain_size =
+         FF.FpA.of_constant plonk_vk.inv_domain_size
+       in
+       let omega = FF.FpA.of_constant plonk_vk.omega in
+       let pis =
+         Piop.pi_contribution
+           ~pub_inputs:[| acc.state.pi0; acc.state.pi1 |]
+           ~zeta:acc.fs.zeta ~zh_eval:acc.state.zh_eval
+           ~domain_inv:inv_domain_size ~omega
+       in
+       (* Custom PI Lagrange *)
+       let omega_pow_i = FF.FpA.of_constant plonk_vk.omega_pow_i in
+       let omega_pow_i_div_n =
+         FF.FpA.of_constant plonk_vk.omega_pow_i_div_n
+       in
+       let l_pi_commit =
+         Piop.custom_pi_lagrange ~zeta:acc.fs.zeta
+           ~zh_eval:acc.state.zh_eval
+           ~qcp_wire_x:acc.proof.qcp_0_wire_x
+           ~qcp_wire_y:acc.proof.qcp_0_wire_y
+           ~omega_pow_i ~omega_pow_i_div_n
+       in
+       let pi = Piop.add_fr pis l_pi_commit in
+       (* Opening of linearized polynomial *)
+       let linearized_opening =
+         Piop.opening_of_linearized_polynomial
+           ~proof:acc.proof
+           ~alpha:acc.fs.alpha ~beta:acc.fs.beta ~gamma:acc.fs.gamma
+           ~pi ~alpha_2_l0:acc.state.alpha_2_l0
+       in
+       acc.state.pi <- pi ;
+       acc.state.linearized_opening <- linearized_opening ;
+       Plonk_accumulator.hash_packed acc
+  | 4 | 5 | 6 ->
+      (* Linearized commitment computation (split into 3 parts).
+         TODO: implement properly. *)
       fun input_hash ->
        let a = FF.Field3.of_constant FF.Bignum_bigint.one in
        let b = FF.Field3.of_constant (FF.Bignum_bigint.of_int 2) in

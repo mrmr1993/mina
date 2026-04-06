@@ -37,7 +37,12 @@ type proof =
 (** PLONK verification key (selector polynomial commitments). *)
 type vk =
   { domain_size : int
+  ; domain_size_bits : int array  (** MSB-first bit decomposition for powFr *)
+  ; inv_domain_size : FF.Bignum_bigint.t  (** 1/n mod r *)
   ; omega : FF.Bignum_bigint.t  (** Primitive root of unity *)
+  ; coset_shift : FF.Bignum_bigint.t  (** Coset shift (u) *)
+  ; (* Generator *)
+    g1_gen : G1.Constant.t
   ; (* Selector commitments *)
     ql : G1.Constant.t
   ; qr : G1.Constant.t
@@ -50,6 +55,9 @@ type vk =
   ; s3 : G1.Constant.t
   ; (* Custom gate selector *)
     qcp_0 : G1.Constant.t option
+  ; (* Lagrange for custom gates *)
+    omega_pow_i : FF.Bignum_bigint.t
+  ; omega_pow_i_div_n : FF.Bignum_bigint.t
   }
 
 (** Parse a PLONK proof from JSON.
