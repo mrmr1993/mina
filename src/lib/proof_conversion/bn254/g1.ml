@@ -507,7 +507,7 @@ let glv_decompose (s : FF.Field3.t) :
     Returns { chunks; leftover_size } where leftover_size is the
     number of unfilled bit positions in the last chunk. *)
 type slice_result =
-  { chunks : Step.Field.t list
+  { chunks : Step.Field.t array
   ; leftover_size : int
   }
 
@@ -523,12 +523,12 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
             then Step.Field.Constant.one
             else Step.Field.Constant.zero ) )
   in
-  let chunks = ref [] in
+  let chunks = Queue.create () in
   let the_sum = ref Step.Field.zero in
   (* if there's a leftover chunk from a previous sliceField() call,
-     we complete it *)
+     we complete it — mutate previous[last] in place, matching nori *)
   ( match leftover with
-  | Some { chunks = previous; leftover_size = size } when size > 0 ->
+  | Some { chunks = previous; leftover_size = size } ->
       let remaining_chunk = ref Step.Field.zero in
       for i = 0 to size - 1 do
         let bit = bits.(i) in
@@ -542,20 +542,13 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
       let sealed = FF.seal !remaining_chunk in
       the_sum := sealed ;
       (* previous[previous.length - 1] += remaining * 2^(chunkSize - size) *)
-      let prev = List.last_exn previous in
+      let last = Array.length previous - 1 in
       let shift_amt = chunk_size - size in
       let shift_c =
         Step.Field.constant
           (FF.bignum_to_field_const Bignum_bigint.(shift_left one shift_amt))
       in
-      let patched = Step.Field.(prev + (sealed * shift_c)) in
-      (* Replace last element of previous chunks list *)
-      chunks :=
-        List.mapi previous ~f:(fun j c ->
-            if j = List.length previous - 1 then patched else c )
-  | Some { chunks = previous; _ } ->
-      (* leftover_size = 0: no bits to process, but copy previous chunks *)
-      chunks := previous
+      previous.(last) <- Step.Field.(previous.(last) + (sealed * shift_c))
   | None ->
       () ) ;
   (* let i = leftover?.leftoverSize ?? 0 *)
@@ -581,13 +574,14 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
         (FF.bignum_to_field_const Bignum_bigint.(shift_left one !i))
     in
     the_sum := Step.Field.(!the_sum + (sealed * shift)) ;
-    chunks := !chunks @ [ sealed ] ;
+    Queue.enqueue chunks sealed ;
     i := !i + chunk_size
   done ;
   (* sum.assertEquals(x) *)
   Step.Field.Assert.equal !the_sum x ;
   let leftover_size = !i - max_bits in
-  { chunks = !chunks; leftover_size }
+  let chunks = Queue.to_array chunks in
+  { chunks; leftover_size }
 
 (** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total.
     Matches o1js sliceField3 exactly. *)
@@ -597,20 +591,20 @@ let slice_field3 ((x0, x1, x2) : FF.Field3.t) ~(max_bits : int)
   (* first limb *)
   let result0 = slice_field x0 ~max_bits:(min l max_bits) ~chunk_size () in
   let max_bits = max_bits - l in
-  if max_bits <= 0 then Array.of_list result0.chunks
+  if max_bits <= 0 then result0.chunks
   else
     (* second limb *)
     let result1 =
       slice_field x1 ~max_bits:(min l max_bits) ~chunk_size ~leftover:result0 ()
     in
     let max_bits = max_bits - l in
-    if max_bits <= 0 then Array.of_list (result0.chunks @ result1.chunks)
+    if max_bits <= 0 then Array.append result0.chunks result1.chunks
     else
       (* third limb *)
       let result2 =
         slice_field x2 ~max_bits ~chunk_size ~leftover:result1 ()
       in
-      Array.of_list (result0.chunks @ result1.chunks @ result2.chunks)
+      Array.concat [ result0.chunks; result1.chunks; result2.chunks ]
 
 (* --- Array lookup ------------------------------------------------------- *)
 
