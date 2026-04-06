@@ -952,16 +952,14 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let window_size = if is_const then 4 else 3 in
   let n_original = 1 in
 
-  (* GLV decompose: s = s0 + s1 * lambda (mod r)
-     cf. elliptic-curve.ts:435-471 *)
-  Circuit_utils.marker 8820 ;
-  let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
-  Circuit_utils.marker 8821 ;
-
-  (* Build point table: [0, P, 2P, ..., (2^w - 1)*P]
+  (* Build point table BEFORE GLV decompose, matching nori's code order
+     (getPointTable is called at line 439-441, before the useGlv block).
      cf. elliptic-curve.ts:429-431 *)
   let table = get_point_table pt ~window_size in
-  Circuit_utils.marker 8822 ;
+
+  (* GLV decompose: s = s0 + s1 * lambda (mod r)
+     cf. elliptic-curve.ts:435-471 *)
+  let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
 
   (* Endomorphism table: phi(P) = (beta * P.x, P.y), with MRC stack
      cf. elliptic-curve.ts:452-457:
@@ -1005,10 +1003,8 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
     FF.multi_range_check remaining
   end ;
 
-  Circuit_utils.marker 8823 ;
   let table0 = Array.map table ~f:(negate_if s0_neg) in
   let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
-  Circuit_utils.marker 8824 ;
 
   let n = 2 * n_original in
   let tables = [| table0; table1 |] in
@@ -1018,7 +1014,6 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let chunks_s0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks_s1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let scalar_chunks = [| chunks_s0; chunks_s1 |] in
-  Circuit_utils.marker 8825 ;
 
   multi_scalar_mul ~n ~tables ~points ~window_sizes
     ~max_bits:glv_max_bits ~scalar_chunks
