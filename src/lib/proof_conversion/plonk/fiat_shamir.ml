@@ -294,6 +294,32 @@ let squeeze_zeta (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
   fs.zeta_digest <- digest ;
   fs.zeta <- Sha_to_fr.sha_to_fr digest
 
+(** Squeeze random challenge for KZG from commitments + zeta + gamma_kzg.
+    Matches nori squeezeRandomForKzg (fiat-shamir/index.ts:438-466). *)
+let squeeze_random_for_kzg (fs : t)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t) : FF.FpA.t =
+  let cm_bytes = ref (Array.to_list (provable_bn254_base_field_to_bytes cm_x)) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  append (provable_bn254_base_field_to_bytes cm_y) ;
+
+  append (provable_bn254_base_field_to_bytes proof.batch_opening_at_zeta_x) ;
+  append (provable_bn254_base_field_to_bytes proof.batch_opening_at_zeta_y) ;
+
+  append (provable_bn254_base_field_to_bytes proof.grand_product_x) ;
+  append (provable_bn254_base_field_to_bytes proof.grand_product_y) ;
+
+  append (provable_bn254_base_field_to_bytes proof.batch_opening_at_zeta_omega_x) ;
+  append (provable_bn254_base_field_to_bytes proof.batch_opening_at_zeta_omega_y) ;
+
+  append (provable_bn254_scalar_field_to_bytes fs.zeta) ;
+  append (provable_bn254_scalar_field_to_bytes fs.gamma_kzg) ;
+
+  let bytes = Array.of_list !cm_bytes in
+  let _h, random_digest = sha256_hash bytes in
+  Sha_to_fr.sha_to_fr random_digest
+
 (** Partial SHA-256 for gamma_kzg: process first 11 blocks.
     Matches nori gammaKzgDigest_part0 (fiat-shamir/index.ts:470-545).
     Returns intermediate SHA-256 state (8 UInt32 words). *)

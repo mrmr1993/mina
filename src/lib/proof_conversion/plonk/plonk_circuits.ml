@@ -304,8 +304,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        Plonk_accumulator.hash_packed acc
   | 10 ->
       (* Fold state 2 + squeeze KZG random.
-         Matches nori zkp10.
-         TODO: implement squeezeRandomForKzg. *)
+         Matches nori zkp10. *)
       fun input_hash ->
        let acc = witness_accumulator () in
        let in_digest = Plonk_accumulator.hash_packed acc in
@@ -316,9 +315,11 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
            ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
            ~gamma_kzg:acc.fs.gamma_kzg
        in
-       (* TODO: kzg_random = squeezeRandomForKzg(proof, cm_x, cm_y) *)
+       let kzg_random = Fiat_shamir.squeeze_random_for_kzg acc.fs
+         ~proof:acc.proof ~cm_x ~cm_y in
        acc.state.cm_x <- cm_x ;
        acc.state.cm_y <- cm_y ;
+       acc.state.kzg_random <- kzg_random ;
        Plonk_accumulator.hash_packed acc
   | 11 ->
       (* Prepare pairing (split 0).
