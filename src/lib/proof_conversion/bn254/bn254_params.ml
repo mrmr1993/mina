@@ -240,3 +240,27 @@ let glv_n22 = of_string "147946756881789319010696353538189108491"
 
 (** Fp2 non-residue used for tower extension: xi = 9 + u *)
 let fp2_non_residue = (of_int 9, one)
+
+(** w27: 27th root of unity in Fp12, used for KZG shift power.
+    Only c0.c2 is non-zero.
+    Matches nori make_w27 from plonk/helpers.ts. *)
+let w27 () =
+  let z = zero in
+  let fp2_z = (z, z) in
+  let c0_c2 =
+    ( of_string "8204864362109909869166472767738877274689483185363591877943943203703805152849"
+    , of_string "17912368812864921115467448876996876278487602260484145953989158612875588124088" )
+  in
+  ( (fp2_z, fp2_z, c0_c2)
+  , (fp2_z, fp2_z, fp2_z) )
+
+(** w27^2: precomputed square of w27. *)
+let w27_sq () =
+  let z = zero in
+  let fp2_z = (z, z) in
+  let c0_c1 =
+    ( of_string "1066574321224194029098510617320359175933088740832171073526214612239131844577"
+    , of_string "7570967981015191924441724388928800689651906253447554305937154440815434452498" )
+  in
+  ( (fp2_z, c0_c1, fp2_z)
+  , (fp2_z, fp2_z, fp2_z) )

@@ -69,3 +69,27 @@ let dummy_constraints () =
     ( Pickles.Step_verifier.Scalar_challenge.endo g ~num_bits:4
         (Kimchi_backend_common.Scalar_challenge.create x)
       : Field.t * Field.t )
+
+(** Provable.switch for a generic Typ.t.
+    Selects one of [values] based on which [bools] is true.
+    Exactly one bool must be true (not enforced here — caller's responsibility).
+    Matches nori Provable.switch(bools, type, values).
+
+    Implementation: for each field component, compute sum of bool_i * value_i. *)
+let provable_switch
+    (type var value)
+    (typ : (var, value) Step.Typ.t)
+    (bools : Step.Field.t array)
+    (values : var array) : var =
+  let module FF = Snarky_foreign_field.Foreign_field in
+  let (Step.Typ.Typ t) = typ in
+  let n = Array.length bools in
+  assert (Array.length values = n) ;
+  let all_fields = Array.map values ~f:(fun v -> fst (t.var_to_fields v)) in
+  let _, first_aux = t.var_to_fields values.(0) in
+  let num_fields = Array.length all_fields.(0) in
+  let result_fields = Array.init num_fields ~f:(fun j ->
+      let terms = Array.to_list (Array.init n ~f:(fun i ->
+          Step.Field.mul bools.(i) all_fields.(i).(j) )) in
+      List.fold terms ~init:Step.Field.zero ~f:Step.Field.add ) in
+  t.var_of_fields (result_fields, first_aux)

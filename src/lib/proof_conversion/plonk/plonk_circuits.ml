@@ -520,8 +520,19 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        f := Fp12.mul !f (Fp12.frobenius_pow_p kzg.proof.c_inv) ;
        f := Fp12.mul !f (Fp12.frobenius_pow_p_squared kzg.proof.c) ;
        f := Fp12.mul !f (Fp12.frobenius_pow_p_cubed kzg.proof.c_inv) ;
-       (* TODO: Shift power selection via Provable.switch over w27 *)
-       ignore (kzg.proof.shift_power : Step.Field.t) ;
+       (* Shift power selection: Provable.switch *)
+       let w27 = Fp12.of_constant (Bn254_params.w27 ()) in
+       let w27_sq = Fp12.of_constant (Bn254_params.w27_sq ()) in
+       let is_0 = (Step.Field.equal kzg.proof.shift_power Step.Field.zero
+                    :> Step.Field.t) in
+       let is_1 = (Step.Field.equal kzg.proof.shift_power (Step.Field.of_int 1)
+                    :> Step.Field.t) in
+       let is_2 = (Step.Field.equal kzg.proof.shift_power (Step.Field.of_int 2)
+                    :> Step.Field.t) in
+       let shift = Circuit_utils.provable_switch Fp12.typ
+         [| is_0; is_1; is_2 |]
+         [| Fp12.one; w27; w27_sq |] in
+       f := Fp12.mul !f shift ;
        (* Verify f = 1 *)
        Fp12.assert_one !f ;
        kzg.state.f <- !f ;
