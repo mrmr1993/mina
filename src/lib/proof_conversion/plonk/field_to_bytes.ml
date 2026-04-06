@@ -28,12 +28,25 @@ type byte = Step.Field.t
 let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
   let l0, l1, l2 = f3 in
   let limb_size = 88 in
-  (* Decompose each limb into bits.
-     l0: 88 bits, l1: 88 bits, l2: remaining bits *)
   let l2_bits = size_in_bits - (2 * limb_size) in
-  let bits0 = Step.Field.choose_preimage_var l0 ~length:limb_size in
-  let bits1 = Step.Field.choose_preimage_var l1 ~length:limb_size in
-  let bits2 = Step.Field.choose_preimage_var l2 ~length:l2_bits in
+  (* Decompose each limb into bits.
+     l0: 88 bits, l1: 88 bits, l2: remaining bits.
+     For constant limbs, compute bits without constraints (matching o1js
+     Field.toBits() which constant-folds on constant inputs). *)
+  let decompose_limb limb length =
+    match Step.Field.to_constant limb with
+    | Some c ->
+      let v = FF.field_const_to_bignum c in
+      List.init length ~f:(fun k ->
+          if Bignum_bigint.(bit_and (shift_right v k) one = one)
+          then Step.Boolean.true_
+          else Step.Boolean.false_ )
+    | None ->
+      Step.Field.choose_preimage_var limb ~length
+  in
+  let bits0 = decompose_limb l0 limb_size in
+  let bits1 = decompose_limb l1 limb_size in
+  let bits2 = decompose_limb l2 l2_bits in
   (* Concatenate: bits0 ++ bits1 ++ bits2 = size_in_bits bits total *)
   let all_bits = bits0 @ bits1 @ bits2 in
   (* Prepend 2 zero bits to reach 256 bits *)
