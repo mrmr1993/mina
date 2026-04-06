@@ -61,11 +61,15 @@ let () =
                 ~choices:(fun ~self:_ -> [ rule ])
                 ()
             in
-            let _vk =
-              Promise.block_on_async_exn (fun () ->
-                  Lazy.force Proof.verification_key_promise )
-            in
-            () )
+            ( try
+                let _vk =
+                  Promise.block_on_async_exn (fun () ->
+                      Lazy.force Proof.verification_key_promise )
+                in
+                ()
+              with e ->
+                eprintf "Warning: wrap compilation failed for zkp%d: %s\n"
+                  n (Exn.to_string e) ) )
     | other ->
         eprintf "Unknown proof type: %s\n" other ;
         exit 1 )

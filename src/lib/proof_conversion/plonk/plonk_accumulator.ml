@@ -53,43 +53,44 @@ type circuit_proof =
   }
 
 (** In-circuit Fiat-Shamir transcript state.
-    Matches Sp1PlonkFiatShamir Struct field order. *)
+    Matches Sp1PlonkFiatShamir Struct field order.
+    Fields are mutable since squeezeGamma/Beta/etc update them. *)
 type circuit_fs =
-  { gamma_digest : bytes32  (* Bytes32 = 32 UInt8 *)
-  ; gamma : FF.FpA.t  (* FrC *)
-  ; beta_digest : bytes32
-  ; beta : FF.FpA.t
-  ; alpha_digest : bytes32
-  ; alpha : FF.FpA.t
-  ; zeta_digest : bytes32
-  ; zeta : FF.FpA.t
-  ; gamma_kzg_digest : bytes32
-  ; gamma_kzg : FF.FpA.t
+  { mutable gamma_digest : bytes32
+  ; mutable gamma : FF.FpA.t
+  ; mutable beta_digest : bytes32
+  ; mutable beta : FF.FpA.t
+  ; mutable alpha_digest : bytes32
+  ; mutable alpha : FF.FpA.t
+  ; mutable zeta_digest : bytes32
+  ; mutable zeta : FF.FpA.t
+  ; mutable gamma_kzg_digest : bytes32
+  ; mutable gamma_kzg : FF.FpA.t
   }
 
 (** In-circuit verification state.
     Matches StateUntilPairing Struct field order. *)
 type circuit_state =
-  { pi0 : FF.FpA.t  (* FrC *)
-  ; pi1 : FF.FpA.t
-  ; zeta_pow_n : FF.FpA.t
-  ; zh_eval : FF.FpA.t
-  ; alpha_2_l0 : FF.FpA.t
-  ; hx : FF.FpA.t  (* FpC *)
-  ; hy : FF.FpA.t
-  ; pi : FF.FpA.t  (* FrC *)
-  ; linearized_opening : FF.FpA.t
-  ; lcm_x : FF.FpA.t  (* FpC *)
-  ; lcm_y : FF.FpA.t
-  ; cm_x : FF.FpA.t
-  ; cm_y : FF.FpA.t
-  ; cm_opening : FF.FpA.t  (* FrC *)
-  ; kzg_random : FF.FpA.t
-  ; kzg_cm_x : FF.FpA.t  (* FpC *)
-  ; kzg_cm_y : FF.FpA.t
-  ; neg_fq_x : FF.FpA.t
-  ; neg_fq_y : FF.FpA.t
-  ; h_state : Uint32.t array  (* 8 UInt32 values *)
+  { mutable pi0 : FF.FpA.t
+  ; mutable pi1 : FF.FpA.t
+  ; mutable zeta_pow_n : FF.FpA.t
+  ; mutable zh_eval : FF.FpA.t
+  ; mutable alpha_2_l0 : FF.FpA.t
+  ; mutable hx : FF.FpA.t
+  ; mutable hy : FF.FpA.t
+  ; mutable pi : FF.FpA.t
+  ; mutable linearized_opening : FF.FpA.t
+  ; mutable lcm_x : FF.FpA.t
+  ; mutable lcm_y : FF.FpA.t
+  ; mutable cm_x : FF.FpA.t
+  ; mutable cm_y : FF.FpA.t
+  ; mutable cm_opening : FF.FpA.t
+  ; mutable kzg_random : FF.FpA.t
+  ; mutable kzg_cm_x : FF.FpA.t
+  ; mutable kzg_cm_y : FF.FpA.t
+  ; mutable neg_fq_x : FF.FpA.t
+  ; mutable neg_fq_y : FF.FpA.t
+  ; mutable h_state : Uint32.t array
   }
 
 (** The full Accumulator = proof + fs + state. *)

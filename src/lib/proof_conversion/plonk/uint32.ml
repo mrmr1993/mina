@@ -30,17 +30,35 @@ let two_to_32 =
 let two_to_32_field =
   Field.Constant.of_string (Bignum_bigint.to_string two_to_32)
 
+let mask_32 = Bignum_bigint.(two_to_32 - one)
+
+(** Helper: check if a field is constant. *)
+let is_constant (x : t) : bool =
+  match Field.to_constant x with Some _ -> true | None -> false
+
+(** Helper: get constant value as Bignum_bigint. *)
+let to_bigint_const (x : t) : Bignum_bigint.t =
+  match Field.to_constant x with
+  | Some c ->
+      Bignum_bigint.of_string (Field.Constant.to_string c)
+  | None ->
+      failwith "UInt32.to_bigint_const: not a constant"
+
 (** Range-check a field value to n bits (n must be a multiple of 16).
     Matches o1js rangeCheckN which calls truncateToBits16.
-    Uses Pickles.Scalar_challenge.to_field_checked' internally. *)
+    Uses Pickles.Scalar_challenge.to_field_checked' internally.
+    No-op for constants (matching o1js behavior). *)
 let range_check_n (x : Field.t) ~(num_bits : int) : unit =
   assert (num_bits > 0 && num_bits mod 16 = 0) ;
-  let _a, _b, x0 =
-    Pickles.Scalar_challenge.to_field_checked' ~num_bits
-      (module Pickles.Impls.Step)
-      { inner = x }
-  in
-  Step.assert_ (Equal (x0, x))
+  match Field.to_constant x with
+  | Some _ -> ()  (* constants are unchecked, matching o1js *)
+  | None ->
+    let _a, _b, x0 =
+      Pickles.Scalar_challenge.to_field_checked' ~num_bits
+        (module Pickles.Impls.Step)
+        { inner = x }
+    in
+    Step.assert_ (Equal (x0, x))
 
 (** Range-check to 32 bits. Matches o1js rangeCheck32. *)
 let range_check_32 (x : Field.t) : unit =
@@ -55,6 +73,16 @@ let range_check_16 (x : Field.t) : unit =
     [n_bits] is the maximum bit width of [n]. *)
 let div_mod_32 (n : Field.t) ~(n_bits : int) : t * t =
   assert (n_bits >= 0 && n_bits < 255) ;
+  (* Constant case: compute directly, matching o1js *)
+  ( match Field.to_constant n with
+  | Some c ->
+      let n_big = Bignum_bigint.of_string (Field.Constant.to_string c) in
+      let q = Bignum_bigint.(shift_right n_big 32) in
+      let r = Bignum_bigint.(bit_and n_big mask_32) in
+      let qf = Field.constant (Field.Constant.of_string (Bignum_bigint.to_string q)) in
+      let rf = Field.constant (Field.Constant.of_string (Bignum_bigint.to_string r)) in
+      (qf, rf)
+  | None ->
   let quotient_bits = max 0 (n_bits - 32) in
   let quotient =
     Step.exists Field.typ ~compute:(fun () ->
@@ -95,30 +123,58 @@ let div_mod_32 (n : Field.t) ~(n_bits : int) : t * t =
       (quotient * constant two_to_32_field) + remainder)
   in
   Step.assert_ (Equal (n, reconstructed)) ;
-  (quotient, remainder)
+  (quotient, remainder) )
 
 (** Add two UInt32 values modulo 2^32.
     Matches o1js addMod32: divMod32(x + y, 33).remainder *)
 let add (a : t) (b : t) : t =
-  let sum = Field.add a b in
-  let _q, r = div_mod_32 sum ~n_bits:33 in
-  r
+  if is_constant a && is_constant b then
+    of_field (Field.constant (Field.Constant.of_string
+      (Bignum_bigint.to_string Bignum_bigint.(bit_and (to_bigint_const a + to_bigint_const b) mask_32))))
+  else begin
+    let sum = Field.add a b in
+    let _q, r = div_mod_32 sum ~n_bits:33 in
+    r
+  end
+
+(** Ensure a UInt32 is a variable (not constant).
+    Kimchi bitwise gates require non-constant Cvars. *)
+let ensure_var (x : t) : t =
+  match Field.to_constant x with
+  | None -> x
+  | Some c ->
+      (* Create a variable and assert equal to the constant *)
+      let v = Step.exists Field.typ ~compute:(fun () -> c) in
+      Step.assert_ (Equal (v, Field.constant c)) ;
+      v
 
 (** Bitwise XOR (32-bit).
-    Uses kimchi Xor gate via Bitwise.bxor. *)
+    Uses kimchi Xor gate via Bitwise.bxor.
+    Falls back to constant computation when both inputs are constant. *)
 let xor (a : t) (b : t) : t =
-  Bitwise.bxor a b 32 ~len_xor:4
+  if is_constant a && is_constant b then
+    of_field (Field.constant (Field.Constant.of_string
+      (Bignum_bigint.to_string Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b)))))
+  else
+    Bitwise.bxor (ensure_var a) (ensure_var b) 32 ~len_xor:4
 
 (** Bitwise AND (32-bit).
     Uses kimchi AND gadget via Bitwise.band. *)
 let bit_and (a : t) (b : t) : t =
-  Bitwise.band a b 32 ~len_xor:4
+  if is_constant a && is_constant b then
+    of_field (Field.constant (Field.Constant.of_string
+      (Bignum_bigint.to_string Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b)))))
+  else
+    Bitwise.band (ensure_var a) (ensure_var b) 32 ~len_xor:4
 
 (** Bitwise NOT (32-bit, unchecked).
-    Uses allOnes - x. The AND that follows in Ch/Maj provides
-    the range check, matching o1js's unchecked NOT in SHA-256. *)
+    Uses allOnes - x. *)
 let bit_not (a : t) : t =
-  Bitwise.bnot_unchecked a 32
+  if is_constant a then
+    of_field (Field.constant (Field.Constant.of_string
+      (Bignum_bigint.to_string Bignum_bigint.(bit_xor (to_bigint_const a) mask_32))))
+  else
+    Bitwise.bnot_unchecked a 32
 
 (** Bitwise right rotation — NOT used directly in SHA-256.
     SHA-256 uses the fused sigma function instead (see sha256.ml).
