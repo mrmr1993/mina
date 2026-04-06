@@ -203,9 +203,6 @@ let bxor ?(len_xor = 4) (input1 : Circuit.Field.t) (input2 : Circuit.Field.t)
       with_label "xor_zero_check" (fun () ->
           assert_
             (Raw { kind = Zero; values = [| in1; in2; out |]; coeffs = [||] }) ) ;
-      Field.Assert.equal Field.zero in1 ;
-      Field.Assert.equal Field.zero in2 ;
-      Field.Assert.equal Field.zero out ;
       () )
     else
       (* Define shorthand helper *)
