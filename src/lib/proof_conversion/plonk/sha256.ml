@@ -1,26 +1,16 @@
-(** SHA-256 hash function using constrained circuit operations.
+(** SHA2
 
-    Matches the o1js SHA-256 gadget (sha2.ts) gate-for-gate:
-    - sigma: fused decompose + reassemble + XOR (not individual ROTR)
-    - Ch: AND + unchecked NOT + AND + field add + seal
-    - Maj: field add + seal + double XOR + field sub + div(2) + seal
-    - reduceMod: divMod32(x, 48) for modular reduction
-    - messageSchedule: DeltaOne + DeltaZero + field adds + reduceMod
-    - compression: 64 rounds of the above
+    This module provides a SHA2 provable gadget, including SHA256.
 
-    Reference: o1js/src/lib/provable/gadgets/sha2.ts *)
+    https://csrc.nist.gov/pubs/fips/180-4/upd1/final
+
+    Reference: o1js/src/lib/provable/gadgets/sha256.ts *)
 
 open! Core_kernel
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 
-(** SHA-256 initial hash values §5.3.3. *)
-let h_init =
-  [| 0x6a09e667; 0xbb67ae85; 0x3c6ef372; 0xa54ff53a
-   ; 0x510e527f; 0x9b05688c; 0x1f83d9ab; 0x5be0cd19
-  |]
-
-(** SHA-256 round constants §4.2.2. *)
+(* constants §4.2.2 *)
 let k_constants =
   [| 0x428a2f98; 0x71374491; 0xb5c0fbcf; 0xe9b5dba5
    ; 0x3956c25b; 0x59f111f1; 0x923f82a4; 0xab1c5ed5
@@ -40,41 +30,56 @@ let k_constants =
    ; 0x90befffa; 0xa4506ceb; 0xbef9a3f7; 0xc67178f2
   |]
 
-(** Sigma rotation constants for SHA-256.
-    SIGMA_ZERO = [2, 13, 22], SIGMA_ONE = [6, 11, 25]
-    DELTA_ZERO = [3, 7, 18],  DELTA_ONE = [10, 17, 19] *)
-let sigma_zero_bits = (2, 13, 22)
-let sigma_one_bits = (6, 11, 25)
-let delta_zero_bits = (3, 7, 18)
-let delta_one_bits = (10, 17, 19)
+(* initial hash values §5.3.3 *)
+let h_init =
+  [| 0x6a09e667; 0xbb67ae85; 0x3c6ef372; 0xa54ff53a
+   ; 0x510e527f; 0x9b05688c; 0x1f83d9ab; 0x5be0cd19
+  |]
 
-(** Reduce a field element modulo 2^32.
-    Matches o1js reduceMod: divMod32(x, 48).remainder.
-    The nBits=48 accounts for up to 5 additions of 32-bit values. *)
-let reduce_mod (x : Step.Field.t) : Uint32.t =
-  let _q, r = Uint32.div_mod_32 x ~n_bits:48 in
-  r
+let seal (x : Step.Field.t) : Step.Field.t = FF.seal x
 
-(** Seal a field expression — materialize compound Cvars into a
-    fresh variable. Matches o1js Field.seal(). *)
-let seal (x : Step.Field.t) : Step.Field.t =
-  FF.seal x
+(* ch(x, y, z) = (x & y) ^ (~x & z)
+               = (x & y) + (~x & z) (since x & ~x = 0) *)
+let ch (x : Uint32.t) (y : Uint32.t) (z : Uint32.t) : Uint32.t =
+  let x_and_y = Uint32.to_field (Uint32.bit_and x y) in
+  let x_not_and_z = Uint32.to_field (Uint32.bit_and (Uint32.bit_not x) z) in
+  let ch = seal Step.Field.(x_and_y + x_not_and_z) in
+  Uint32.of_field ch
 
-(** Fused sigma function: decompose, reassemble 3 rotations, XOR.
-    Matches o1js sigma() for UInt32 (sha2.ts lines 514-586).
+(* maj(x, y, z) = (x & y) ^ (x & z) ^ (y & z)
+               = (x + y + z - (x ^ y ^ z)) / 2 *)
+let maj (x : Uint32.t) (y : Uint32.t) (z : Uint32.t) : Uint32.t =
+  let sum = seal Step.Field.(Uint32.to_field x + Uint32.to_field y
+                             + Uint32.to_field z) in
+  let xor_val = Uint32.to_field (Uint32.xor (Uint32.xor x y) z) in
+  let maj = seal (Step.Field.div (Step.Field.sub sum xor_val) (Step.Field.of_int 2)) in
+  Uint32.of_field maj
 
-    [bits] = (r0, r1, r2) are the rotation amounts.
-    [first_shifted] = true for DeltaZero/DeltaOne (first op is SHR, not ROTR). *)
-let sigma (u : Uint32.t) ~(bits : int * int * int)
+let rotr (n : int) (x : Uint32.t) : Uint32.t = Uint32.rotr x ~n
+let shr (n : int) (x : Uint32.t) : Uint32.t = Uint32.shr x ~n
+
+(* Simple sigma: individual ROTR/SHR + XOR, used for constant inputs *)
+let sigma_simple (u : Uint32.t) ~(bits : int * int * int)
     ~(first_shifted : bool) : Uint32.t =
   let r0, r1, r2 = bits in
+  let rot0 = if first_shifted then shr r0 u else rotr r0 u in
+  let rot1 = rotr r1 u in
+  let rot2 = rotr r2 u in
+  Uint32.xor (Uint32.xor rot0 rot1) rot2
+
+(* Fused sigma: decompose, reassemble 3 rotations, XOR.
+   Matches o1js sigma() (sha256.ts:161-224). *)
+let sigma (u : Uint32.t) ~(bits : int * int * int)
+    ~(first_shifted : bool) : Uint32.t =
+  if Uint32.is_constant u then sigma_simple u ~bits ~first_shifted
+  else
+  let r0, r1, r2 = bits in  (* TODO assert bits are sorted *)
   let x = Uint32.to_field u in
   let d0 = r0 in
   let d1 = r1 - r0 in
   let d2 = r2 - r1 in
   let d3 = 32 - r2 in
-  (* Decompose x into 4 chunks of size d0, d1, d2, d3.
-     Witness all 4 upfront in a single Array.init for sequential indices. *)
+  (* decompose x into 4 chunks of size d0, d1, d2, d3 *)
   let chunks =
     Array.init 4 ~f:(fun idx ->
       Step.exists Step.Field.typ ~compute:(fun () ->
@@ -101,98 +106,71 @@ let sigma (u : Uint32.t) ~(bits : int * int * int)
   let x1 = chunks.(1) in
   let x2 = chunks.(2) in
   let x3 = chunks.(3) in
-  (* Range check each chunk to 16 bits *)
+  (* range check each chunk
+     we only need to range check to 16 bits relying on the requirement that
+     the rotated values are range-checked to 32 bits later; see comments below *)
   Uint32.range_check_16 x0 ;
   Uint32.range_check_16 x1 ;
   Uint32.range_check_16 x2 ;
   Uint32.range_check_16 x3 ;
-  (* Prove decomposition:
-     x = x0 + x1*2^d0 + x2*2^(d0+d1) + x3*2^(d0+d1+d2) *)
-  let s n = Step.Field.of_int (1 lsl n) in
-  let x23 = seal (Step.Field.add x2 (Step.Field.mul x3 (s d2))) in
-  let x123 = seal (Step.Field.add x1 (Step.Field.mul x23 (s d1))) in
+  (* prove x decomposition *)
+  let shift n = Step.Field.of_int (1 lsl n) in
+  (* x === x0 + x1*2^d0 + x2*2^(d0+d1) + x3*2^(d0+d1+d2) *)
+  let x23 = seal (Step.Field.add x2 (Step.Field.mul x3 (shift d2))) in
+  let x123 = seal (Step.Field.add x1 (Step.Field.mul x23 (shift d1))) in
   Step.Field.Assert.equal
-    (Step.Field.add x0 (Step.Field.mul x123 (s d0)))
-    x ;
-  (* Reassemble rotated values *)
+    (Step.Field.add x0 (Step.Field.mul x123 (shift d0))) x ;
+  (* ^ proves that 2^(32-d3)*x3 < x < 2^32 => x3 < 2^d3 *)
+  (* reassemble chunks into rotated values *)
   let x_rot_r0 =
-    if not first_shifted then
-      (* rotr(x, r0) = x123 + x0*2^(d1+d2+d3) *)
-      seal (Step.Field.add x123 (Step.Field.mul x0 (s (d1 + d2 + d3))))
-    else begin
-      (* shr(x, r0) = x123 *)
-      Uint32.range_check_16
-        (seal (Step.Field.mul x0 (s (16 - d0)))) ;
+    if not first_shifted then begin
+      (* rotr(x, r0) = x1 + x2*2^d1 + x3*2^(d1+d2) + x0*2^(d1+d2+d3) *)
+      seal (Step.Field.add x123 (Step.Field.mul x0 (shift (d1 + d2 + d3))))
+      (* ^ proves that 2^(32-d0)*x0 < xRotR0 => x0 < 2^d0 if we check xRotR0 < 2^32 later *)
+    end else begin
+      (* shr(x, r0) = x1 + x2*2^d1 + x3*2^(d1+d2) *)
+      (* finish x0 < 2^d0 proof: *)
+      Uint32.range_check_16 (seal (Step.Field.mul x0 (shift (16 - d0)))) ;
       x123
     end
   in
-  (* rotr(x, r1) = x23 + x01*2^(d2+d3) *)
-  let x01 = seal (Step.Field.add x0 (Step.Field.mul x1 (s d0))) in
-  let x_rot_r1 = seal (Step.Field.add x23 (Step.Field.mul x01 (s (d2 + d3)))) in
-  (* rotr(x, r2) = x3 + x012*2^d3 *)
-  let x012 = seal (Step.Field.add x01 (Step.Field.mul x2 (s (d0 + d1)))) in
-  let x_rot_r2 = seal (Step.Field.add x3 (Step.Field.mul x012 (s d3))) in
-  (* XOR the three rotated values: xor(xor(rot0, rot1), rot2) *)
-  Uint32.xor (Uint32.xor x_rot_r0 x_rot_r1) x_rot_r2
+  (* rotr(x, r1) = x2 + x3*2^d2 + x0*2^(d2+d3) + x1*2^(d2+d3+d0) *)
+  let x01 = seal (Step.Field.add x0 (Step.Field.mul x1 (shift d0))) in
+  let x_rot_r1 = seal (Step.Field.add x23 (Step.Field.mul x01 (shift (d2 + d3)))) in
+  (* ^ proves that 2^(32-d1)*x1 < xRotR1 => x1 < 2^d1 if we check xRotR1 < 2^32 later *)
+  (* rotr(x, r2) = x3 + x0*2^d3 + x1*2^(d3+d0) + x2*2^(d3+d0+d1) *)
+  let x012 = seal (Step.Field.add x01 (Step.Field.mul x2 (shift (d0 + d1)))) in
+  let x_rot_r2 = seal (Step.Field.add x3 (Step.Field.mul x012 (shift d3))) in
+  (* ^ proves that 2^(32-d2)*x2 < xRotR2 => x2 < 2^d2 if we check xRotR2 < 2^32 later *)
+  (* since xor() is implicitly range-checking both of its inputs, this provides the missing
+     proof that xRotR0, xRotR1, xRotR2 < 2^32, which implies x0 < 2^d0, x1 < 2^d1, x2 < 2^d2 *)
+  Uint32.xor
+    (Uint32.xor (Uint32.of_field x_rot_r0) (Uint32.of_field x_rot_r1))
+    (Uint32.of_field x_rot_r2)
 
-(** SigmaZero(x) = sigma(x, [2, 13, 22], false) *)
 let sigma_zero (x : Uint32.t) : Uint32.t =
-  sigma x ~bits:sigma_zero_bits ~first_shifted:false
+  sigma x ~bits:(2, 13, 22) ~first_shifted:false
 
-(** SigmaOne(x) = sigma(x, [6, 11, 25], false) *)
 let sigma_one (x : Uint32.t) : Uint32.t =
-  sigma x ~bits:sigma_one_bits ~first_shifted:false
+  sigma x ~bits:(6, 11, 25) ~first_shifted:false
 
-(** DeltaZero(x) = sigma(x, [3, 7, 18], true) — first op is SHR *)
+(* lowercase sigma = delta to avoid confusing function names *)
+
 let delta_zero (x : Uint32.t) : Uint32.t =
-  sigma x ~bits:delta_zero_bits ~first_shifted:true
+  sigma x ~bits:(3, 7, 18) ~first_shifted:true
 
-(** DeltaOne(x) = sigma(x, [10, 17, 19], true) — first op is SHR *)
 let delta_one (x : Uint32.t) : Uint32.t =
-  sigma x ~bits:delta_one_bits ~first_shifted:true
+  sigma x ~bits:(10, 17, 19) ~first_shifted:true
 
-(** Ch(x, y, z) = (x AND y) + (NOT_unchecked(x) AND z).
-    Matches o1js Ch for UInt32 (sha2.ts line 439-443). *)
-let ch (x : Uint32.t) (y : Uint32.t) (z : Uint32.t) : Uint32.t =
-  let x_and_y = Uint32.to_field (Uint32.bit_and x y) in
-  let not_x_and_z = Uint32.to_field (Uint32.bit_and (Uint32.bit_not x) z) in
-  Uint32.of_field (seal Step.Field.(x_and_y + not_x_and_z))
+(** Performs the SHA-256 compression function on the given hash values
+    and message schedule.
 
-(** Maj(x, y, z) = (x + y + z - (x XOR y XOR z)) / 2.
-    Matches o1js Maj for UInt32 (sha2.ts line 456-459). *)
-let maj (x : Uint32.t) (y : Uint32.t) (z : Uint32.t) : Uint32.t =
-  let xf = Uint32.to_field x in
-  let yf = Uint32.to_field y in
-  let zf = Uint32.to_field z in
-  let sum = seal (Step.Field.add (Step.Field.add xf yf) zf) in
-  let xor_val = Uint32.to_field (Uint32.xor (Uint32.xor x y) z) in
-  (* (sum - xor) / 2 = (sum - xor) * (1/2 mod p) *)
-  let diff = Step.Field.sub sum xor_val in
-  let result = seal (Step.Field.div diff (Step.Field.of_int 2)) in
-  Uint32.of_field result
+    @param h The initial or intermediate hash values (8-element array of UInt32).
+    @param w The message schedule (64-element array of UInt32).
 
-(** Create message schedule from 16-word block → 64 words.
-    Matches o1js messageSchedule (sha2.ts lines 311-335). *)
-let message_schedule (block : Uint32.t array) : Uint32.t array =
-  assert (Array.length block = 16) ;
-  let w = Array.create ~len:64 (Uint32.of_int 0) in
-  Array.blit ~src:block ~src_pos:0 ~dst:w ~dst_pos:0 ~len:16 ;
-  for t = 16 to 63 do
-    (* Unreduced: DeltaOne(W[t-2]) + W[t-7] + DeltaZero(W[t-15]) + W[t-16] *)
-    let d1 = Uint32.to_field (delta_one w.(t - 2)) in
-    let w7 = Uint32.to_field w.(t - 7) in
-    let d0 = Uint32.to_field (delta_zero w.(t - 15)) in
-    let w16 = Uint32.to_field w.(t - 16) in
-    let unreduced =
-      Step.Field.add (Step.Field.add d1 w7) (Step.Field.add d0 w16)
-    in
-    w.(t) <- reduce_mod unreduced
-  done ;
-  w
-
-(** SHA-256 compression function on one 16-word block.
-    Matches o1js compression (sha2.ts lines 346-394). *)
+    @returns The updated intermediate hash values after compression. *)
 let compress (h : Uint32.t array) (w : Uint32.t array) : Uint32.t array =
+  (* initialize working variables *)
   let a = ref h.(0) in
   let b = ref h.(1) in
   let c = ref h.(2) in
@@ -201,27 +179,32 @@ let compress (h : Uint32.t array) (w : Uint32.t array) : Uint32.t array =
   let f = ref h.(5) in
   let g = ref h.(6) in
   let hh = ref h.(7) in
+  (* main loop *)
   for t = 0 to 63 do
-    (* unreducedT1 = h + SigmaOne(e) + Ch(e,f,g) + K[t] + W[t] *)
-    let unreduced_t1 = seal Step.Field.(
+    (* T1 is unreduced and not proven to be 32bit, we will do this later to save constraints *)
+    let ( + ) = Step.Field.add in
+    let unreduced_t1 = seal (
       Uint32.to_field !hh
       + Uint32.to_field (sigma_one !e)
       + Uint32.to_field (ch !e !f !g)
-      + of_int k_constants.(t)
+      + Step.Field.of_int k_constants.(t)
       + Uint32.to_field w.(t)) in
-    (* unreducedT2 = SigmaZero(a) + Maj(a,b,c) *)
-    let unreduced_t2 = Step.Field.(
-      Uint32.to_field (sigma_zero !a) + Uint32.to_field (maj !a !b !c)) in
+    (* T2 is also unreduced *)
+    let unreduced_t2 =
+      Uint32.to_field (sigma_zero !a)
+      + Uint32.to_field (maj !a !b !c) in
     hh := !g ;
     g := !f ;
     f := !e ;
-    e := reduce_mod Step.Field.(Uint32.to_field !d + unreduced_t1) ;
+    (* mod 32bit the unreduced field element *)
+    e := snd (Uint32.div_mod_32 (Uint32.to_field !d + unreduced_t1) ~n_bits:48) ;
     d := !c ;
     c := !b ;
     b := !a ;
-    a := reduce_mod Step.Field.(unreduced_t2 + unreduced_t1)
+    (* mod 32bit *)
+    a := snd (Uint32.div_mod_32 (unreduced_t2 + unreduced_t1) ~n_bits:48)
   done ;
-  (* Intermediate hash: H[i] = H[i] + variable[i] mod 2^32 *)
+  (* new intermediate hash value *)
   [| Uint32.add h.(0) !a
    ; Uint32.add h.(1) !b
    ; Uint32.add h.(2) !c
@@ -232,15 +215,42 @@ let compress (h : Uint32.t array) (w : Uint32.t array) : Uint32.t array =
    ; Uint32.add h.(7) !hh
   |]
 
+(** Prepares the message schedule for the SHA-256 compression function
+    from the given message block.
+
+    @param m The 512-bit message block (16-element array of UInt32).
+    @returns The message schedule (64-element array of UInt32). *)
+let message_schedule (m : Uint32.t array) : Uint32.t array =
+  assert (Array.length m = 16) ;
+  (* for each message block of 16 x 32bit do: *)
+  let w = Array.create ~len:64 (Uint32.of_int 0) in
+  (* prepare message block *)
+  for t = 0 to 15 do w.(t) <- m.(t) done ;
+  for t = 16 to 63 do
+    (* the field element is unreduced and not proven to be 32bit, we will do this later to save constraints *)
+    let ( + ) = Step.Field.add in
+    let unreduced =
+      Uint32.to_field (delta_one w.(t - 2))
+      + Uint32.to_field w.(t - 7)
+      + Uint32.to_field (delta_zero w.(t - 15))
+      + Uint32.to_field w.(t - 16) in
+    (* mod 32bit the unreduced field element *)
+    w.(t) <- snd (Uint32.div_mod_32 unreduced ~n_bits:48)
+  done ;
+  w
+
 (** Initial SHA-256 state as circuit UInt32 constants. *)
 let initial_state () : Uint32.t array =
   Array.map h_init ~f:Uint32.of_int
 
 (** Hash pre-padded message blocks. Each block is 16 UInt32 words.
-    The caller is responsible for SHA-256 padding. *)
+    The caller is responsible for SHA-256 padding.
+    Returns 8 UInt32 words (the hash state). *)
 let hash_blocks (blocks : Uint32.t array array) : Uint32.t array =
   let h = ref (initial_state ()) in
-  Array.iter blocks ~f:(fun block ->
-      let w = message_schedule block in
-      h := compress !h w ) ;
+  let n = Array.length blocks in
+  for i = 0 to n - 1 do
+    let w = message_schedule blocks.(i) in
+    h := compress !h w
+  done ;
   !h

@@ -176,30 +176,40 @@ let bit_not (a : t) : t =
   else
     Bitwise.bnot_unchecked a 32
 
-(** Bitwise right rotation — NOT used directly in SHA-256.
-    SHA-256 uses the fused sigma function instead (see sha256.ml).
-    Kept for potential standalone use. *)
+(** Bitwise right rotation (32-bit).
+    Matches o1js UInt32.rotate(n, 'right').
+    Constant fast path for use in sigma_simple. *)
 let rotr (x : t) ~(n : int) : t =
-  Step.exists Field.typ ~compute:(fun () ->
-      let xv = Step.As_prover.read_var x in
-      let x_int =
-        Bignum_bigint.of_string (Field.Constant.to_string xv)
-      in
-      let mask = Bignum_bigint.(two_to_32 - one) in
-      let shift = 32 - n in
-      let rotated =
-        Bignum_bigint.(
-          bit_or (shift_right x_int n) (bit_and (shift_left x_int shift) mask))
-      in
-      Field.Constant.of_string (Bignum_bigint.to_string rotated) )
+  match Field.to_constant x with
+  | Some c ->
+    let x_int = Bignum_bigint.of_string (Field.Constant.to_string c) in
+    let mask = Bignum_bigint.(two_to_32 - one) in
+    let shift = 32 - n in
+    let rotated = Bignum_bigint.(
+      bit_or (shift_right x_int n) (bit_and (shift_left x_int shift) mask)) in
+    of_field (Field.constant (Field.Constant.of_string (Bignum_bigint.to_string rotated)))
+  | None ->
+    Step.exists Field.typ ~compute:(fun () ->
+        let xv = Step.As_prover.read_var x in
+        let x_int = Bignum_bigint.of_string (Field.Constant.to_string xv) in
+        let mask = Bignum_bigint.(two_to_32 - one) in
+        let shift = 32 - n in
+        let rotated = Bignum_bigint.(
+          bit_or (shift_right x_int n) (bit_and (shift_left x_int shift) mask)) in
+        Field.Constant.of_string (Bignum_bigint.to_string rotated) )
 
-(** Bitwise right shift (prover-only, for dummy circuits).
-    Real SHA-256 uses the fused sigma function (see sha256.ml). *)
+(** Bitwise right shift (32-bit).
+    Matches o1js UInt32.rightShift(n).
+    Constant fast path for use in sigma_simple. *)
 let shr (x : t) ~(n : int) : t =
-  Step.exists Field.typ ~compute:(fun () ->
-      let xv = Step.As_prover.read_var x in
-      let x_int =
-        Bignum_bigint.of_string (Field.Constant.to_string xv)
-      in
-      let shifted = Bignum_bigint.(shift_right x_int n) in
-      Field.Constant.of_string (Bignum_bigint.to_string shifted) )
+  match Field.to_constant x with
+  | Some c ->
+    let x_int = Bignum_bigint.of_string (Field.Constant.to_string c) in
+    let shifted = Bignum_bigint.(shift_right x_int n) in
+    of_field (Field.constant (Field.Constant.of_string (Bignum_bigint.to_string shifted)))
+  | None ->
+    Step.exists Field.typ ~compute:(fun () ->
+        let xv = Step.As_prover.read_var x in
+        let x_int = Bignum_bigint.of_string (Field.Constant.to_string xv) in
+        let shifted = Bignum_bigint.(shift_right x_int n) in
+        Field.Constant.of_string (Bignum_bigint.to_string shifted) )
