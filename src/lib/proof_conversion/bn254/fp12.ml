@@ -107,6 +107,26 @@ let one : Circuit.t =
 
 let assert_one (a : Circuit.t) : unit = assert_equal a one
 
+(** Witness an Fp12 value with all-zero limbs. *)
+let witness () : Circuit.t =
+  let module Step = Pickles.Impls.Step in
+  let witness_fpa () =
+    let limbs = Array.init 3 ~f:(fun _ ->
+      Step.exists Step.Field.typ
+        ~compute:(fun () -> Step.Field.Constant.zero)) in
+    Snarky_foreign_field.Foreign_field.FpA.of_field3_unsafe
+      (limbs.(0), limbs.(1), limbs.(2))
+  in
+  let witness_fp2 () =
+    { Fp2.Circuit.c0 = witness_fpa (); c1 = witness_fpa () }
+  in
+  let witness_fp6 () =
+    { Fp6.Circuit.c0 = witness_fp2 ()
+    ; c1 = witness_fp2 ()
+    ; c2 = witness_fp2 () }
+  in
+  { Circuit.c0 = witness_fp6 (); c1 = witness_fp6 () }
+
 (** Cyclotomic squaring — currently uses general squaring. *)
 let cyclotomic_square = square
 

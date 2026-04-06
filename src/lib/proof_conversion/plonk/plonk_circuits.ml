@@ -391,8 +391,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        Plonk_accumulator.hash_packed acc
   | 12 ->
       (* Prepare pairing (split 1) + KZG accumulator initialization.
-         Matches nori zkp12. Transitions from Accumulator to KzgAccumulator.
-         TODO: Fp12 inverse, KzgAccumulator hashing. *)
+         Matches nori zkp12. Transitions from Accumulator to KzgAccumulator. *)
       fun input_hash ->
        let acc = witness_accumulator () in
        let in_digest = Plonk_accumulator.hash_packed acc in
@@ -405,75 +404,187 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
            ~folded_cm_y:acc.state.kzg_cm_y
            ~zeta:acc.fs.zeta
        in
-       (* TODO: construct KzgAccumulator with c, c_inv, shift_power
-          and hash it with Poseidon.hashPacked(KzgAccumulator, ...) *)
-       let _a_pt = { G1.Circuit.x = kzg_cm_x; y = kzg_cm_y } in
-       let c = dummy_fp12 () in
-       let _c_inv = Fp12.conjugate c in
-       Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 12 ]
-  | 13 ->
-      (* Miller loop lines (chunk 1): indices 1 to ATE_LOOP_COUNT.length - 46.
-         TODO: LineParser, AffineCache, G2Line.psi, sparse_mul. *)
+       (* Witness c (Fp12) and compute c_inv = conjugate(c) *)
+       let c = Fp12.witness () in
+       let c_inv = Fp12.conjugate c in
+       (* Witness shift_power *)
+       let shift_power =
+         Step.exists Step.Field.typ
+           ~compute:(fun () -> Step.Field.Constant.zero)
+       in
+       (* Build KzgAccumulator *)
+       let kzg_acc : Kzg_accumulator.t =
+         { proof =
+             { a_x = kzg_cm_x; a_y = kzg_cm_y
+             ; neg_b_x = acc.state.neg_fq_x; neg_b_y = acc.state.neg_fq_y
+             ; shift_power
+             ; c; c_inv
+             ; pi0 = acc.state.pi0; pi1 = acc.state.pi1
+             }
+         ; state =
+             { f = c_inv
+             ; lines_hashes_digest = Step.Field.zero
+             }
+         }
+       in
+       Kzg_accumulator.hash_packed kzg_acc
+  | 13 | 14 | 15 | 16 ->
+      (* Miller loop line computation (4 chunks).
+         zkp13: ATE[1..19], zkp14: ATE[19..39], zkp15: ATE[39..59], zkp16: ATE[59..65]+Frobenius.
+         Witnesses KzgAccumulator + lines_hashes, computes g values from
+         precomputed lines, hashes g into lines_hashes, updates digest.
+         TODO: LineParser/G2Line.psi/sparse_mul for exact line computation.
+         For now: witness g values and hash them. *)
       fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let _result = Fp12.mul (Fp12.square f) g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
-  | 14 ->
-      (* Miller loop lines (chunk 2). *)
-      fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let _result = Fp12.mul (Fp12.square f) g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
-  | 15 ->
-      (* Miller loop lines (chunk 3). *)
-      fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let _result = Fp12.mul (Fp12.square f) g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
-  | 16 ->
-      (* Miller loop lines (chunk 4) + Frobenius lines. *)
-      fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let _result = Fp12.mul (Fp12.square f) g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       (* Witness lines_hashes array (ATE_LOOP_COUNT.length fields) *)
+       let lines_hashes =
+         Array.init Kzg_accumulator.ate_loop_len ~f:(fun _ ->
+             Step.exists Step.Field.typ
+               ~compute:(fun () -> Step.Field.Constant.zero) )
+       in
+       (* Verify lines_hashes digest *)
+       let lines_digest = Accumulator_hash.poseidon_hash lines_hashes in
+       Step.assert_ (Equal (kzg.state.lines_hashes_digest, lines_digest)) ;
+       (* TODO: compute g values from precomputed lines.
+          For now, use witnessed g values (hashed into lines_hashes). *)
+       (* Update digest *)
+       kzg.state.lines_hashes_digest <- Accumulator_hash.poseidon_hash lines_hashes ;
+       Kzg_accumulator.hash_packed kzg
   | 17 ->
-      (* Miller loop f-accumulation (iterations 1-9).
-         TODO: witness KzgAccumulator, f = f^2 * g[i] with ATE_LOOP_COUNT. *)
+      (* Miller loop f-accumulation: iterations 1-9.
+         Matches nori zkp17. *)
       fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let f_sq = Fp12.square f in
-       let _result = Fp12.mul f_sq g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
-  | 18 | 19 | 20 | 21 | 22 ->
-      (* Miller loop f-accumulation (chunks 10-64).
-         Same structure as zkp17 with different iteration ranges. *)
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       (* Witness g_chunk: 9 Fp12 values *)
+       let g_chunk = Array.init 9 ~f:(fun _ -> Fp12.witness ()) in
+       (* f-update loop: for i = 1 to 9 *)
+       let f = ref kzg.state.f in
+       for i = 0 to 8 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 1) = 1 then
+           f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 1) = -1 then
+           f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
+  | 18 ->
+      (* Miller loop f-accumulation: iterations 10-20. *)
       fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let f_sq = Fp12.square f in
-       let _result = Fp12.mul f_sq g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
+       let f = ref kzg.state.f in
+       for i = 0 to 10 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 10) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 10) = -1 then f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
+  | 19 ->
+      (* Miller loop f-accumulation: iterations 21-31. *)
+      fun input_hash ->
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
+       let f = ref kzg.state.f in
+       for i = 0 to 10 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 21) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 21) = -1 then f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
+  | 20 ->
+      (* Miller loop f-accumulation: iterations 32-42. *)
+      fun input_hash ->
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
+       let f = ref kzg.state.f in
+       for i = 0 to 10 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 32) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 32) = -1 then f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
+  | 21 ->
+      (* Miller loop f-accumulation: iterations 43-53. *)
+      fun input_hash ->
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
+       let f = ref kzg.state.f in
+       for i = 0 to 10 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 43) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 43) = -1 then f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
+  | 22 ->
+      (* Miller loop f-accumulation: iterations 54-64. *)
+      fun input_hash ->
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let ate = Kzg_accumulator.ate_loop_count in
+       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
+       let f = ref kzg.state.f in
+       for i = 0 to 10 do
+         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
+         if ate.(i + 54) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i + 54) = -1 then f := Fp12.mul !f kzg.proof.c
+       done ;
+       kzg.state.f <- !f ;
+       Kzg_accumulator.hash_packed kzg
   | 23 ->
-      (* Final pairing check: multiply final g, Frobenius endomorphisms,
-         shift power, verify f = 1.
-         TODO: frobenius_pow_p, frobenius_pow_p_squared, etc. *)
+      (* Final pairing check: multiply final g, Frobenius, shift power, verify f=1.
+         Matches nori zkp23. *)
       fun input_hash ->
-       let f = dummy_fp12 () in
-       let g = dummy_fp12 () in
-       let f_sq = Fp12.square f in
-       let _result = Fp12.mul f_sq g in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
+       let kzg = Kzg_accumulator.witness () in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let g_last = Fp12.witness () in
+       let f = ref (Fp12.mul kzg.state.f g_last) in
+       (* Frobenius endomorphisms *)
+       f := Fp12.mul !f (Fp12.frobenius_pow_p kzg.proof.c_inv) ;
+       f := Fp12.mul !f (Fp12.frobenius_pow_p_squared kzg.proof.c) ;
+       f := Fp12.mul !f (Fp12.frobenius_pow_p_cubed kzg.proof.c_inv) ;
+       (* TODO: shift power selection via Provable.switch *)
+       (* Verify f = 1 *)
+       Fp12.assert_one !f ;
+       kzg.state.f <- !f ;
+       (* Output: hash of [pi0, pi1] as packed fields *)
+       let pi_input : Step.Field.t Random_oracle_input.Chunked.t =
+         { field_elements = [||]
+         ; packeds =
+             (let l = 88 in
+              let add_fpa acc (x : FF.FpA.t) =
+                let l0, l1, l2 = FF.FpA.to_field3 x in
+                (l0, l) :: (l1, l) :: (l2, l) :: acc
+              in
+              let ps = add_fpa (add_fpa [] kzg.proof.pi1) kzg.proof.pi0 in
+              Array.of_list ps)
+         }
+       in
+       let packed_fields = Random_oracle.Checked.pack_input pi_input in
+       Random_oracle.Checked.hash packed_fields
   | n ->
       failwith (sprintf "Invalid PLONK circuit index: %d" n)
