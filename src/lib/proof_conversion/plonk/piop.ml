@@ -367,13 +367,9 @@ let fold_state_1
   let s2_pt = { G1.Circuit.x = FF.FpA.of_constant vk.s2.x
               ; y = FF.FpA.of_constant vk.s2.y } in
   let cm = { G1.Circuit.x = cm_x; y = cm_y } in
-  Circuit_utils.marker 8850 ;
   let cm = G1.add cm (G1.scale o_pt (FF.FpA.to_field3 g3)) in
-  Circuit_utils.marker 8851 ;
   let cm = G1.add cm (G1.scale s1_pt (FF.FpA.to_field3 g4)) in
-  Circuit_utils.marker 8852 ;
   let cm = G1.add cm (G1.scale s2_pt (FF.FpA.to_field3 g5)) in
-  Circuit_utils.marker 8853 ;
   let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
   let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
   (rx, ry)
