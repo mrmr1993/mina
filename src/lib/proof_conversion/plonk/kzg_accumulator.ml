@@ -104,29 +104,98 @@ let hash_packed (acc : t) : Step.Field.t =
   let packed_fields = Random_oracle.Checked.pack_input input in
   Random_oracle.Checked.hash packed_fields
 
-(** Witness a KzgAccumulator with dummy values. *)
+(** Constant types for KzgAccumulator. *)
+type kzg_proof_const =
+  { a_x : FF.Field3.Constant.t ; a_y : FF.Field3.Constant.t
+  ; neg_b_x : FF.Field3.Constant.t ; neg_b_y : FF.Field3.Constant.t
+  ; shift_power : Step.Field.Constant.t
+  ; c : Fp12.Constant.t ; c_inv : Fp12.Constant.t
+  ; pi0 : FF.Field3.Constant.t ; pi1 : FF.Field3.Constant.t
+  }
+
+type kzg_state_const =
+  { f : Fp12.Constant.t
+  ; lines_hashes_digest : Step.Field.Constant.t
+  }
+
+type t_const =
+  { proof : kzg_proof_const
+  ; state : kzg_state_const
+  }
+
+let default_const : t_const =
+  let z3 = FF.Field3.Constant.zero in
+  { proof =
+      { a_x = z3; a_y = z3; neg_b_x = z3; neg_b_y = z3
+      ; shift_power = Step.Field.Constant.zero
+      ; c = Fp12.Constant.one; c_inv = Fp12.Constant.one
+      ; pi0 = z3; pi1 = z3
+      }
+  ; state =
+      { f = Fp12.Constant.one
+      ; lines_hashes_digest = Step.Field.Constant.zero
+      }
+  }
+
+(** Typ.t for KzgAccumulator with proper range checks. *)
+let typ : (t, t_const) Step.Typ.t =
+  let p = Bn254_params.p in
+  let r = Bn254_params.r in
+  let fpc_typ = FF.FpA.typ ~f:p in
+  let frc_typ = FF.FpA.typ ~f:r in
+  let proof_typ =
+    Step.Typ.of_hlistable
+      [ fpc_typ; fpc_typ; fpc_typ; fpc_typ
+      ; Step.Field.typ
+      ; Fp12.typ; Fp12.typ
+      ; frc_typ; frc_typ
+      ]
+      ~var_to_hlist:(fun (p : kzg_proof) ->
+        [ p.a_x; p.a_y; p.neg_b_x; p.neg_b_y
+        ; p.shift_power
+        ; p.c; p.c_inv
+        ; p.pi0; p.pi1 ] )
+      ~var_of_hlist:(fun
+        ([ a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 ] :
+           (unit, _) Snarky_backendless.H_list.t) ->
+        { a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 } )
+      ~value_to_hlist:(fun (p : kzg_proof_const) ->
+        [ p.a_x; p.a_y; p.neg_b_x; p.neg_b_y
+        ; p.shift_power
+        ; p.c; p.c_inv
+        ; p.pi0; p.pi1 ] )
+      ~value_of_hlist:(fun
+        ([ a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 ] :
+           (unit, _) Snarky_backendless.H_list.t) ->
+        { a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 } )
+  in
+  let state_typ =
+    Step.Typ.of_hlistable
+      [ Fp12.typ; Step.Field.typ ]
+      ~var_to_hlist:(fun (s : kzg_state) ->
+        [ s.f; s.lines_hashes_digest ] )
+      ~var_of_hlist:(fun
+        ([ f; lines_hashes_digest ] :
+           (unit, _) Snarky_backendless.H_list.t) ->
+        { f; lines_hashes_digest } )
+      ~value_to_hlist:(fun (s : kzg_state_const) ->
+        [ s.f; s.lines_hashes_digest ] )
+      ~value_of_hlist:(fun
+        ([ f; lines_hashes_digest ] :
+           (unit, _) Snarky_backendless.H_list.t) ->
+        { f; lines_hashes_digest } )
+  in
+  Step.Typ.of_hlistable
+    [ proof_typ; state_typ ]
+    ~var_to_hlist:(fun (a : t) -> [ a.proof; a.state ] )
+    ~var_of_hlist:(fun
+      ([ proof; state ] : (unit, _) Snarky_backendless.H_list.t) ->
+      { proof; state } )
+    ~value_to_hlist:(fun (a : t_const) -> [ a.proof; a.state ] )
+    ~value_of_hlist:(fun
+      ([ proof; state ] : (unit, _) Snarky_backendless.H_list.t) ->
+      { proof; state } )
+
+(** Witness a KzgAccumulator using the proper Typ.t. *)
 let witness () : t =
-  let witness_fpa () =
-    let limbs = Array.init 3 ~f:(fun _ ->
-      Step.exists Step.Field.typ
-        ~compute:(fun () -> Step.Field.Constant.zero)) in
-    FF.FpA.of_field3_unsafe (limbs.(0), limbs.(1), limbs.(2))
-  in
-  let witness_fp12 () = Fp12.witness () in
-  let witness_field () =
-    Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)
-  in
-  let proof =
-    { a_x = witness_fpa () ; a_y = witness_fpa ()
-    ; neg_b_x = witness_fpa () ; neg_b_y = witness_fpa ()
-    ; shift_power = witness_field ()
-    ; c = witness_fp12 () ; c_inv = witness_fp12 ()
-    ; pi0 = witness_fpa () ; pi1 = witness_fpa ()
-    }
-  in
-  let state =
-    { f = witness_fp12 ()
-    ; lines_hashes_digest = witness_field ()
-    }
-  in
-  { proof; state }
+  Step.exists typ ~compute:(fun () -> default_const)

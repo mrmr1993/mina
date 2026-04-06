@@ -7,6 +7,8 @@ open! Core_kernel
 
 module Constant = struct
   type t = Fp2.Constant.t * Fp2.Constant.t * Fp2.Constant.t
+  let zero : t = (Fp2.Constant.zero, Fp2.Constant.zero, Fp2.Constant.zero)
+  let one : t = (Fp2.Constant.one, Fp2.Constant.zero, Fp2.Constant.zero)
 end
 
 module Circuit = struct

@@ -7,6 +7,7 @@ open! Core_kernel
 
 module Constant = struct
   type t = Fp6.Constant.t * Fp6.Constant.t
+  let one : t = (Fp6.Constant.one, Fp6.Constant.zero)
 end
 
 module Circuit = struct
@@ -119,24 +120,23 @@ let one : Circuit.t =
 let assert_one (a : Circuit.t) : unit = assert_equal a one
 
 (** Witness an Fp12 value with all-zero limbs. *)
+(** Typ.t for Fp12 (with range checks on each FpA component).
+    Matches nori Fp12 provable type. *)
+let typ : (Circuit.t, Constant.t) Pickles.Impls.Step.Typ.t =
+  let module Step = Pickles.Impls.Step in
+  let fp6_typ = Fp6.Circuit.typ in
+  Step.Typ.transport
+    (Step.Typ.tuple2 fp6_typ fp6_typ)
+    ~there:(fun (c0, c1) -> (c0, c1))
+    ~back:(fun (c0, c1) -> (c0, c1))
+  |> Step.Typ.transport_var
+       ~there:(fun { Circuit.c0; c1 } -> (c0, c1))
+       ~back:(fun (c0, c1) -> { Circuit.c0; c1 })
+
+(** Witness an Fp12 value using the proper Typ.t. *)
 let witness () : Circuit.t =
   let module Step = Pickles.Impls.Step in
-  let witness_fpa () =
-    let limbs = Array.init 3 ~f:(fun _ ->
-      Step.exists Step.Field.typ
-        ~compute:(fun () -> Step.Field.Constant.zero)) in
-    Snarky_foreign_field.Foreign_field.FpA.of_field3_unsafe
-      (limbs.(0), limbs.(1), limbs.(2))
-  in
-  let witness_fp2 () =
-    { Fp2.Circuit.c0 = witness_fpa (); c1 = witness_fpa () }
-  in
-  let witness_fp6 () =
-    { Fp6.Circuit.c0 = witness_fp2 ()
-    ; c1 = witness_fp2 ()
-    ; c2 = witness_fp2 () }
-  in
-  { Circuit.c0 = witness_fp6 (); c1 = witness_fp6 () }
+  Step.exists typ ~compute:(fun () -> Constant.one)
 
 (** Cyclotomic squaring — currently uses general squaring. *)
 let cyclotomic_square = square
