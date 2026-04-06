@@ -45,6 +45,13 @@ module Circuit = struct
     |> Step.Typ.transport_var
          ~there:(fun { x; y } -> (x, y))
          ~back:(fun (x, y) -> { x; y })
+
+  (** Raw provable type without checks, matching nori's
+      Point.provable = provable(\{x: Field3, y: Field3\}).
+      Used for arrayGetGeneric where no check is needed. *)
+  let provable_typ : (t, Constant.t) Step.Typ.t =
+    let (Step.Typ.Typ t) = typ in
+    Step.Typ.Typ { t with check = (fun _ -> Step.make_checked (fun () -> ())) }
 end
 
 let of_constant (pt : Constant.t) : Circuit.t =
@@ -662,71 +669,33 @@ let array_get (array : Step.Field.t array) (index : Step.Field.t) :
     done ;
     a
 
-(** Lookup a G1 point from a table by index.
-    Matches nori's arrayGetGeneric (basic.ts:374-389):
-      1. Witness result point
-      2. For each of 6 limbs: arrayGet + assertEquals
-    This ensures half-generic pairing matches nori. *)
-let array_get_point (table : Circuit.t array) (index : Step.Field.t) :
-    Circuit.t =
-  (* 1. Witness result: let a = Provable.witness(type, () => array[Number(index)])
-     cf. basic.ts:377 *)
-  let ax0 = Step.exists Step.Field.typ ~compute:(fun () ->
+(** Generic provable array lookup using a Typ.t, matching nori's
+    arrayGetGeneric(type, array, index) from basic.ts:374-389.
+
+    The Typ provides witnessing (via Step.exists), field extraction
+    (via var_to_fields), and value reading (via value_to_fields). *)
+let array_get_generic
+    (type var value)
+    (typ : (var, value) Step.Typ.t)
+    (array : var array) (index : Step.Field.t)
+    : var =
+  let (Step.Typ.Typ t) = typ in
+  (* 1. Witness result: Provable.witness(type, () => array[Number(index)]) *)
+  let a = Step.exists typ ~compute:(fun () ->
       let iv = Step.As_prover.read_var index in
       let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).x in let l, _, _ = f3 in
-      Step.As_prover.read_var l)
+      Step.As_prover.read typ array.(idx) )
   in
-  let ax1 = Step.exists Step.Field.typ ~compute:(fun () ->
-      let iv = Step.As_prover.read_var index in
-      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).x in let _, l, _ = f3 in
-      Step.As_prover.read_var l)
-  in
-  let ax2 = Step.exists Step.Field.typ ~compute:(fun () ->
-      let iv = Step.As_prover.read_var index in
-      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).x in let _, _, l = f3 in
-      Step.As_prover.read_var l)
-  in
-  let ay0 = Step.exists Step.Field.typ ~compute:(fun () ->
-      let iv = Step.As_prover.read_var index in
-      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).y in let l, _, _ = f3 in
-      Step.As_prover.read_var l)
-  in
-  let ay1 = Step.exists Step.Field.typ ~compute:(fun () ->
-      let iv = Step.As_prover.read_var index in
-      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).y in let _, l, _ = f3 in
-      Step.As_prover.read_var l)
-  in
-  let ay2 = Step.exists Step.Field.typ ~compute:(fun () ->
-      let iv = Step.As_prover.read_var index in
-      let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum iv) in
-      let f3 = FpA.to_field3 table.(idx).y in let _, _, l = f3 in
-      Step.As_prover.read_var l)
-  in
-  let a_fields = [| ax0; ax1; ax2; ay0; ay1; ay2 |] in
-  (* 2. For each field: arrayGet + assertEquals
-     cf. basic.ts:384-387:
-       for (let j = 0; j < size; j++) {
-         arrayGet(arrayFieldsJ, index).assertEquals(aFields[j]);
-       } *)
-  let arrays =
-    Array.map table ~f:(fun pt ->
-        let x0, x1, x2 = FpA.to_field3 pt.x in
-        let y0, y1, y2 = FpA.to_field3 pt.y in
-        [| x0; x1; x2; y0; y1; y2 |] )
-  in
-  for j = 0 to 5 do
+  let a_fields, _ = t.var_to_fields a in
+  (* 2. For each field: arrayGet(arrayFieldsJ, index).assertEquals(aFields[j]) *)
+  let size = Array.length a_fields in
+  let arrays = Array.map array ~f:(fun v -> fst (t.var_to_fields v)) in
+  for j = 0 to size - 1 do
     let arr_j = Array.map arrays ~f:(fun fields -> fields.(j)) in
     let got = array_get arr_j index in
     Step.Field.Assert.equal got a_fields.(j)
   done ;
-  { x = FpA.of_field3_unsafe (ax0, ax1, ax2)
-  ; y = FpA.of_field3_unsafe (ay0, ay1, ay2)
-  }
+  a
 
 (* --- Point table -------------------------------------------------------- *)
 
@@ -838,19 +807,23 @@ let point_equals (pt : Circuit.t) (c : Constant.t) : Step.Boolean.var =
     cf. elliptic-curve.ts:498:
       sum = Provable.if(sj.equals(0), Point, sum, added)
     When condition is true, returns if_true; when false, returns if_false. *)
-let provable_if_point (condition : Step.Field.t)
-    ~(if_true : Circuit.t) ~(if_false : Circuit.t) : Circuit.t =
-  let sel_fpa fa fb =
-    let a0, a1, a2 = FpA.to_field3 fa in
-    let b0, b1, b2 = FpA.to_field3 fb in
-    let r0 = FF.if_field condition ~then_:a0 ~else_:b0 in
-    let r1 = FF.if_field condition ~then_:a1 ~else_:b1 in
-    let r2 = FF.if_field condition ~then_:a2 ~else_:b2 in
-    FpA.of_field3_unsafe (r0, r1, r2)
+(** Generic Provable.if matching nori's Provable.if(bool, type, x, y).
+    Decomposes both values to fields via the Typ, does per-field
+    conditional select, then reconstructs. *)
+let provable_if
+    (type var value)
+    (typ : (var, value) Step.Typ.t)
+    (condition : Step.Field.t)
+    ~(if_true : var) ~(if_false : var) : var =
+  let (Step.Typ.Typ t) = typ in
+  let true_fields, true_aux = t.var_to_fields if_true in
+  let false_fields, _ = t.var_to_fields if_false in
+  let result_fields =
+    Array.map2_exn true_fields false_fields ~f:(fun a b ->
+        FF.if_field condition ~then_:a ~else_:b )
   in
-  let x = sel_fpa if_true.x if_false.x in
-  let y = sel_fpa if_true.y if_false.y in
-  { Circuit.x; y }
+  t.var_of_fields (result_fields, true_aux)
+
 
 (* --- Multi-scalar multiplication (matching nori multiScalarMul) --------- *)
 
@@ -895,12 +868,12 @@ let multi_scalar_mul
         let sj = scalar_chunks.(j).(chunk_idx) in
         let sj_p =
           if window_size = 1 then points.(j)
-          else array_get_point tables.(j) sj
+          else array_get_generic Circuit.provable_typ tables.(j) sj
         in
         let added = add !sum sj_p in
 
         let is_zero = FF.field_var_equal sj Step.Field.zero in
-        sum := provable_if_point (is_zero :> Step.Field.t)
+        sum := provable_if Circuit.provable_typ (is_zero :> Step.Field.t)
             ~if_true:!sum ~if_false:added ;
       end
     done ;
