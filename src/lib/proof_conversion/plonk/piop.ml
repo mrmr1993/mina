@@ -207,18 +207,11 @@ let pi_contribution ~(pub_inputs : FF.FpA.t array)
 let custom_pi_lagrange ~(zeta : FF.FpA.t) ~(zh_eval : FF.FpA.t)
     ~(qcp_wire_x : FF.FpA.t) ~(qcp_wire_y : FF.FpA.t)
     ~(omega_pow_i : FF.FpA.t) ~(omega_pow_i_div_n : FF.FpA.t) : FF.FpA.t =
-  (* TODO: HashFr.hash(qcp_wire_x, qcp_wire_y)
-     For now, we need to implement the BSB22 hash-to-field.
-     This requires 3 SHA-256 hashes + XOR + bit manipulation. *)
-  let _h_fr =
-    ignore (qcp_wire_x : FF.FpA.t) ;
-    ignore (qcp_wire_y : FF.FpA.t) ;
-    FF.FpA.of_constant Bignum_bigint.zero (* placeholder *)
-  in
+  let hash_fr = Hash_fr.hash qcp_wire_x qcp_wire_y in
   let den_inv = sub_fr zeta omega_pow_i in
   let den = inv_fr den_inv in
   let li = mul_fr (mul_fr zh_eval omega_pow_i_div_n) den in
-  mul_fr li _h_fr
+  mul_fr li hash_fr
 
 (** Opening of the linearized polynomial.
     Matches nori opening_of_linearized_polynomial. *)
