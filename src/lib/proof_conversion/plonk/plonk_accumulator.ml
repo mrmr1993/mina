@@ -319,7 +319,8 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
     Queue.enqueue packeds (l2, l)
   in
   let add_bytes32 (b : bytes32) =
-    Array.iter b ~f:(fun byte -> Queue.enqueue fields byte)
+    (* Each UInt8 → packed entry of 8 bits, matching o1js UInt8.toInput *)
+    Array.iter b ~f:(fun byte -> Queue.enqueue packeds (byte, 8))
   in
   let add_uint32 (w : Uint32.t) =
     Queue.enqueue packeds (Uint32.to_field w, 32)
