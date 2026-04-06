@@ -261,20 +261,16 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Matches nori zkp9. *)
       fun input_hash ->
        let acc = witness_accumulator () in
-       Circuit_utils.marker 9001 ;
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       Circuit_utils.marker 9002 ;
        let cm_x, cm_y =
          Piop.fold_state_1
            ~proof:acc.proof ~vk:plonk_vk
            ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
            ~gamma_kzg:acc.fs.gamma_kzg
        in
-       Circuit_utils.marker 9003 ;
        acc.state.cm_x <- cm_x ;
        acc.state.cm_y <- cm_y ;
-       Circuit_utils.marker 9004 ;
        Plonk_accumulator.hash_packed acc
   | 10 ->
       (* Fold state 2 + squeeze KZG random.

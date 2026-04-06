@@ -357,12 +357,10 @@ let fold_state_1
     ~(proof : Plonk_accumulator.circuit_proof) ~(vk : Plonk_proof.vk)
     ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
     ~(gamma_kzg : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
-  Circuit_utils.marker 9010 ;
   let g2 = mul_fr gamma_kzg gamma_kzg in
   let g3 = mul_fr gamma_kzg g2 in
   let g4 = mul_fr gamma_kzg g3 in
   let g5 = mul_fr gamma_kzg g4 in
-  Circuit_utils.marker 9011 ;
   let o_pt = { G1.Circuit.x = proof.o_com_x; y = proof.o_com_y } in
   let s1_pt = { G1.Circuit.x = FF.FpA.of_constant vk.s1.x
               ; y = FF.FpA.of_constant vk.s1.y } in
@@ -370,11 +368,8 @@ let fold_state_1
               ; y = FF.FpA.of_constant vk.s2.y } in
   let cm = { G1.Circuit.x = cm_x; y = cm_y } in
   let cm = G1.add cm (G1.scale o_pt (FF.FpA.to_field3 g3)) in
-  Circuit_utils.marker 9012 ;
   let cm = G1.add cm (G1.scale s1_pt (FF.FpA.to_field3 g4)) in
-  Circuit_utils.marker 9013 ;
   let cm = G1.add cm (G1.scale s2_pt (FF.FpA.to_field3 g5)) in
-  Circuit_utils.marker 9014 ;
   let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
   let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
   (rx, ry)
