@@ -76,6 +76,27 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let c2 = Fp2.sum [ c2_mul; t0; t2; t1 ] [ Sub; Sub; Add ] in
   { c0; c1; c2 }
 
+(** Fp6 inverse.
+    Matches nori Fp6.inverse() (fp6.ts:36-59). *)
+let inverse (a : Circuit.t) : Circuit.t =
+  let t0 = Fp2.mul a.c0 a.c0 in
+  let t1 = Fp2.mul a.c1 a.c1 in
+  let t2 = Fp2.mul a.c2 a.c2 in
+  let t3 = Fp2.mul a.c0 a.c1 in
+  let t4 = Fp2.mul a.c0 a.c2 in
+  let t5 = Fp2.mul a.c1 a.c2 in
+  let c0 = Fp2.sub t0 (mul_by_non_residue t5) in
+  let c1 = Fp2.sub (mul_by_non_residue t2) t3 in
+  let c2 = Fp2.sub t1 t4 in
+  let t6 = Fp2.mul a.c0 c0 in
+  let t6 = Fp2.add t6 (mul_by_non_residue (Fp2.mul a.c2 c1)) in
+  let t6 = Fp2.add t6 (mul_by_non_residue (Fp2.mul a.c1 c2)) in
+  let t6 = Fp2.inverse t6 in
+  let c0 = Fp2.mul c0 t6 in
+  let c1 = Fp2.mul c1 t6 in
+  let c2 = Fp2.mul c2 t6 in
+  { c0; c1; c2 }
+
 let assert_equal (a : Circuit.t) (b : Circuit.t) : unit =
   Fp2.assert_equal a.c0 b.c0 ;
   Fp2.assert_equal a.c1 b.c1 ;

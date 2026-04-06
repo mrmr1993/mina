@@ -355,9 +355,9 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
            ~folded_cm_y:acc.state.kzg_cm_y
            ~zeta:acc.fs.zeta
        in
-       (* Witness c (Fp12) and compute c_inv = conjugate(c) *)
+       (* Witness c (Fp12) and compute c_inv = c.inverse() *)
        let c = Fp12.witness () in
-       let c_inv = Fp12.conjugate c in
+       let c_inv = Fp12.inverse c in
        (* Witness shift_power *)
        let shift_power =
          Step.exists Step.Field.typ

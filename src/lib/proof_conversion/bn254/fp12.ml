@@ -77,6 +77,17 @@ let conjugate (a : Circuit.t) : Circuit.t = { c0 = a.c0; c1 = Fp6.neg a.c1 }
     inv(a) = conjugate(a) since |a| = 1. *)
 let unitary_inverse (a : Circuit.t) : Circuit.t = conjugate a
 
+(** Full Fp12 inverse.
+    Matches nori Fp12.inverse() (fp12.ts:47-58). *)
+let inverse (a : Circuit.t) : Circuit.t =
+  let t0 = Fp6.mul a.c0 a.c0 in
+  let t1 = Fp6.mul a.c1 a.c1 in
+  let t0 = Fp6.sub t0 (Fp6.mul_by_v t1) in
+  let t1 = Fp6.inverse t0 in
+  let c0 = Fp6.mul a.c0 t1 in
+  let c1 = Fp6.mul (Fp6.neg a.c1) t1 in
+  { c0; c1 }
+
 (** Sparse multiplication.
     The RHS has structure: c0 = (rhs.c0.c0, 0, 0), c1 = (rhs.c1.c0, rhs.c1.c1, 0). *)
 let sparse_mul (a : Circuit.t) (rhs : Circuit.t) : Circuit.t =
