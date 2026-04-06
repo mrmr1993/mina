@@ -390,20 +390,84 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        acc.state.neg_fq_y <- neg_fq_y ;
        Plonk_accumulator.hash_packed acc
   | 12 ->
-      (* Initialize KZG accumulator *)
+      (* Prepare pairing (split 1) + KZG accumulator initialization.
+         Matches nori zkp12. Transitions from Accumulator to KzgAccumulator.
+         TODO: Fp12 inverse, KzgAccumulator hashing. *)
       fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let kzg_cm_x, kzg_cm_y =
+         Piop.prepare_pairing_1
+           ~vk:plonk_vk ~proof:acc.proof
+           ~random:acc.state.kzg_random
+           ~folded_cm_x:acc.state.kzg_cm_x
+           ~folded_cm_y:acc.state.kzg_cm_y
+           ~zeta:acc.fs.zeta
+       in
+       (* TODO: construct KzgAccumulator with c, c_inv, shift_power
+          and hash it with Poseidon.hashPacked(KzgAccumulator, ...) *)
+       let _a_pt = { G1.Circuit.x = kzg_cm_x; y = kzg_cm_y } in
        let c = dummy_fp12 () in
        let _c_inv = Fp12.conjugate c in
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 12 ]
-  | 13 | 14 | 15 | 16 ->
-      (* Hash line coefficients: Fp12 values → Poseidon digest *)
+  | 13 ->
+      (* Miller loop lines (chunk 1): indices 1 to ATE_LOOP_COUNT.length - 46.
+         TODO: LineParser, AffineCache, G2Line.psi, sparse_mul. *)
       fun input_hash ->
+       let f = dummy_fp12 () in
        let g = dummy_fp12 () in
-       let _hash = Accumulator_hash.hash_fp12 g in
+       let _result = Fp12.mul (Fp12.square f) g in
        Accumulator_hash.combine_hashes
          [ input_hash; Step.Field.of_int circuit_index ]
-  | 17 | 18 | 19 | 20 | 21 | 22 | 23 ->
-      (* Miller loop computation (shared structure with Groth16) *)
+  | 14 ->
+      (* Miller loop lines (chunk 2). *)
+      fun input_hash ->
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
+       let _result = Fp12.mul (Fp12.square f) g in
+       Accumulator_hash.combine_hashes
+         [ input_hash; Step.Field.of_int circuit_index ]
+  | 15 ->
+      (* Miller loop lines (chunk 3). *)
+      fun input_hash ->
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
+       let _result = Fp12.mul (Fp12.square f) g in
+       Accumulator_hash.combine_hashes
+         [ input_hash; Step.Field.of_int circuit_index ]
+  | 16 ->
+      (* Miller loop lines (chunk 4) + Frobenius lines. *)
+      fun input_hash ->
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
+       let _result = Fp12.mul (Fp12.square f) g in
+       Accumulator_hash.combine_hashes
+         [ input_hash; Step.Field.of_int circuit_index ]
+  | 17 ->
+      (* Miller loop f-accumulation (iterations 1-9).
+         TODO: witness KzgAccumulator, f = f^2 * g[i] with ATE_LOOP_COUNT. *)
+      fun input_hash ->
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
+       let f_sq = Fp12.square f in
+       let _result = Fp12.mul f_sq g in
+       Accumulator_hash.combine_hashes
+         [ input_hash; Step.Field.of_int circuit_index ]
+  | 18 | 19 | 20 | 21 | 22 ->
+      (* Miller loop f-accumulation (chunks 10-64).
+         Same structure as zkp17 with different iteration ranges. *)
+      fun input_hash ->
+       let f = dummy_fp12 () in
+       let g = dummy_fp12 () in
+       let f_sq = Fp12.square f in
+       let _result = Fp12.mul f_sq g in
+       Accumulator_hash.combine_hashes
+         [ input_hash; Step.Field.of_int circuit_index ]
+  | 23 ->
+      (* Final pairing check: multiply final g, Frobenius endomorphisms,
+         shift power, verify f = 1.
+         TODO: frobenius_pow_p, frobenius_pow_p_squared, etc. *)
       fun input_hash ->
        let f = dummy_fp12 () in
        let g = dummy_fp12 () in

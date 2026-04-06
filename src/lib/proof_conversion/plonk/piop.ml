@@ -435,3 +435,27 @@ let prepare_pairing_0
   , assert_canonical_fp (FF.FpA.to_field3 folded_cm.y)
   , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.x)
   , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.y) )
+
+(** Prepare pairing (split 1): add quotients_g1.
+    Matches nori preparePairing_1. *)
+let prepare_pairing_1
+    ~(vk : Plonk_proof.vk)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(random : FF.FpA.t)
+    ~(folded_cm_x : FF.FpA.t) ~(folded_cm_y : FF.FpA.t)
+    ~(zeta : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+  let folded_cm = { G1.Circuit.x = folded_cm_x; y = folded_cm_y } in
+  let batch_z = { G1.Circuit.x = proof.batch_opening_at_zeta_x
+                ; y = proof.batch_opening_at_zeta_y } in
+  let batch_wz = { G1.Circuit.x = proof.batch_opening_at_zeta_omega_x
+                 ; y = proof.batch_opening_at_zeta_omega_y } in
+  let omega_fr = FF.FpA.of_constant vk.omega in
+  let zeta_omega = mul_fr omega_fr zeta in
+  let random_zeta_omega = mul_fr random zeta_omega in
+  let quotients_g1 = G1.scale batch_z (FF.FpA.to_field3 zeta) in
+  let quotients_g1 =
+    G1.add quotients_g1
+      (G1.scale batch_wz (FF.FpA.to_field3 random_zeta_omega)) in
+  let folded_cm = G1.add folded_cm quotients_g1 in
+  ( assert_canonical_fp (FF.FpA.to_field3 folded_cm.x)
+  , assert_canonical_fp (FF.FpA.to_field3 folded_cm.y) )
