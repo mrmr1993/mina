@@ -182,27 +182,30 @@ let compress (h : Uint32.t array) (w : Uint32.t array) : Uint32.t array =
   (* main loop *)
   for t = 0 to 63 do
     (* T1 is unreduced and not proven to be 32bit, we will do this later to save constraints *)
-    let ( + ) = Step.Field.add in
-    let unreduced_t1 = seal (
+    let s1 = sigma_one !e in
+    let ch_val = ch !e !f !g in
+    let unreduced_t1 = seal Step.Field.(
       Uint32.to_field !hh
-      + Uint32.to_field (sigma_one !e)
-      + Uint32.to_field (ch !e !f !g)
-      + Step.Field.of_int k_constants.(t)
+      + Uint32.to_field s1
+      + Uint32.to_field ch_val
+      + of_int k_constants.(t)
       + Uint32.to_field w.(t)) in
     (* T2 is also unreduced *)
-    let unreduced_t2 =
-      Uint32.to_field (sigma_zero !a)
-      + Uint32.to_field (maj !a !b !c) in
+    let s0 = sigma_zero !a in
+    let maj_val = maj !a !b !c in
+    let unreduced_t2 = Step.Field.(
+      Uint32.to_field s0
+      + Uint32.to_field maj_val) in
     hh := !g ;
     g := !f ;
     f := !e ;
     (* mod 32bit the unreduced field element *)
-    e := snd (Uint32.div_mod_32 (Uint32.to_field !d + unreduced_t1) ~n_bits:48) ;
+    e := snd (Uint32.div_mod_32 Step.Field.(Uint32.to_field !d + unreduced_t1) ~n_bits:48) ;
     d := !c ;
     c := !b ;
     b := !a ;
     (* mod 32bit *)
-    a := snd (Uint32.div_mod_32 (unreduced_t2 + unreduced_t1) ~n_bits:48)
+    a := snd (Uint32.div_mod_32 Step.Field.(unreduced_t2 + unreduced_t1) ~n_bits:48)
   done ;
   (* new intermediate hash value *)
   [| Uint32.add h.(0) !a
@@ -228,12 +231,15 @@ let message_schedule (m : Uint32.t array) : Uint32.t array =
   for t = 0 to 15 do w.(t) <- m.(t) done ;
   for t = 16 to 63 do
     (* the field element is unreduced and not proven to be 32bit, we will do this later to save constraints *)
-    let ( + ) = Step.Field.add in
-    let unreduced =
-      Uint32.to_field (delta_one w.(t - 2))
-      + Uint32.to_field w.(t - 7)
-      + Uint32.to_field (delta_zero w.(t - 15))
-      + Uint32.to_field w.(t - 16) in
+    let d1 = delta_one w.(t - 2) in
+    let w7 = w.(t - 7) in
+    let d0 = delta_zero w.(t - 15) in
+    let w16 = w.(t - 16) in
+    let unreduced = Step.Field.(
+      Uint32.to_field d1
+      + Uint32.to_field w7
+      + Uint32.to_field d0
+      + Uint32.to_field w16) in
     (* mod 32bit the unreduced field element *)
     w.(t) <- snd (Uint32.div_mod_32 unreduced ~n_bits:48)
   done ;

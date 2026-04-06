@@ -70,7 +70,7 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
                  in
                  Step.Field.scale (bit :> Step.Field.t) coeff ) )
         in
-        List.fold terms ~init:Step.Field.zero ~f:Step.Field.add )
+        FF.seal (List.fold terms ~init:Step.Field.zero ~f:Step.Field.add) )
   in
   (* Reverse for big-endian byte order *)
   let bytes_be = Array.copy bytes_le in
