@@ -22,73 +22,51 @@ let two_255_mod_r =
   Bignum_bigint.of_string
     "14119558874979547267292681013829403749538263531988213332332383630804947828734"
 
-(** Convert a SHA-256 digest (8 UInt32 words) to a BN254 scalar (FrC).
+(** Convert a SHA-256 digest (32 bytes) to a BN254 scalar (FrC).
 
-    Matches nori's shaToFr:
-    1. Convert 8 words → 32 bytes → 256 bits (big-endian)
-    2. Take 254 low bits, save bits 254 and 255
-    3. Construct FrU from 254 bits
-    4. Conditionally add 2^254 mod r and 2^255 mod r *)
-let sha_to_fr (digest : Uint32.t array) : FF.FpA.t =
-  assert (Array.length digest = 8) ;
-  (* Convert 8 UInt32 words to 32 bytes.
-     Each word is 4 bytes, big-endian within the word.
-     Matches nori: wordToBytes(x.value, 4).reverse() for each word,
-     then flat() to get 32 bytes. *)
-  let bytes =
-    Array.concat_map digest ~f:(fun word ->
-        (* Decompose each UInt32 into 4 bytes (big-endian) *)
-        Array.init 4 ~f:(fun j ->
-            Step.exists Step.Field.typ ~compute:(fun () ->
-                let wv = Step.As_prover.read_var (Uint32.to_field word) in
-                let w_big =
-                  Bignum_bigint.of_string
-                    (Step.Field.Constant.to_string wv)
-                in
-                let shift = 8 * (3 - j) in
-                let byte_val =
-                  Bignum_bigint.(
-                    bit_and (shift_right w_big shift) (of_int 255))
-                in
-                Step.Field.Constant.of_string
-                  (Bignum_bigint.to_string byte_val) ) ) )
-  in
-  (* Constrain byte decomposition: word = b0*2^24 + b1*2^16 + b2*2^8 + b3 *)
-  Array.iteri digest ~f:(fun i word ->
-      let b = Array.sub bytes ~pos:(i * 4) ~len:4 in
-      let reconstructed =
-        Step.Field.(
-          add
-            (add
-               (scale b.(0) (Step.Field.Constant.of_int (1 lsl 24)))
-               (scale b.(1) (Step.Field.Constant.of_int (1 lsl 16))))
-            (add
-               (scale b.(2) (Step.Field.Constant.of_int (1 lsl 8)))
-               b.(3)))
-      in
-      Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ) ;
-  (* Convert 32 bytes to 256 bits.
-     nori iterates bytes 31..0 (reversed), decomposing each to 8 bits.
-     The result is little-endian bit array (bit 0 = LSB). *)
-  let all_bits =
-    let rev_bytes = Array.copy bytes in
-    Array.rev_inplace rev_bytes ;
-    Array.concat_map rev_bytes ~f:(fun byte_val ->
-        let bits = Step.Field.choose_preimage_var byte_val ~length:8 in
-        Array.of_list bits )
-  in
-  assert (Array.length all_bits = 256) ;
-  (* Extract bit 254 and bit 255 (the top 2 bits) *)
-  let bit_254 = all_bits.(254) in
-  let bit_255 = all_bits.(255) in
-  (* Take the low 254 bits → construct FrU via fromBits *)
+    Matches nori's shaToFr line-for-line:
+    1. Iterate bytes 31..0, calling toBits() (= choose_preimage 254) on each
+    2. Collect 254 low bits, save bits 254 and 255
+    3. Construct FrU.fromBits(shaBitRepr)
+    4. Conditionally add 2^254 mod r and 2^255 mod r
+    5. assertCanonical *)
+let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
+  assert (Array.length digest_bytes = 32) ;
+  (* let fields = hashDigest.toFields(); *)
+  let fields = digest_bytes in
+
+  let sha_bit_repr = Queue.create () in
+  let bit_255 = ref Step.Boolean.false_ in
+  let bit_256 = ref Step.Boolean.false_ in
+
+  for i = 31 downto 0 do
+    let bits = Step.Field.choose_preimage_var fields.(i)
+        ~length:Step.Field.size_in_bits in
+    let bits = Array.of_list bits in
+    for j = 0 to 7 do
+      (* we skip last 2 bits *)
+      if i = 0 && j = 6 then
+        bit_255 := bits.(j)
+      else if i = 0 && j = 7 then
+        bit_256 := bits.(j)
+      else
+        Queue.enqueue sha_bit_repr bits.(j)
+    done
+  done ;
+
+  let sha_bit_repr = Queue.to_array sha_bit_repr in
+
+  (* const sh254 = FrC.from(2^254 % r) *)
+  (* const sh255 = FrC.from(2^255 % r) *)
+
+  (* let x = FrU.fromBits(shaBitRepr) *)
   (* Pack 254 bits into 3 limbs of the Fr field:
      limb0 = bits[0..87], limb1 = bits[88..175], limb2 = bits[176..253] *)
   let pack_limb ~pos ~len =
     let terms =
       Array.to_list
         (Array.init len ~f:(fun j ->
-             let bit = all_bits.(pos + j) in
+             let bit = sha_bit_repr.(pos + j) in
              let coeff =
                FF.bignum_to_field_const Bignum_bigint.(pow (of_int 2) (of_int j))
              in
@@ -99,12 +77,9 @@ let sha_to_fr (digest : Uint32.t array) : FF.FpA.t =
   let limb0 = pack_limb ~pos:0 ~len:88 in
   let limb1 = pack_limb ~pos:88 ~len:88 in
   let limb2 = pack_limb ~pos:176 ~len:78 in
-  let x_unreduced =
-    FF.FpU.of_field3_unsafe (limb0, limb1, limb2)
-  in
-  (* Conditionally add 2^254 mod r if bit_254 is set.
-     Matches nori: Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n))
-     We use if_field on each limb. *)
+  let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
+
+  (* const a = Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
   let cond_field3 (b : Step.Boolean.var) (c : Bignum_bigint.t) : FF.Field3.t =
     let l0, l1, l2 = FF.Field3.Constant.split c in
     let bf = (b :> Step.Field.t) in
@@ -112,10 +87,11 @@ let sha_to_fr (digest : Uint32.t array) : FF.FpA.t =
     , Step.Field.scale bf (FF.bignum_to_field_const l1)
     , Step.Field.scale bf (FF.bignum_to_field_const l2) )
   in
-  let a = cond_field3 bit_254 two_254_mod_r in
-  let b = cond_field3 bit_255 two_255_mod_r in
-  (* x + a + b, then assertCanonical *)
-  let x_f3 = FF.FpU.to_field3 x_unreduced in
+  let a = cond_field3 !bit_255 two_254_mod_r in
+  let b = cond_field3 !bit_256 two_255_mod_r in
+
+  (* const res: FrC = x.add(a).add(b).assertCanonical() *)
+  let x_f3 = FF.FpU.to_field3 x in
   let sum =
     FF.Sum.add
       (FF.Sum.add (FF.Sum.of_field3 x_f3) a)

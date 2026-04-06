@@ -113,6 +113,7 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
   let cm_bytes = ref (Array.sub separator_bytes ~pos:27 ~len:5 |> Array.to_list) in
   let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
 
+
   let s1x = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s1.x) in
   append s1x ;
 
@@ -171,12 +172,15 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
   let qcp_0_y = provable_bn254_base_field_to_bytes (FF.FpA.of_constant qcp_0.y) in
   append qcp_0_y ;
 
+
   (* two public inputs *)
   let pi0_bytes = provable_bn254_scalar_field_to_bytes pi0 in
   append pi0_bytes ;
 
+
   let pi1_bytes = provable_bn254_scalar_field_to_bytes pi1 in
   append pi1_bytes ;
+
 
   (* there is one gate, so we have just 1 [l, r, o] *)
   let lx = provable_bn254_base_field_to_bytes proof.l_com_x in
@@ -198,10 +202,12 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
   append oy ;
 
   (* assert(cm_bytes.length === gammaSizeInBytes()) *)
+
   let bytes = Array.of_list !cm_bytes in
   let _h, digest = sha256_hash bytes in
+
   fs.gamma_digest <- digest ;
-  fs.gamma <- Sha_to_fr.sha_to_fr _h
+  fs.gamma <- Sha_to_fr.sha_to_fr digest
 
 (** Squeeze beta challenge from gamma digest.
     Matches nori squeezeBeta (fiat-shamir/index.ts:299-310). *)
@@ -218,7 +224,7 @@ let squeeze_beta (fs : t) : unit =
   let bytes = Array.of_list !cm_bytes in
   let _h, digest = sha256_hash bytes in
   fs.beta_digest <- digest ;
-  fs.beta <- Sha_to_fr.sha_to_fr _h
+  fs.beta <- Sha_to_fr.sha_to_fr digest
 
 (** Create an empty Fiat-Shamir state (all zeros). *)
 let empty () : t =
