@@ -13,6 +13,7 @@
   promise
   snarky.backendless
   kimchi_backend_common
+  kimchi_backend.gadgets
   yojson
   bignum.bigint
   snarky_foreign_field

@@ -36,15 +36,15 @@ let dummy_fp12 () : Fp12.Circuit.t =
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
   | 0 ->
-      (* Squeeze gamma: SHA-256 based Fiat-Shamir *)
+      (* TODO: Squeeze gamma/beta via SHA-256 Fiat-Shamir.
+         Currently a placeholder that exercises some constrained UInt32 ops. *)
       fun input_hash ->
-       let transcript = Fiat_shamir.create () in
-       let dummy_field =
+       let a = Uint32.of_int 0 in
+       let b =
          Step.exists Step.Field.typ ~compute:(fun () ->
-             Step.Field.Constant.zero )
+             Step.Field.Constant.of_int 42 )
        in
-       Fiat_shamir.absorb_field transcript dummy_field ;
-       let _gamma = Fiat_shamir.squeeze_challenge transcript in
+       let _c = Uint32.add a b in
        Accumulator_hash.combine_hashes [ input_hash; Step.Field.of_int 0 ]
   | 1 ->
       (* Squeeze alpha/zeta, compute zeta^n *)
