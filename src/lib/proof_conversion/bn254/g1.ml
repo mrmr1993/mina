@@ -954,11 +954,14 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
 
   (* GLV decompose: s = s0 + s1 * lambda (mod r)
      cf. elliptic-curve.ts:435-471 *)
+  Circuit_utils.marker 8820 ;
   let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
+  Circuit_utils.marker 8821 ;
 
   (* Build point table: [0, P, 2P, ..., (2^w - 1)*P]
      cf. elliptic-curve.ts:429-431 *)
   let table = get_point_table pt ~window_size in
+  Circuit_utils.marker 8822 ;
 
   (* Endomorphism table: phi(P) = (beta * P.x, P.y), with MRC stack
      cf. elliptic-curve.ts:452-457:
@@ -968,23 +971,44 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
          mrcStack.push(betaXBound);
          return phiP;
        }) *)
+  let mrc_stack = Queue.create () in
   let endo_table =
     Array.mapi table ~f:(fun i pt_i ->
         if i = 0 then pt_i
         else
           let beta_x = FF.mul (FpA.to_field3 pt_i.x)
               (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
-          let beta_x_a =
-            match FpA.assert_almost_reduced
-                    [ FF.FpU.of_field3_unsafe beta_x ] ~f:p () with
-            | [ a ] -> a
-            | _ -> assert false
-          in
+          (* Collect weak bound for deferred range checking,
+             matching nori's mrcStack.push(betaXBound) *)
+          let _, _, beta_x2 = beta_x in
+          let bound = FF.bignum_to_field_const
+              Bignum_bigint.(FF.two_to_limb - shift_right p (Int.( * ) 2 FF.limb_bits) - one) in
+          let weak = Step.Field.(beta_x2 + constant bound) in
+          Queue.enqueue mrc_stack weak ;
+          let beta_x_a = FpA.of_field3_unsafe beta_x in
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
+  (* reduceMrcStack: batch range-check the weak bounds *)
+  let mrc_arr = Queue.to_array mrc_stack in
+  let n_full = Array.length mrc_arr / 3 in
+  let n_rem = Array.length mrc_arr mod 3 in
+  for i = 0 to n_full - 1 do
+    FF.multi_range_check
+      (mrc_arr.(3 * i), mrc_arr.(3 * i + 1), mrc_arr.(3 * i + 2))
+  done ;
+  if n_rem > 0 then begin
+    let remaining =
+      ( (if n_rem > 0 then mrc_arr.(3 * n_full) else Step.Field.zero)
+      , (if n_rem > 1 then mrc_arr.(3 * n_full + 1) else Step.Field.zero)
+      , Step.Field.zero )
+    in
+    FF.multi_range_check remaining
+  end ;
 
+  Circuit_utils.marker 8823 ;
   let table0 = Array.map table ~f:(negate_if s0_neg) in
   let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
+  Circuit_utils.marker 8824 ;
 
   let n = 2 * n_original in
   let tables = [| table0; table1 |] in
@@ -994,6 +1018,7 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let chunks_s0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let chunks_s1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
   let scalar_chunks = [| chunks_s0; chunks_s1 |] in
+  Circuit_utils.marker 8825 ;
 
   multi_scalar_mul ~n ~tables ~points ~window_sizes
     ~max_bits:glv_max_bits ~scalar_chunks
