@@ -455,121 +455,73 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Update digest *)
        kzg.state.lines_hashes_digest <- Accumulator_hash.poseidon_hash lines_hashes ;
        Kzg_accumulator.hash_packed kzg
-  | 17 ->
-      (* Miller loop f-accumulation: iterations 1-9.
-         Matches nori zkp17. *)
+  | 17 | 18 | 19 | 20 | 21 | 22 ->
+      (* Miller loop f-accumulation chunks.
+         zkp17: ATE[1..10), zkp18: ATE[10..21), zkp19: ATE[21..32),
+         zkp20: ATE[32..43), zkp21: ATE[43..54), zkp22: ATE[54..65).
+         Matches nori zkp17-22. *)
+      let ate = Kzg_accumulator.ate_loop_count in
+      let ate_len = Array.length ate in
+      let from_i, to_i, chunk_size, lhs_size = match circuit_index with
+        | 17 -> (1, 10, 9, 0)
+        | 18 -> (10, 21, 11, 9)
+        | 19 -> (21, 32, 11, 20)
+        | 20 -> (32, 43, 11, 31)
+        | 21 -> (43, 54, 11, 42)
+        | 22 -> (54, 65, 11, 53)
+        | _ -> assert false
+      in
+      let rhs_size = ate_len - lhs_size - chunk_size in
       fun input_hash ->
        let kzg = Kzg_accumulator.witness () in
        let in_digest = Kzg_accumulator.hash_packed kzg in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       (* Witness g_chunk: 9 Fp12 values *)
-       let g_chunk = Array.init 9 ~f:(fun _ -> Fp12.witness ()) in
-       (* f-update loop: for i = 1 to 9 *)
+       (* Witness g_chunk *)
+       let g_chunk = Array.init chunk_size ~f:(fun _ -> Fp12.witness ()) in
+       (* Witness lhs/rhs lines_hashes for ArrayListHasher.open *)
+       let lhs_hashes = Array.init lhs_size ~f:(fun _ ->
+           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
+       let rhs_hashes = Array.init rhs_size ~f:(fun _ ->
+           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
+       (* ArrayListHasher.open: hash g_chunk, concat lhs ++ opening_hashes ++ rhs, hash all *)
+       let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
+       let full_arr = Array.concat [ lhs_hashes; opening_hashes; rhs_hashes ] in
+       let opening = Accumulator_hash.poseidon_hash full_arr in
+       Step.assert_ (Equal (kzg.state.lines_hashes_digest, opening)) ;
+       (* f-update loop *)
        let f = ref kzg.state.f in
-       for i = 0 to 8 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 1) = 1 then
-           f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 1) = -1 then
-           f := Fp12.mul !f kzg.proof.c
-       done ;
-       kzg.state.f <- !f ;
-       Kzg_accumulator.hash_packed kzg
-  | 18 ->
-      (* Miller loop f-accumulation: iterations 10-20. *)
-      fun input_hash ->
-       let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
-       let f = ref kzg.state.f in
-       for i = 0 to 10 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 10) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 10) = -1 then f := Fp12.mul !f kzg.proof.c
-       done ;
-       kzg.state.f <- !f ;
-       Kzg_accumulator.hash_packed kzg
-  | 19 ->
-      (* Miller loop f-accumulation: iterations 21-31. *)
-      fun input_hash ->
-       let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
-       let f = ref kzg.state.f in
-       for i = 0 to 10 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 21) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 21) = -1 then f := Fp12.mul !f kzg.proof.c
-       done ;
-       kzg.state.f <- !f ;
-       Kzg_accumulator.hash_packed kzg
-  | 20 ->
-      (* Miller loop f-accumulation: iterations 32-42. *)
-      fun input_hash ->
-       let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
-       let f = ref kzg.state.f in
-       for i = 0 to 10 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 32) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 32) = -1 then f := Fp12.mul !f kzg.proof.c
-       done ;
-       kzg.state.f <- !f ;
-       Kzg_accumulator.hash_packed kzg
-  | 21 ->
-      (* Miller loop f-accumulation: iterations 43-53. *)
-      fun input_hash ->
-       let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
-       let f = ref kzg.state.f in
-       for i = 0 to 10 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 43) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 43) = -1 then f := Fp12.mul !f kzg.proof.c
-       done ;
-       kzg.state.f <- !f ;
-       Kzg_accumulator.hash_packed kzg
-  | 22 ->
-      (* Miller loop f-accumulation: iterations 54-64. *)
-      fun input_hash ->
-       let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       let ate = Kzg_accumulator.ate_loop_count in
-       let g_chunk = Array.init 11 ~f:(fun _ -> Fp12.witness ()) in
-       let f = ref kzg.state.f in
-       for i = 0 to 10 do
-         f := Fp12.mul (Fp12.square !f) g_chunk.(i) ;
-         if ate.(i + 54) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-         else if ate.(i + 54) = -1 then f := Fp12.mul !f kzg.proof.c
+       for i = from_i to to_i - 1 do
+         let idx = i - from_i in
+         f := Fp12.mul (Fp12.square !f) g_chunk.(idx) ;
+         if ate.(i) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+         else if ate.(i) = -1 then f := Fp12.mul !f kzg.proof.c
        done ;
        kzg.state.f <- !f ;
        Kzg_accumulator.hash_packed kzg
   | 23 ->
       (* Final pairing check: multiply final g, Frobenius, shift power, verify f=1.
          Matches nori zkp23. *)
+      let ate_len = Array.length Kzg_accumulator.ate_loop_count in
       fun input_hash ->
        let kzg = Kzg_accumulator.witness () in
        let in_digest = Kzg_accumulator.hash_packed kzg in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       let g_last = Fp12.witness () in
-       let f = ref (Fp12.mul kzg.state.f g_last) in
+       (* Witness lhs_line_hashes and g_chunk for ArrayListHasher.open *)
+       let lhs_hashes = Array.init (ate_len - 1) ~f:(fun _ ->
+           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
+       let g_chunk = Array.init 1 ~f:(fun _ -> Fp12.witness ()) in
+       let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
+       let full_arr = Array.concat [ lhs_hashes; opening_hashes ] in
+       let opening = Accumulator_hash.poseidon_hash full_arr in
+       Step.assert_ (Equal (kzg.state.lines_hashes_digest, opening)) ;
+       (* f = f.mul(g_chunk[0]) *)
+       let f = ref (Fp12.mul kzg.state.f g_chunk.(0)) in
        (* Frobenius endomorphisms *)
        f := Fp12.mul !f (Fp12.frobenius_pow_p kzg.proof.c_inv) ;
        f := Fp12.mul !f (Fp12.frobenius_pow_p_squared kzg.proof.c) ;
        f := Fp12.mul !f (Fp12.frobenius_pow_p_cubed kzg.proof.c_inv) ;
-       (* TODO: shift power selection via Provable.switch *)
+       (* TODO: Shift power selection via Provable.switch over w27 *)
+       ignore (kzg.proof.shift_power : Step.Field.t) ;
        (* Verify f = 1 *)
        Fp12.assert_one !f ;
        kzg.state.f <- !f ;
