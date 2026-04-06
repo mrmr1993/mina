@@ -157,22 +157,29 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
         let v = (mv, x3v, y3v) in
         cache := Some v ; v
     in
-    (* Witness 9 raw fields (no MRC check — assertAlmostReduced handles it) *)
-    let w i =
-      Step.exists Step.Field.typ ~compute:(fun () ->
-          let mv, x3v, y3v = get () in
-          let vals = [| mv; x3v; y3v |] in
-          let v = vals.(i / 3) in
-          let limb = i mod 3 in
-          let mask = FF.limb_mask in
-          FF.bignum_to_field_const Bignum_bigint.(
-            if Int.equal limb 0 then v land mask
-            else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
-            else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) )
+    (* Witness all 9 fields upfront in a single block, matching nori's
+       exists(9, ...) which allocates sequential variable indices.
+       Individual Step.exists calls could be reordered by OCaml's
+       unspecified tuple evaluation order. *)
+    let witnesses =
+      Array.init 9 ~f:(fun i ->
+        Step.exists Step.Field.typ ~compute:(fun () ->
+            let mv, x3v, y3v = get () in
+            let vals = [| mv; x3v; y3v |] in
+            let v = vals.(i / 3) in
+            let limb = i mod 3 in
+            let mask = FF.limb_mask in
+            FF.bignum_to_field_const Bignum_bigint.(
+              if Int.equal limb 0 then v land mask
+              else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
+              else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
-    let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
-    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
-    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
+    let m : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(0), witnesses.(1), witnesses.(2)) in
+    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(3), witnesses.(4), witnesses.(5)) in
+    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(6), witnesses.(7), witnesses.(8)) in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
@@ -283,22 +290,27 @@ let double (pt : Circuit.t) : Circuit.t =
         let v = (mv, x3v, y3v) in
         cache := Some v ; v
     in
-    (* Witness 9 raw fields (no MRC check — assertAlmostReduced handles it) *)
-    let w i =
-      Step.exists Step.Field.typ ~compute:(fun () ->
-          let mv, x3v, y3v = get () in
-          let vals = [| mv; x3v; y3v |] in
-          let v = vals.(i / 3) in
-          let limb = i mod 3 in
-          let mask = FF.limb_mask in
-          FF.bignum_to_field_const Bignum_bigint.(
-            if Int.equal limb 0 then v land mask
-            else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
-            else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) )
+    (* Witness all 9 fields upfront in a single block, matching nori's
+       exists(9, ...) which allocates sequential variable indices. *)
+    let witnesses =
+      Array.init 9 ~f:(fun i ->
+        Step.exists Step.Field.typ ~compute:(fun () ->
+            let mv, x3v, y3v = get () in
+            let vals = [| mv; x3v; y3v |] in
+            let v = vals.(i / 3) in
+            let limb = i mod 3 in
+            let mask = FF.limb_mask in
+            FF.bignum_to_field_const Bignum_bigint.(
+              if Int.equal limb 0 then v land mask
+              else if Int.equal limb 1 then shift_right v FF.limb_bits land mask
+              else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
-    let m : FF.FpU.t = FF.FpU.of_field3_unsafe (w 0, w 1, w 2) in
-    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 3, w 4, w 5) in
-    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe (w 6, w 7, w 8) in
+    let m : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(0), witnesses.(1), witnesses.(2)) in
+    let x3 : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(3), witnesses.(4), witnesses.(5)) in
+    let y3 : FF.FpU.t = FF.FpU.of_field3_unsafe
+      (witnesses.(6), witnesses.(7), witnesses.(8)) in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
       | [ a; b; c ] -> (a, b, c)
