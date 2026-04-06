@@ -33,9 +33,39 @@ let () =
         let vk_const = Proof_conversion.Vk_constants.create vk in
         Proof_conversion.Circuit_info.report_all ~vk:vk_const ()
     | "plonk" ->
-        printf "PLONK circuit info: %d circuits\n"
-          Proof_conversion.Plonk_circuits.num_circuits ;
-        printf "(detailed info not yet implemented for PLONK)\n"
+        let circuits =
+          match Stdlib.Sys.getenv_opt "COMPILE_ZKP" with
+          | Some s ->
+              let n =
+                Int.of_string (String.chop_prefix_exn s ~prefix:"zkp")
+              in
+              [| n |]
+          | None ->
+              Array.init
+                Proof_conversion.Plonk_circuits.num_circuits ~f:Fn.id
+        in
+        Array.iter circuits ~f:(fun n ->
+            let rule = Proof_conversion.Plonk_pickles_rules.make_rule ~n in
+            let _tag, _cache, (module Proof), _provers =
+              Pickles.compile_promise
+                ~public_input:
+                  (Pickles.Inductive_rule.Input_and_output
+                     ( Proof_conversion.Circuit_utils.public_input_typ 1
+                     , Proof_conversion.Circuit_utils.public_input_typ 1
+                     ) )
+                ~auxiliary_typ:Pickles.Impls.Step.Typ.unit
+                ~max_proofs_verified:
+                  (module Pickles_types.Nat.N0)
+                ~name:(sprintf "plonk-info-zkp%d" n)
+                ~o1js_compatible_mode:false
+                ~choices:(fun ~self:_ -> [ rule ])
+                ()
+            in
+            let _vk =
+              Promise.block_on_async_exn (fun () ->
+                  Lazy.force Proof.verification_key_promise )
+            in
+            () )
     | other ->
         eprintf "Unknown proof type: %s\n" other ;
         exit 1 )

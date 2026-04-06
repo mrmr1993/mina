@@ -13,6 +13,7 @@ module Proof_json = Proof_json
 module Vk_constants = Vk_constants
 module Circuit_info = Circuit_info
 module Plonk_circuits = Plonk_circuits
+module Plonk_pickles_rules = Plonk_pickles_rules
 module Pickles_rules = Pickles_rules
 module Circuit_utils = Circuit_utils
 module Circuits = Circuits
