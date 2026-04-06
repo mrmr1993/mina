@@ -943,9 +943,13 @@ let multi_scalar_mul
     Matches o1js EllipticCurve.scale (elliptic-curve.ts:189-201)
     which delegates to multiScalarMul after GLV decomposition.
 
-    For constant points (IC points in Groth16), window_size = 4. *)
+    Matches nori: window_size = 4 for constant points, 3 for variable. *)
 let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
-  let window_size = 4 in
+  let is_const =
+    FF.Field3.is_constant (FpA.to_field3 pt.x)
+    && FF.Field3.is_constant (FpA.to_field3 pt.y)
+  in
+  let window_size = if is_const then 4 else 3 in
   let n_original = 1 in
 
   (* GLV decompose: s = s0 + s1 * lambda (mod r)

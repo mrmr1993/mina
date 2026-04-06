@@ -15,23 +15,18 @@ module FF = Snarky_foreign_field.Foreign_field
 let r = Bn254_params.r
 let p = Bn254_params.p
 
-(** Canonical assertion on Fr: equivalent to .assertCanonical() in nori. *)
+(** Canonical assertion on Fr: equivalent to .assertCanonical() in nori.
+    Nori's assertCanonical just calls assertLessThan(x, modulus) which
+    does negate(x, modulus-1) — a single FFA + MRC. No separate
+    assertAlmostReduced. *)
 let assert_canonical_fr (x : FF.Field3.t) : FF.FpA.t =
-  let fpu = FF.FpU.of_field3_unsafe x in
-  match FF.FpA.assert_almost_reduced [ fpu ] ~f:r () with
-  | [ a ] ->
-      let c = FF.FpC.assert_canonical a ~f:r in
-      FF.FpC.to_fpa c
-  | _ -> assert false
+  FF.assert_less_than x ~bound:r ;
+  FF.FpA.of_field3_unsafe x
 
 (** Canonical assertion on Fp. *)
 let assert_canonical_fp (x : FF.Field3.t) : FF.FpA.t =
-  let fpu = FF.FpU.of_field3_unsafe x in
-  match FF.FpA.assert_almost_reduced [ fpu ] ~f:p () with
-  | [ a ] ->
-      let c = FF.FpC.assert_canonical a ~f:p in
-      FF.FpC.to_fpa c
-  | _ -> assert false
+  FF.assert_less_than x ~bound:p ;
+  FF.FpA.of_field3_unsafe x
 
 (** FrC multiply + assertCanonical.
     Matches nori: a.mul(b).assertCanonical() *)
@@ -362,10 +357,12 @@ let fold_state_1
     ~(proof : Plonk_accumulator.circuit_proof) ~(vk : Plonk_proof.vk)
     ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
     ~(gamma_kzg : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+  Circuit_utils.marker 9010 ;
   let g2 = mul_fr gamma_kzg gamma_kzg in
   let g3 = mul_fr gamma_kzg g2 in
   let g4 = mul_fr gamma_kzg g3 in
   let g5 = mul_fr gamma_kzg g4 in
+  Circuit_utils.marker 9011 ;
   let o_pt = { G1.Circuit.x = proof.o_com_x; y = proof.o_com_y } in
   let s1_pt = { G1.Circuit.x = FF.FpA.of_constant vk.s1.x
               ; y = FF.FpA.of_constant vk.s1.y } in
@@ -373,8 +370,11 @@ let fold_state_1
               ; y = FF.FpA.of_constant vk.s2.y } in
   let cm = { G1.Circuit.x = cm_x; y = cm_y } in
   let cm = G1.add cm (G1.scale o_pt (FF.FpA.to_field3 g3)) in
+  Circuit_utils.marker 9012 ;
   let cm = G1.add cm (G1.scale s1_pt (FF.FpA.to_field3 g4)) in
+  Circuit_utils.marker 9013 ;
   let cm = G1.add cm (G1.scale s2_pt (FF.FpA.to_field3 g5)) in
+  Circuit_utils.marker 9014 ;
   let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
   let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
   (rx, ry)

@@ -12,8 +12,53 @@ let r = Bn254_params.r
 type bytes32 = Step.Field.t array
 type field3_const = FF.Field3.Constant.t
 
+(** Typ for a UInt8 field element with rangeCheck8.
+    Matches o1js UInt8.check: rangeCheckHelper(16, x).assertEquals(x)
+    then rangeCheckHelper(16, x*256).assertEquals(x*256). *)
+let uint8_typ : (Step.Field.t, Step.Field.Constant.t) Step.Typ.t =
+  let (Step.Typ.Typ base) = Step.Field.typ in
+  Step.Typ.Typ
+    { base with
+      check =
+        (fun x ->
+          Step.make_checked (fun () ->
+              (* rangeCheckHelper(16, x).assertEquals(x) *)
+              let _a, _b, x0 =
+                Pickles.Scalar_challenge.to_field_checked' ~num_bits:16
+                  (module Pickles.Impls.Step)
+                  { inner = x }
+              in
+              Step.assert_ (Equal (x0, x)) ;
+              (* x256 = x * 256; seal *)
+              let x256 = FF.seal Step.Field.(scale x
+                (Step.Field.Constant.of_int 256)) in
+              let _a2, _b2, x256_0 =
+                Pickles.Scalar_challenge.to_field_checked' ~num_bits:16
+                  (module Pickles.Impls.Step)
+                  { inner = x256 }
+              in
+              Step.assert_ (Equal (x256_0, x256)) ) )
+    }
+
 let bytes32_typ : (bytes32, Step.Field.Constant.t array) Step.Typ.t =
-  Step.Typ.array ~length:32 Step.Field.typ
+  Step.Typ.array ~length:32 uint8_typ
+
+(** Typ for a UInt32 field element with rangeCheck32.
+    Matches o1js UInt32.check: rangeCheck32(x). *)
+let uint32_checked_typ : (Step.Field.t, Step.Field.Constant.t) Step.Typ.t =
+  let (Step.Typ.Typ base) = Step.Field.typ in
+  Step.Typ.Typ
+    { base with
+      check =
+        (fun x ->
+          Step.make_checked (fun () ->
+              let _a, _b, x0 =
+                Pickles.Scalar_challenge.to_field_checked' ~num_bits:32
+                  (module Pickles.Impls.Step)
+                  { inner = x }
+              in
+              Step.assert_ (Equal (x0, x)) ) )
+    }
 
 (** Typ for canonical foreign field, returning FpA.t.
     Uses FpC.typ internally, then transports FpC.t ↔ FpA.t. *)
@@ -222,7 +267,7 @@ type state_const =
   }
 
 let uint32_array_typ : (Uint32.t array, Step.Field.Constant.t array) Step.Typ.t =
-  Step.Typ.array ~length:8 Step.Field.typ
+  Step.Typ.array ~length:8 uint32_checked_typ
 
 let state_typ : (circuit_state, state_const) Step.Typ.t =
   let fr = frc_typ in
