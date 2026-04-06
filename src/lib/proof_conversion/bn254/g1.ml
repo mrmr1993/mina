@@ -825,77 +825,139 @@ let provable_if
   t.var_of_fields (result_fields, true_aux)
 
 
+(** Batch range-check weak bounds, matching nori's reduceMrcStack. *)
+let reduce_mrc_stack (xs : Step.Field.t array) : unit =
+  let n = Array.length xs in
+  let n_rem = n mod 3 in
+  let n_full = (n - n_rem) / 3 in
+  for i = 0 to n_full - 1 do
+    FF.multi_range_check (xs.(3 * i), xs.(3 * i + 1), xs.(3 * i + 2))
+  done ;
+  if n_rem > 0 then
+    let remaining =
+      ( (if n_rem > 0 then xs.(3 * n_full) else Step.Field.zero)
+      , (if n_rem > 1 then xs.(3 * n_full + 1) else Step.Field.zero)
+      , Step.Field.zero )
+    in
+    FF.multi_range_check remaining
+
 (* --- Multi-scalar multiplication (matching nori multiScalarMul) --------- *)
 
-(** Multi-scalar multiplication: s_0 * P_0 + ... + s_(n-1) * P_(n-1)
-    with GLV decomposition and windowed tables.
+(** Multi-scalar multiplication and scale, matching o1js multiScalarMul
+    (elliptic-curve.ts:409-528) line-for-line.
 
-    Matches o1js multiScalarMul (elliptic-curve.ts:409-526).
-
-    The function takes pre-decomposed arrays:
-    - [n] is the total number of effective scalars (2 * original n after GLV)
-    - [scalars]: the absolute-value GLV sub-scalars
-    - [tables]: point tables with sign-negation already applied
-    - [window_sizes]: per-scalar window sizes
-    - [max_bits]: number of bits per sub-scalar (glv_max_bits)
-    - [scalar_chunks]: pre-sliced scalar bit-chunks *)
+    scale delegates here after choosing windowSize. *)
 let multi_scalar_mul
-    ~(n : int)
-    ~(tables : Circuit.t array array)
-    ~(points : Circuit.t array)
-    ~(window_sizes : int array)
-    ~(max_bits : int)
-    ~(scalar_chunks : Step.Field.t array array)
+    (scalars_in : FF.Field3.t array)
+    (points_in : Circuit.t array)
+    ~(window_sizes_in : int array)
     : Circuit.t =
+  let n = ref (Array.length points_in) in
+  assert (Array.length scalars_in = !n) ;
 
-  (* initialize sum to the initial aggregator
-     cf. elliptic-curve.ts:483-484:
-       ia ??= initialAggregator(Curve);
-       let sum = Point.from(ia); *)
+  (* parse or build point tables *)
+  let tables = ref (Array.mapi points_in ~f:(fun i pt ->
+      get_point_table pt ~window_size:window_sizes_in.(i) )) in
+
+  let max_bits = ref glv_max_bits in (* Curve.Endo.decomposeMaxBits *)
+  let scalars = ref scalars_in in
+  let points = ref points_in in
+  let window_sizes = ref window_sizes_in in
+
+  (* GLV: decompose scalars and handle signs *)
+  let n2 = 2 * !n in
+  let f3_zero = FF.Field3.of_constant Bignum_bigint.zero in
+  let scalars2 = Array.create ~len:n2 f3_zero in
+  let points2 = Array.create ~len:n2 (of_constant { Constant.x = Bignum_bigint.zero; y = Bignum_bigint.zero }) in
+  let window_sizes2 = Array.create ~len:n2 0 in
+  let tables2 = Array.create ~len:n2 [||] in
+  let mrc_stack = Queue.create () in
+
+  for i = 0 to !n - 1 do
+    let (s0_neg, s0), (s1_neg, s1) = glv_decompose (!scalars).(i) in
+
+    let table = (!tables).(i) in
+    let endo_table =
+      Array.mapi table ~f:(fun j pt_j ->
+          if j = 0 then pt_j
+          else
+            let beta_x = FF.mul (FpA.to_field3 pt_j.x)
+                (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
+            let _, _, beta_x2 = beta_x in
+            let bound = FF.bignum_to_field_const
+                Bignum_bigint.(FF.two_to_limb - shift_right p (Int.( * ) 2 FF.limb_bits) - one) in
+            let weak = Step.Field.(beta_x2 + constant bound) in
+            Queue.enqueue mrc_stack weak ;
+            let beta_x_a = FpA.of_field3_unsafe beta_x in
+            { Circuit.x = beta_x_a; y = pt_j.y } )
+    in
+    tables2.(2 * i) <- Array.map table ~f:(negate_if s0_neg) ;
+    tables2.(2 * i + 1) <- Array.map endo_table ~f:(negate_if s1_neg) ;
+    scalars2.(2 * i) <- s0 ;
+    scalars2.(2 * i + 1) <- s1 ;
+
+    points2.(2 * i) <- tables2.(2 * i).(1) ;
+    points2.(2 * i + 1) <- tables2.(2 * i + 1).(1) ;
+
+    window_sizes2.(2 * i) <- window_sizes_in.(i) ;
+    window_sizes2.(2 * i + 1) <- window_sizes_in.(i)
+  done ;
+  reduce_mrc_stack (Queue.to_array mrc_stack) ;
+  (* from now on, everything is the same as if these were the original
+     points and scalars *)
+  points := points2 ;
+  tables := tables2 ;
+  scalars := scalars2 ;
+  window_sizes := window_sizes2 ;
+  n := n2 ;
+
+  (* slice scalars *)
+  let scalar_chunks = Array.mapi !scalars ~f:(fun i s ->
+      slice_field3 s ~max_bits:!max_bits ~chunk_size:(!window_sizes).(i) ) in
+
+  (* initialize sum to the initial aggregator, which is expected to be
+     unrelated to any point that this gadget is used with
+     note: this is a trick to ensure _completeness_ of the gadget
+     soundness follows because add() and double() are sound, on all
+     inputs that are valid non-zero curve points *)
   let sum = ref (of_constant initial_aggregator) in
 
-  (* Main loop: for (let i = maxBits - 1; i >= 0; i--)
-     cf. elliptic-curve.ts:486-509 *)
-  for i = max_bits - 1 downto 0 do
-
-    (* add in multiple of each point
-       cf. elliptic-curve.ts:488: for (let j = 0; j < n; j++) *)
-    for j = 0 to n - 1 do
-      let window_size = window_sizes.(j) in
+  for i = !max_bits - 1 downto 0 do
+    (* add in multiple of each point *)
+    for j = 0 to !n - 1 do
+      let window_size = (!window_sizes).(j) in
       if i mod window_size = 0 then begin
-        let chunk_idx = i / window_size in
-
-        let sj = scalar_chunks.(j).(chunk_idx) in
+        (* pick point to add based on the scalar chunk *)
+        let sj = scalar_chunks.(j).(i / window_size) in
         let sj_p =
-          if window_size = 1 then points.(j)
-          else array_get_generic Circuit.provable_typ tables.(j) sj
+          if window_size = 1 then (!points).(j)
+          else array_get_generic Circuit.provable_typ (!tables).(j) sj
         in
+        (* ec addition *)
         let added = add !sum sj_p in
 
+        (* handle degenerate case (if sj = 0, Gj is all zeros and the
+           add result is garbage) *)
         let is_zero = FF.field_var_equal sj Step.Field.zero in
         sum := provable_if Circuit.provable_typ (is_zero :> Step.Field.t)
             ~if_true:!sum ~if_false:added ;
       end
     done ;
 
-    (* cf. elliptic-curve.ts:504: if (i === 0) break *)
-    if i > 0 then
+    if i = 0 then ()
+    else
       (* jointly double all points
-         cf. elliptic-curve.ts:508: sum = double(sum, Curve) *)
+         (note: the highest couple of bits will not create any constraints
+         because sum is constant; no need to handle that explicitly) *)
       sum := double !sum
   done ;
 
   (* the sum is now 2^(b-1)*IA + sum_i s_i*P_i
-     cf. elliptic-curve.ts:513:
-       let iaFinal = Curve.scale(Curve.fromNonzero(ia), 1n << BigInt(maxBits - 1)) *)
+     we assert that sum != 2^(b-1)*IA, and add -2^(b-1)*IA to get our
+     result *)
   let is_zero = point_equals !sum ia_final in
 
-  (* cf. elliptic-curve.ts:516-518:
-       isZero.assertFalse();
-       sum = add(sum, Point.from(Curve.negate(iaFinal)), Curve) *)
-  (* isZero.assertFalse(): assert is_zero = 0.
-     Using assert_equal directly avoids the extra NOT gate from
-     Assert.is_true (Boolean.not is_zero). *)
+  (* isZero.assertFalse() *)
   Step.assert_ (Equal ((is_zero :> Step.Field.t), Step.Field.zero)) ;
   let ia_neg = of_constant
       { ia_final with y = Bignum_bigint.((p - ia_final.y) % p) }
@@ -906,77 +968,11 @@ let multi_scalar_mul
 
 (** Scalar multiplication: scalar * point.
     Matches o1js EllipticCurve.scale (elliptic-curve.ts:189-201)
-    which delegates to multiScalarMul after GLV decomposition.
-
-    Matches nori: window_size = 4 for constant points, 3 for variable. *)
+    which delegates to multiScalarMul. *)
 let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
   let is_const =
     FF.Field3.is_constant (FpA.to_field3 pt.x)
     && FF.Field3.is_constant (FpA.to_field3 pt.y)
   in
   let window_size = if is_const then 4 else 3 in
-  let n_original = 1 in
-
-  (* Build point table BEFORE GLV decompose, matching nori's code order
-     (getPointTable is called at line 439-441, before the useGlv block).
-     cf. elliptic-curve.ts:429-431 *)
-  let table = get_point_table pt ~window_size in
-
-  (* GLV decompose: s = s0 + s1 * lambda (mod r)
-     cf. elliptic-curve.ts:435-471 *)
-  let (s0_neg, s0), (s1_neg, s1) = glv_decompose scalar in
-
-  (* Endomorphism table: phi(P) = (beta * P.x, P.y), with MRC stack
-     cf. elliptic-curve.ts:452-457:
-       let endoTable = table.map((P, i) => {
-         if (i === 0) return P;
-         let [phiP, betaXBound] = endomorphism(Curve, P);
-         mrcStack.push(betaXBound);
-         return phiP;
-       }) *)
-  let mrc_stack = Queue.create () in
-  let endo_table =
-    Array.mapi table ~f:(fun i pt_i ->
-        if i = 0 then pt_i
-        else
-          let beta_x = FF.mul (FpA.to_field3 pt_i.x)
-              (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
-          let _, _, beta_x2 = beta_x in
-          let bound = FF.bignum_to_field_const
-              Bignum_bigint.(FF.two_to_limb - shift_right p (Int.( * ) 2 FF.limb_bits) - one) in
-          let weak = Step.Field.(beta_x2 + constant bound) in
-          Queue.enqueue mrc_stack weak ;
-          let beta_x_a = FpA.of_field3_unsafe beta_x in
-          { Circuit.x = beta_x_a; y = pt_i.y } )
-  in
-  (* negateIf BEFORE reduceMrcStack, matching nori's interleaved order *)
-  let table0 = Array.map table ~f:(negate_if s0_neg) in
-  let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
-  (* reduceMrcStack: batch range-check the weak bounds *)
-  let mrc_arr = Queue.to_array mrc_stack in
-  let n_full = Array.length mrc_arr / 3 in
-  let n_rem = Array.length mrc_arr mod 3 in
-  for i = 0 to n_full - 1 do
-    FF.multi_range_check
-      (mrc_arr.(3 * i), mrc_arr.(3 * i + 1), mrc_arr.(3 * i + 2))
-  done ;
-  if n_rem > 0 then begin
-    let remaining =
-      ( (if n_rem > 0 then mrc_arr.(3 * n_full) else Step.Field.zero)
-      , (if n_rem > 1 then mrc_arr.(3 * n_full + 1) else Step.Field.zero)
-      , Step.Field.zero )
-    in
-    FF.multi_range_check remaining
-  end ;
-
-  let n = 2 * n_original in
-  let tables = [| table0; table1 |] in
-  let points = [| table0.(1); table1.(1) |] in
-  let window_sizes = [| window_size; window_size |] in
-
-  let chunks_s0 = slice_field3 s0 ~max_bits:glv_max_bits ~chunk_size:window_size in
-  let chunks_s1 = slice_field3 s1 ~max_bits:glv_max_bits ~chunk_size:window_size in
-  let scalar_chunks = [| chunks_s0; chunks_s1 |] in
-
-  multi_scalar_mul ~n ~tables ~points ~window_sizes
-    ~max_bits:glv_max_bits ~scalar_chunks
+  multi_scalar_mul [| scalar |] [| pt |] ~window_sizes_in:[| window_size |]
