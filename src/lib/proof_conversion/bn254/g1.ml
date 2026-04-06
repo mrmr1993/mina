@@ -968,8 +968,6 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
         else
           let beta_x = FF.mul (FpA.to_field3 pt_i.x)
               (FF.Field3.of_constant Bn254_params.glv_beta) ~f:p in
-          (* Collect weak bound for deferred range checking,
-             matching nori's mrcStack.push(betaXBound) *)
           let _, _, beta_x2 = beta_x in
           let bound = FF.bignum_to_field_const
               Bignum_bigint.(FF.two_to_limb - shift_right p (Int.( * ) 2 FF.limb_bits) - one) in
@@ -978,6 +976,9 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
           let beta_x_a = FpA.of_field3_unsafe beta_x in
           { Circuit.x = beta_x_a; y = pt_i.y } )
   in
+  (* negateIf BEFORE reduceMrcStack, matching nori's interleaved order *)
+  let table0 = Array.map table ~f:(negate_if s0_neg) in
+  let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
   (* reduceMrcStack: batch range-check the weak bounds *)
   let mrc_arr = Queue.to_array mrc_stack in
   let n_full = Array.length mrc_arr / 3 in
@@ -994,9 +995,6 @@ let scale (pt : Circuit.t) (scalar : FF.Field3.t) : Circuit.t =
     in
     FF.multi_range_check remaining
   end ;
-
-  let table0 = Array.map table ~f:(negate_if s0_neg) in
-  let table1 = Array.map endo_table ~f:(negate_if s1_neg) in
 
   let n = 2 * n_original in
   let tables = [| table0; table1 |] in
