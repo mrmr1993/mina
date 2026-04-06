@@ -624,7 +624,7 @@ let array_get (array : Step.Field.t array) (index : Step.Field.t) :
     let idx = Bignum_bigint.to_int_exn (FF.field_const_to_bignum c) in
     array.(idx)
   | None ->
-    let i = index in
+    let i = FF.to_var index in
     let a =
       Step.exists Step.Field.typ ~compute:(fun () ->
           let iv = Step.As_prover.read_var i in
