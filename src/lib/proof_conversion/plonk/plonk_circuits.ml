@@ -118,8 +118,8 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        let acc = witness_accumulator () in
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* squeezeAlpha and squeezeZeta — TODO: implement in fiat_shamir.ml.
-          For now, use the fs.alpha/zeta values already in the accumulator. *)
+       Fiat_shamir.squeeze_alpha acc.fs ~proof:acc.proof ;
+       Fiat_shamir.squeeze_zeta acc.fs ~proof:acc.proof ;
        (* Compute zeta^n and vanishing evaluation *)
        let zeta_pow_n, zh_eval =
          Piop.eval_vanishing acc.fs.zeta

@@ -226,6 +226,74 @@ let squeeze_beta (fs : t) : unit =
   fs.beta_digest <- digest ;
   fs.beta <- Sha_to_fr.sha_to_fr digest
 
+(** Squeeze alpha challenge from beta digest + proof commitments.
+    Matches nori squeezeAlpha (fiat-shamir/index.ts:312-340). *)
+let squeeze_alpha (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
+  let alpha_separator = FF.FpA.of_constant
+    (Bignum_bigint.of_string "0x616c706861") in
+  let separator_bytes = provable_bn254_base_field_to_bytes alpha_separator in
+
+  (* alpha is 39 bits, so we leave only 40 bits (to keep it multiple of 8)
+     and we cut the rest (256 - 40) bits which is 27 bytes *)
+  let cm_bytes = ref (Array.sub separator_bytes ~pos:27 ~len:5 |> Array.to_list) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  append (Array.to_list fs.beta_digest |> Array.of_list) ;
+
+  let qcp_0_x = provable_bn254_base_field_to_bytes proof.qcp_0_wire_x in
+  append qcp_0_x ;
+
+  let qcp_0_y = provable_bn254_base_field_to_bytes proof.qcp_0_wire_y in
+  append qcp_0_y ;
+
+  let grand_product_x = provable_bn254_base_field_to_bytes proof.grand_product_x in
+  append grand_product_x ;
+
+  let grand_product_y = provable_bn254_base_field_to_bytes proof.grand_product_y in
+  append grand_product_y ;
+
+  let bytes = Array.of_list !cm_bytes in
+  let _h, digest = sha256_hash bytes in
+  fs.alpha_digest <- digest ;
+  fs.alpha <- Sha_to_fr.sha_to_fr digest
+
+(** Squeeze zeta challenge from alpha digest + proof commitments.
+    Matches nori squeezeZeta (fiat-shamir/index.ts:342-372). *)
+let squeeze_zeta (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
+  let zeta_separator = FF.FpA.of_constant
+    (Bignum_bigint.of_string "0x7a657461") in
+  let separator_bytes = provable_bn254_base_field_to_bytes zeta_separator in
+
+  (* zeta is 31 bits, so we leave only 32 bits (to keep it multiple of 8)
+     and we cut the rest (256 - 32) bits which is 28 bytes *)
+  let cm_bytes = ref (Array.sub separator_bytes ~pos:28 ~len:4 |> Array.to_list) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  append (Array.to_list fs.alpha_digest |> Array.of_list) ;
+
+  let h0_x = provable_bn254_base_field_to_bytes proof.h0_x in
+  append h0_x ;
+
+  let h0_y = provable_bn254_base_field_to_bytes proof.h0_y in
+  append h0_y ;
+
+  let h1_x = provable_bn254_base_field_to_bytes proof.h1_x in
+  append h1_x ;
+
+  let h1_y = provable_bn254_base_field_to_bytes proof.h1_y in
+  append h1_y ;
+
+  let h2_x = provable_bn254_base_field_to_bytes proof.h2_x in
+  append h2_x ;
+
+  let h2_y = provable_bn254_base_field_to_bytes proof.h2_y in
+  append h2_y ;
+
+  let bytes = Array.of_list !cm_bytes in
+  let _h, digest = sha256_hash bytes in
+  fs.zeta_digest <- digest ;
+  fs.zeta <- Sha_to_fr.sha_to_fr digest
+
 (** Create an empty Fiat-Shamir state (all zeros). *)
 let empty () : t =
   { gamma_digest = Array.create ~len:32 Step.Field.zero
