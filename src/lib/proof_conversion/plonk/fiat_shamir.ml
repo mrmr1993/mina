@@ -89,19 +89,14 @@ let sha256_hash (bytes : Field_to_bytes.byte array) :
       Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ) ;
   (h, digest_bytes)
 
-(** Convert a FpC (base field constant) to 32 bytes.
-    VK fields are constants, so this produces constant bytes. *)
-let fp_const_to_bytes (v : Bignum_bigint.t) : Field_to_bytes.byte array =
-  let f3 = FF.Field3.of_constant v in
-  Field_to_bytes.field3_to_bytes f3 ~size_in_bits:254
-
-(** Convert an FpA (in-circuit base field) to 32 bytes. *)
-let fpa_to_bytes (x : FF.FpA.t) : Field_to_bytes.byte array =
+(** provableBn254BaseFieldToBytes: convert FpA to 32 bytes.
+    Matches nori sha/utils.ts:provableBn254BaseFieldToBytes. *)
+let provable_bn254_base_field_to_bytes (x : FF.FpA.t) : Field_to_bytes.byte array =
   Field_to_bytes.fp_to_bytes x
 
-(** Convert an FrC/FrA (in-circuit scalar field) to 32 bytes.
-    FrC and FpC use the same representation (3 limbs). *)
-let fra_to_bytes (x : FF.FpA.t) : Field_to_bytes.byte array =
+(** provableBn254ScalarFieldToBytes: convert FrA to 32 bytes.
+    Matches nori sha/utils.ts:provableBn254ScalarFieldToBytes. *)
+let provable_bn254_scalar_field_to_bytes (x : FF.FpA.t) : Field_to_bytes.byte array =
   Field_to_bytes.fr_to_bytes x
 
 (** Squeeze gamma challenge from proof + VK + public inputs.
@@ -109,51 +104,101 @@ let fra_to_bytes (x : FF.FpA.t) : Field_to_bytes.byte array =
 let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
     ~(pi0 : FF.FpA.t) ~(pi1 : FF.FpA.t)
     ~(vk : Plonk_proof.vk) : unit =
-  (* gamma separator = 0x67616d6d61 = "gamma" in ASCII *)
-  let separator_bytes = fp_const_to_bytes
-    (Bignum_bigint.of_string "0x67616d6d61") in
-  (* Slice last 5 bytes (gamma is 39 bits → 40 bits → 5 bytes) *)
-  let cm_bytes = Queue.create () in
-  for i = 27 to 31 do
-    Queue.enqueue cm_bytes separator_bytes.(i)
-  done ;
-  (* VK permutation polynomials: s1, s2, s3 *)
-  let add_g1_const (pt : G1.Constant.t) =
-    let xb = fp_const_to_bytes pt.x in
-    let yb = fp_const_to_bytes pt.y in
-    Array.iter xb ~f:(Queue.enqueue cm_bytes) ;
-    Array.iter yb ~f:(Queue.enqueue cm_bytes)
+  let gamma_separator = FF.FpA.of_constant
+    (Bignum_bigint.of_string "0x67616d6d61") in  (* TODO: we can read this from file *)
+  let separator_bytes = provable_bn254_base_field_to_bytes gamma_separator in
+
+  (* gamma is 39 bits, so we leave only 40 bits (to keep it multiple of 8)
+     and we cut the rest (256 - 40) bits which is 27 bytes *)
+  let cm_bytes = ref (Array.sub separator_bytes ~pos:27 ~len:5 |> Array.to_list) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  let s1x = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s1.x) in
+  append s1x ;
+
+  let s1y = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s1.y) in
+  append s1y ;
+
+  let s2x = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s2.x) in
+  append s2x ;
+
+  let s2y = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s2.y) in
+  append s2y ;
+
+  let s3x = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s3.x) in
+  append s3x ;
+
+  let s3y = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s3.y) in
+  append s3y ;
+
+  let qlx = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.ql.x) in
+  append qlx ;
+
+  let qly = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.ql.y) in
+  append qly ;
+
+  let qrx = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qr.x) in
+  append qrx ;
+
+  let qry = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qr.y) in
+  append qry ;
+
+  let qmx = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qm.x) in
+  append qmx ;
+
+  let qmy = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qm.y) in
+  append qmy ;
+
+  let qox = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qo.x) in
+  append qox ;
+
+  let qoy = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qo.y) in
+  append qoy ;
+
+  let qkx = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qk.x) in
+  append qkx ;
+
+  let qky = provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.qk.y) in
+  append qky ;
+
+  let qcp_0 = match vk.qcp_0 with
+    | Some pt -> pt
+    | None -> failwith "squeeze_gamma: VK missing qcp_0"
   in
-  add_g1_const vk.s1 ;
-  add_g1_const vk.s2 ;
-  add_g1_const vk.s3 ;
-  (* VK selector polynomials: ql, qr, qm, qo, qk, qcp_0 *)
-  add_g1_const vk.ql ;
-  add_g1_const vk.qr ;
-  add_g1_const vk.qm ;
-  add_g1_const vk.qo ;
-  add_g1_const vk.qk ;
-  ( match vk.qcp_0 with
-  | Some pt -> add_g1_const pt
-  | None -> failwith "squeeze_gamma: VK missing qcp_0" ) ;
-  (* Two public inputs (scalar field) *)
-  let add_fra (x : FF.FpA.t) =
-    Array.iter (fra_to_bytes x) ~f:(Queue.enqueue cm_bytes)
-  in
-  add_fra pi0 ;
-  add_fra pi1 ;
-  (* Proof wire commitments: l, r, o *)
-  let add_fpa (x : FF.FpA.t) =
-    Array.iter (fpa_to_bytes x) ~f:(Queue.enqueue cm_bytes)
-  in
-  add_fpa proof.l_com_x ;
-  add_fpa proof.l_com_y ;
-  add_fpa proof.r_com_x ;
-  add_fpa proof.r_com_y ;
-  add_fpa proof.o_com_x ;
-  add_fpa proof.o_com_y ;
-  (* SHA-256 hash *)
-  let bytes = Queue.to_array cm_bytes in
+  let qcp_0_x = provable_bn254_base_field_to_bytes (FF.FpA.of_constant qcp_0.x) in
+  append qcp_0_x ;
+
+  let qcp_0_y = provable_bn254_base_field_to_bytes (FF.FpA.of_constant qcp_0.y) in
+  append qcp_0_y ;
+
+  (* two public inputs *)
+  let pi0_bytes = provable_bn254_scalar_field_to_bytes pi0 in
+  append pi0_bytes ;
+
+  let pi1_bytes = provable_bn254_scalar_field_to_bytes pi1 in
+  append pi1_bytes ;
+
+  (* there is one gate, so we have just 1 [l, r, o] *)
+  let lx = provable_bn254_base_field_to_bytes proof.l_com_x in
+  append lx ;
+
+  let ly = provable_bn254_base_field_to_bytes proof.l_com_y in
+  append ly ;
+
+  let rx = provable_bn254_base_field_to_bytes proof.r_com_x in
+  append rx ;
+
+  let ry = provable_bn254_base_field_to_bytes proof.r_com_y in
+  append ry ;
+
+  let ox = provable_bn254_base_field_to_bytes proof.o_com_x in
+  append ox ;
+
+  let oy = provable_bn254_base_field_to_bytes proof.o_com_y in
+  append oy ;
+
+  (* assert(cm_bytes.length === gammaSizeInBytes()) *)
+  let bytes = Array.of_list !cm_bytes in
   let _h, digest = sha256_hash bytes in
   fs.gamma_digest <- digest ;
   fs.gamma <- Sha_to_fr.sha_to_fr _h
@@ -161,18 +206,16 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
 (** Squeeze beta challenge from gamma digest.
     Matches nori squeezeBeta (fiat-shamir/index.ts:299-310). *)
 let squeeze_beta (fs : t) : unit =
-  (* beta separator = 0x62657461 = "beta" in ASCII *)
-  let separator_bytes = fp_const_to_bytes
+  let beta_separator = FF.FpA.of_constant
     (Bignum_bigint.of_string "0x62657461") in
-  (* Slice last 4 bytes (beta is 32 bits) *)
-  let cm_bytes = Queue.create () in
-  for i = 28 to 31 do
-    Queue.enqueue cm_bytes separator_bytes.(i)
-  done ;
-  (* Append gamma digest bytes *)
-  Array.iter fs.gamma_digest ~f:(Queue.enqueue cm_bytes) ;
-  (* SHA-256 hash *)
-  let bytes = Queue.to_array cm_bytes in
+  let separator_bytes = provable_bn254_base_field_to_bytes beta_separator in
+
+  (* beta is 32 bits and we cut the rest (256 - 32) bits which is 28 bytes *)
+  let cm_bytes = ref (Array.sub separator_bytes ~pos:28 ~len:4 |> Array.to_list) in
+
+  cm_bytes := !cm_bytes @ Array.to_list fs.gamma_digest ;
+  (* assert(cm_bytes.length === sizeBetaBytes()) *)
+  let bytes = Array.of_list !cm_bytes in
   let _h, digest = sha256_hash bytes in
   fs.beta_digest <- digest ;
   fs.beta <- Sha_to_fr.sha_to_fr _h
