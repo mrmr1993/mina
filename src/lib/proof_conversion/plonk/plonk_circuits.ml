@@ -381,26 +381,77 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        Kzg_accumulator.hash_packed kzg_acc
   | 13 | 14 | 15 | 16 ->
       (* Miller loop line computation (4 chunks).
-         zkp13: ATE[1..19], zkp14: ATE[19..39], zkp15: ATE[39..59], zkp16: ATE[59..65]+Frobenius.
-         Witnesses KzgAccumulator + lines_hashes, computes g values from
-         precomputed lines, hashes g into lines_hashes, updates digest.
-         TODO: LineParser/G2Line.psi/sparse_mul for exact line computation.
-         For now: witness g values and hash them. *)
+         zkp13: ATE[1..ATE_LEN-46], zkp14: ATE[ATE_LEN-46..ATE_LEN-26],
+         zkp15: ATE[ATE_LEN-26..ATE_LEN-6], zkp16: ATE[ATE_LEN-6..ATE_LEN-1]+Frobenius.
+         Matches nori zkp13-16. *)
+      let ate = Kzg_accumulator.ate_loop_count in
+      let ate_len = Array.length ate in
+      let from_, to_ = match circuit_index with
+        | 13 -> (1, ate_len - 46)
+        | 14 -> (ate_len - 46, ate_len - 26)
+        | 15 -> (ate_len - 26, ate_len - 6)
+        | 16 -> (ate_len - 6, ate_len)
+        | _ -> assert false
+      in
+      (* Load precomputed lines for this chunk *)
+      let data_dir = "src/lib/proof_conversion/plonk/data" in
+      let all_g2 = Plonk_lines.load_lines_from_json
+        (data_dir ^ "/g2_lines.json") in
+      let all_tau = Plonk_lines.load_lines_from_json
+        (data_dir ^ "/tau_lines.json") in
+      let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_:to_ in
+      let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_:to_ in
       fun input_hash ->
        let kzg = Kzg_accumulator.witness () in
        let in_digest = Kzg_accumulator.hash_packed kzg in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* Witness lines_hashes array (ATE_LOOP_COUNT.length fields) *)
+       (* Witness lines_hashes array *)
        let lines_hashes =
          Array.init Kzg_accumulator.ate_loop_len ~f:(fun _ ->
              Step.exists Step.Field.typ
                ~compute:(fun () -> Step.Field.Constant.zero) )
        in
-       (* Verify lines_hashes digest *)
        let lines_digest = Accumulator_hash.poseidon_hash lines_hashes in
        Step.assert_ (Equal (kzg.state.lines_hashes_digest, lines_digest)) ;
-       (* TODO: compute g values from precomputed lines.
-          For now, use witnessed g values (hashed into lines_hashes). *)
+       (* Create affine caches *)
+       let a_cache = Lines.AffineCache.make
+         { G1.Circuit.x = kzg.proof.a_x; y = kzg.proof.a_y } in
+       let b_cache = Lines.AffineCache.make
+         { G1.Circuit.x = kzg.proof.neg_b_x; y = kzg.proof.neg_b_y } in
+       (* Compute g values from precomputed lines *)
+       let line_cnt = ref 0 in
+       for i = from_ to to_ - 1 do
+         let idx = i - 1 in
+         let g_line = Lines.G2Line.of_constant g2_lines.(!line_cnt) in
+         let tau_line = Lines.G2Line.of_constant tau_lines.(!line_cnt) in
+         incr line_cnt ;
+         let g = Lines.psi g_line a_cache in
+         let g = Fp12.sparse_mul g (Lines.psi tau_line b_cache) in
+         let g =
+           if ate.(i) = 1 || ate.(i) = -1 then begin
+             let g_line2 = Lines.G2Line.of_constant g2_lines.(!line_cnt) in
+             let tau_line2 = Lines.G2Line.of_constant tau_lines.(!line_cnt) in
+             incr line_cnt ;
+             let g = Fp12.sparse_mul g (Lines.psi g_line2 a_cache) in
+             Fp12.sparse_mul g (Lines.psi tau_line2 b_cache)
+           end else g
+         in
+         lines_hashes.(idx) <- Accumulator_hash.hash_fp12 g
+       done ;
+       (* Handle Frobenius for zkp16 *)
+       ( if circuit_index = 16 then begin
+         let frob_g2_1, frob_g2_2 = Plonk_lines.frobenius_lines all_g2 in
+         let frob_tau_1, frob_tau_2 = Plonk_lines.frobenius_lines all_tau in
+         let g2_1 = Lines.G2Line.of_constant frob_g2_1 in
+         let tau_1 = Lines.G2Line.of_constant frob_tau_1 in
+         let g2_2 = Lines.G2Line.of_constant frob_g2_2 in
+         let tau_2 = Lines.G2Line.of_constant frob_tau_2 in
+         let g = Lines.psi g2_1 a_cache in
+         let g = Fp12.sparse_mul g (Lines.psi tau_1 b_cache) in
+         let g = Fp12.sparse_mul g (Lines.psi g2_2 a_cache) in
+         let g = Fp12.sparse_mul g (Lines.psi tau_2 b_cache) in
+         lines_hashes.(ate_len - 1) <- Accumulator_hash.hash_fp12 g
+       end ) ;
        (* Update digest *)
        kzg.state.lines_hashes_digest <- Accumulator_hash.poseidon_hash lines_hashes ;
        Kzg_accumulator.hash_packed kzg
