@@ -250,3 +250,188 @@ let opening_of_linearized_polynomial
   let acc = add_fr acc pi in
   let acc = sub_fr acc alpha_2_l0 in
   neg_fr acc
+
+(** Linearized commitment (split 0): ql*l + qr*r + qm*(l*r).
+    Matches nori compute_commitment_linearized_polynomial_split_0. *)
+let compute_commitment_linearized_polynomial_split_0
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(vk : Plonk_proof.vk) : FF.FpA.t * FF.FpA.t =
+  let ql = { G1.Circuit.x = FF.FpA.of_constant vk.ql.x
+           ; y = FF.FpA.of_constant vk.ql.y } in
+  let qr = { G1.Circuit.x = FF.FpA.of_constant vk.qr.x
+           ; y = FF.FpA.of_constant vk.qr.y } in
+  let qm = { G1.Circuit.x = FF.FpA.of_constant vk.qm.x
+           ; y = FF.FpA.of_constant vk.qm.y } in
+  let lcm = G1.scale ql (FF.FpA.to_field3 proof.l_at_zeta) in
+  let lcm = G1.add lcm (G1.scale qr (FF.FpA.to_field3 proof.r_at_zeta)) in
+  let rl = mul_fr proof.l_at_zeta proof.r_at_zeta in
+  let lcm = G1.add lcm (G1.scale qm (FF.FpA.to_field3 rl)) in
+  let rx = assert_canonical_fp (FF.FpA.to_field3 lcm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 lcm.y) in
+  (rx, ry)
+
+(** Linearized commitment (split 1): add qo, qk, qcp_0, s3 terms.
+    Matches nori compute_commitment_linearized_polynomial_split_1. *)
+let compute_commitment_linearized_polynomial_split_1
+    ~(lcm_x : FF.FpA.t) ~(lcm_y : FF.FpA.t)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(vk : Plonk_proof.vk)
+    ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t) ~(alpha : FF.FpA.t) :
+    FF.FpA.t * FF.FpA.t =
+  let lcm = { G1.Circuit.x = lcm_x; y = lcm_y } in
+  let qo = { G1.Circuit.x = FF.FpA.of_constant vk.qo.x
+           ; y = FF.FpA.of_constant vk.qo.y } in
+  let qk = { G1.Circuit.x = FF.FpA.of_constant vk.qk.x
+           ; y = FF.FpA.of_constant vk.qk.y } in
+  let lcm = G1.add lcm (G1.scale qo (FF.FpA.to_field3 proof.o_at_zeta)) in
+  let lcm = G1.add lcm qk in
+  let qcp_0 = { G1.Circuit.x = proof.qcp_0_wire_x
+              ; y = proof.qcp_0_wire_y } in
+  let lcm = G1.add lcm (G1.scale qcp_0 (FF.FpA.to_field3 proof.qcp_0_at_zeta)) in
+  (* s1 coefficient *)
+  let p1 = add_fr (add_fr (mul_fr proof.s1_at_zeta beta) gamma) proof.l_at_zeta in
+  let p2 = add_fr (add_fr (mul_fr proof.s2_at_zeta beta) gamma) proof.r_at_zeta in
+  let s1_coeff = mul_fr (mul_fr (mul_fr (mul_fr p1 p2) beta) alpha)
+      proof.grand_product_at_omega_zeta in
+  let s3 = { G1.Circuit.x = FF.FpA.of_constant vk.s3.x
+           ; y = FF.FpA.of_constant vk.s3.y } in
+  let lcm = G1.add lcm (G1.scale s3 (FF.FpA.to_field3 s1_coeff)) in
+  let rx = assert_canonical_fp (FF.FpA.to_field3 lcm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 lcm.y) in
+  (rx, ry)
+
+(** Linearized commitment (split 2): grand product + neg folded quotient.
+    Matches nori compute_commitment_linearized_polynomial_split_2. *)
+let compute_commitment_linearized_polynomial_split_2
+    ~(lcm_x : FF.FpA.t) ~(lcm_y : FF.FpA.t)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(vk : Plonk_proof.vk)
+    ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t) ~(alpha : FF.FpA.t)
+    ~(zeta : FF.FpA.t) ~(alpha_2_l0 : FF.FpA.t)
+    ~(hx : FF.FpA.t) ~(hy : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+  let lcm = { G1.Circuit.x = lcm_x; y = lcm_y } in
+  let coset = FF.FpA.of_constant vk.coset_shift in
+  let r1 = add_fr (add_fr (mul_fr zeta beta) proof.l_at_zeta) gamma in
+  let r2 = add_fr (add_fr (mul_fr (mul_fr beta coset) zeta) proof.r_at_zeta) gamma in
+  let r3 = add_fr
+    (add_fr (mul_fr (mul_fr (mul_fr beta coset) coset) zeta) proof.o_at_zeta) gamma in
+  let s2_coeff =
+    add_fr (neg_fr (mul_fr (mul_fr (mul_fr alpha r1) r2) r3)) alpha_2_l0 in
+  let gp = { G1.Circuit.x = proof.grand_product_x
+           ; y = proof.grand_product_y } in
+  let lcm = G1.add lcm (G1.scale gp (FF.FpA.to_field3 s2_coeff)) in
+  (* Subtract folded quotient *)
+  let neg_hq = G1.negate_constant_y { G1.Circuit.x = hx; y = hy } in
+  let lcm = G1.add lcm neg_hq in
+  let rx = assert_canonical_fp (FF.FpA.to_field3 lcm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 lcm.y) in
+  (rx, ry)
+
+(** Fold state (split 0): accumulate l, r commitments + all openings.
+    Matches nori fold_state_0. *)
+let fold_state_0
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(lcm_x : FF.FpA.t) ~(lcm_y : FF.FpA.t)
+    ~(lcm_opening : FF.FpA.t) ~(gamma_kzg : FF.FpA.t) :
+    FF.FpA.t * FF.FpA.t * FF.FpA.t =
+  let g2 = mul_fr gamma_kzg gamma_kzg in
+  let g3 = mul_fr gamma_kzg g2 in
+  let g4 = mul_fr gamma_kzg g3 in
+  let g5 = mul_fr gamma_kzg g4 in
+  let g6 = mul_fr gamma_kzg g5 in
+  let l_pt = { G1.Circuit.x = proof.l_com_x; y = proof.l_com_y } in
+  let r_pt = { G1.Circuit.x = proof.r_com_x; y = proof.r_com_y } in
+  let cm = { G1.Circuit.x = lcm_x; y = lcm_y } in
+  let cm = G1.add cm (G1.scale l_pt (FF.FpA.to_field3 gamma_kzg)) in
+  let cm = G1.add cm (G1.scale r_pt (FF.FpA.to_field3 g2)) in
+  (* Openings accumulation *)
+  let op = ref lcm_opening in
+  op := add_fr (mul_fr proof.l_at_zeta gamma_kzg) !op ;
+  op := add_fr (mul_fr proof.r_at_zeta g2) !op ;
+  op := add_fr (mul_fr proof.o_at_zeta g3) !op ;
+  op := add_fr (mul_fr proof.s1_at_zeta g4) !op ;
+  op := add_fr (mul_fr proof.s2_at_zeta g5) !op ;
+  op := add_fr (mul_fr proof.qcp_0_at_zeta g6) !op ;
+  let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
+  (rx, ry, !op)
+
+(** Fold state (split 1): add o, s1, s2 commitments.
+    Matches nori fold_state_1. *)
+let fold_state_1
+    ~(proof : Plonk_accumulator.circuit_proof) ~(vk : Plonk_proof.vk)
+    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
+    ~(gamma_kzg : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+  let g2 = mul_fr gamma_kzg gamma_kzg in
+  let g3 = mul_fr gamma_kzg g2 in
+  let g4 = mul_fr gamma_kzg g3 in
+  let g5 = mul_fr gamma_kzg g4 in
+  let o_pt = { G1.Circuit.x = proof.o_com_x; y = proof.o_com_y } in
+  let s1_pt = { G1.Circuit.x = FF.FpA.of_constant vk.s1.x
+              ; y = FF.FpA.of_constant vk.s1.y } in
+  let s2_pt = { G1.Circuit.x = FF.FpA.of_constant vk.s2.x
+              ; y = FF.FpA.of_constant vk.s2.y } in
+  let cm = { G1.Circuit.x = cm_x; y = cm_y } in
+  let cm = G1.add cm (G1.scale o_pt (FF.FpA.to_field3 g3)) in
+  let cm = G1.add cm (G1.scale s1_pt (FF.FpA.to_field3 g4)) in
+  let cm = G1.add cm (G1.scale s2_pt (FF.FpA.to_field3 g5)) in
+  let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
+  (rx, ry)
+
+(** Fold state (split 2): add qcp_0 commitment.
+    Matches nori fold_state_2. *)
+let fold_state_2
+    ~(vk : Plonk_proof.vk)
+    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
+    ~(gamma_kzg : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+  let g2 = mul_fr gamma_kzg gamma_kzg in
+  let g3 = mul_fr gamma_kzg g2 in
+  let g4 = mul_fr gamma_kzg g3 in
+  let g5 = mul_fr gamma_kzg g4 in
+  let g6 = mul_fr gamma_kzg g5 in
+  let qcp_0_pt =
+    match vk.qcp_0 with
+    | Some pt -> { G1.Circuit.x = FF.FpA.of_constant pt.x
+                 ; y = FF.FpA.of_constant pt.y }
+    | None -> failwith "fold_state_2: VK missing qcp_0"
+  in
+  let cm = { G1.Circuit.x = cm_x; y = cm_y } in
+  let cm = G1.add cm (G1.scale qcp_0_pt (FF.FpA.to_field3 g6)) in
+  let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
+  (rx, ry)
+
+(** Prepare pairing (split 0): batch openings + commitments + evals.
+    Matches nori preparePairing_0. *)
+let prepare_pairing_0
+    ~(vk : Plonk_proof.vk)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(random : FF.FpA.t)
+    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
+    ~(cm_opening : FF.FpA.t) :
+    FF.FpA.t * FF.FpA.t * FF.FpA.t * FF.FpA.t =
+  (* Quotients part *)
+  let batch_shifted = { G1.Circuit.x = proof.batch_opening_at_zeta_omega_x
+                      ; y = proof.batch_opening_at_zeta_omega_y } in
+  let folded_q = { G1.Circuit.x = proof.batch_opening_at_zeta_x
+                 ; y = proof.batch_opening_at_zeta_y } in
+  let folded_q = G1.add folded_q (G1.scale batch_shifted (FF.FpA.to_field3 random)) in
+  let neg_folded_q = G1.negate_constant_y folded_q in
+  (* Commitment part *)
+  let gp = { G1.Circuit.x = proof.grand_product_x
+           ; y = proof.grand_product_y } in
+  let folded_cm = { G1.Circuit.x = cm_x; y = cm_y } in
+  let folded_cm = G1.add folded_cm (G1.scale gp (FF.FpA.to_field3 random)) in
+  (* Evals part *)
+  let gen = { G1.Circuit.x = FF.FpA.of_constant vk.g1_gen.x
+            ; y = FF.FpA.of_constant vk.g1_gen.y } in
+  let folded_evals = add_fr (mul_fr proof.grand_product_at_omega_zeta random)
+      cm_opening in
+  let neg_fe_curve = G1.negate_constant_y
+      (G1.scale gen (FF.FpA.to_field3 folded_evals)) in
+  let folded_cm = G1.add folded_cm neg_fe_curve in
+  ( assert_canonical_fp (FF.FpA.to_field3 folded_cm.x)
+  , assert_canonical_fp (FF.FpA.to_field3 folded_cm.y)
+  , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.x)
+  , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.y) )

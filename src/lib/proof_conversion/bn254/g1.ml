@@ -54,6 +54,21 @@ let negate (pt : Circuit.t) : Circuit.t = { x = pt.x; y = FpA.neg pt.y ~f:p }
 
 (* --- Helpers ------------------------------------------------------------ *)
 
+(** Negate a G1 point: (x, y) → (x, -y mod p). *)
+let negate_point (pt : Circuit.t) : Circuit.t =
+  let neg_y = FF.negate (FpA.to_field3 pt.y) ~f:p in
+  let neg_y_fpu = FF.FpU.of_field3_unsafe neg_y in
+  let neg_y_a =
+    match FpA.assert_almost_reduced [ neg_y_fpu ] ~f:p () with
+    | [ a ] -> a
+    | _ -> assert false
+  in
+  { Circuit.x = pt.x; y = neg_y_a }
+
+(** Negate using constant y: cheaper when we just want -y without
+    full MRC (the add that follows will handle range checking). *)
+let negate_constant_y = negate_point
+
 let read_fpa (v : FpA.t) : Bignum_bigint.t =
   let l0, l1, l2 = FpA.to_field3 v in
   let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in

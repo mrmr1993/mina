@@ -260,23 +260,135 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        acc.state.pi <- pi ;
        acc.state.linearized_opening <- linearized_opening ;
        Plonk_accumulator.hash_packed acc
-  | 4 | 5 | 6 ->
-      (* Linearized commitment computation (split into 3 parts).
-         TODO: implement properly. *)
+  | 4 ->
+      (* Linearized commitment (split 0): ql*l + qr*r + qm*(l*r).
+         Matches nori zkp4. *)
       fun input_hash ->
-       let a = FF.Field3.of_constant FF.Bignum_bigint.one in
-       let b = FF.Field3.of_constant (FF.Bignum_bigint.of_int 2) in
-       let _c = FF.mul a b ~f:Bn254_params.r in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
-  | 7 | 8 | 9 | 10 | 11 ->
-      (* KZG accumulation *)
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let lcm_x, lcm_y =
+         Piop.compute_commitment_linearized_polynomial_split_0
+           ~proof:acc.proof ~vk:plonk_vk
+       in
+       acc.state.lcm_x <- lcm_x ;
+       acc.state.lcm_y <- lcm_y ;
+       Plonk_accumulator.hash_packed acc
+  | 5 ->
+      (* Linearized commitment (split 1): add qo, qk, qcp_0, s3.
+         Matches nori zkp5. *)
       fun input_hash ->
-       let a = FF.Field3.of_constant FF.Bignum_bigint.one in
-       let b = FF.Field3.of_constant (FF.Bignum_bigint.of_int 3) in
-       let _c = FF.mul a b ~f:Bn254_params.p in
-       Accumulator_hash.combine_hashes
-         [ input_hash; Step.Field.of_int circuit_index ]
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let lcm_x, lcm_y =
+         Piop.compute_commitment_linearized_polynomial_split_1
+           ~lcm_x:acc.state.lcm_x ~lcm_y:acc.state.lcm_y
+           ~proof:acc.proof ~vk:plonk_vk
+           ~beta:acc.fs.beta ~gamma:acc.fs.gamma ~alpha:acc.fs.alpha
+       in
+       acc.state.lcm_x <- lcm_x ;
+       acc.state.lcm_y <- lcm_y ;
+       Plonk_accumulator.hash_packed acc
+  | 6 ->
+      (* Linearized commitment (split 2): grand product + neg quotient.
+         Matches nori zkp6. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let lcm_x, lcm_y =
+         Piop.compute_commitment_linearized_polynomial_split_2
+           ~lcm_x:acc.state.lcm_x ~lcm_y:acc.state.lcm_y
+           ~proof:acc.proof ~vk:plonk_vk
+           ~beta:acc.fs.beta ~gamma:acc.fs.gamma ~alpha:acc.fs.alpha
+           ~zeta:acc.fs.zeta ~alpha_2_l0:acc.state.alpha_2_l0
+           ~hx:acc.state.hx ~hy:acc.state.hy
+       in
+       acc.state.lcm_x <- lcm_x ;
+       acc.state.lcm_y <- lcm_y ;
+       Plonk_accumulator.hash_packed acc
+  | 7 ->
+      (* KZG digest part 0: first 11 blocks of SHA-256 for gamma_kzg.
+         TODO: implement gammaKzgDigest_part0. Uses partial SHA-256. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       (* TODO: acc.fs.gammaKzgDigest_part0(...) → acc.state.H *)
+       Plonk_accumulator.hash_packed acc
+  | 8 ->
+      (* KZG digest part 1 + fold state 0.
+         TODO: implement gammaKzgDigest_part1 + squeezeGammaKzgFromDigest. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       (* TODO: gammaKzgDigest_part1, squeezeGammaKzgFromDigest *)
+       let cm_x, cm_y, cm_opening =
+         Piop.fold_state_0
+           ~proof:acc.proof
+           ~lcm_x:acc.state.lcm_x ~lcm_y:acc.state.lcm_y
+           ~lcm_opening:acc.state.linearized_opening
+           ~gamma_kzg:acc.fs.gamma_kzg
+       in
+       acc.state.cm_x <- cm_x ;
+       acc.state.cm_y <- cm_y ;
+       acc.state.cm_opening <- cm_opening ;
+       Plonk_accumulator.hash_packed acc
+  | 9 ->
+      (* Fold state 1: add o, s1, s2 commitments.
+         Matches nori zkp9. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let cm_x, cm_y =
+         Piop.fold_state_1
+           ~proof:acc.proof ~vk:plonk_vk
+           ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
+           ~gamma_kzg:acc.fs.gamma_kzg
+       in
+       acc.state.cm_x <- cm_x ;
+       acc.state.cm_y <- cm_y ;
+       Plonk_accumulator.hash_packed acc
+  | 10 ->
+      (* Fold state 2 + squeeze KZG random.
+         Matches nori zkp10.
+         TODO: implement squeezeRandomForKzg. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let cm_x, cm_y =
+         Piop.fold_state_2
+           ~vk:plonk_vk
+           ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
+           ~gamma_kzg:acc.fs.gamma_kzg
+       in
+       (* TODO: kzg_random = squeezeRandomForKzg(proof, cm_x, cm_y) *)
+       acc.state.cm_x <- cm_x ;
+       acc.state.cm_y <- cm_y ;
+       Plonk_accumulator.hash_packed acc
+  | 11 ->
+      (* Prepare pairing (split 0).
+         Matches nori zkp11. *)
+      fun input_hash ->
+       let acc = witness_accumulator () in
+       let in_digest = Plonk_accumulator.hash_packed acc in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
+       let kzg_cm_x, kzg_cm_y, neg_fq_x, neg_fq_y =
+         Piop.prepare_pairing_0
+           ~vk:plonk_vk ~proof:acc.proof
+           ~random:acc.state.kzg_random
+           ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
+           ~cm_opening:acc.state.cm_opening
+       in
+       acc.state.kzg_cm_x <- kzg_cm_x ;
+       acc.state.kzg_cm_y <- kzg_cm_y ;
+       acc.state.neg_fq_x <- neg_fq_x ;
+       acc.state.neg_fq_y <- neg_fq_y ;
+       Plonk_accumulator.hash_packed acc
   | 12 ->
       (* Initialize KZG accumulator *)
       fun input_hash ->
