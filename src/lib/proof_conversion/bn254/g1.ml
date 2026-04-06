@@ -408,36 +408,28 @@ let glv_decompose (s : FF.Field3.t) :
       let v = (s0 < zero, abs s0, s1 < zero, abs s1) in
       cache := Some v ; v
   in
-  let s0_neg =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let neg, _, _, _ = get () in
-        if neg then Step.Field.Constant.one else Step.Field.Constant.zero)
+  (* Witness all 6 values in a single batch, matching nori's exists(6, ...).
+     The batched allocation produces a Zero gate that individual exists calls don't. *)
+  let witnesses =
+    Step.exists (Step.Typ.array ~length:6 Step.Field.typ) ~compute:(fun () ->
+        let s0_neg_v, s0_abs, s1_neg_v, s1_abs = get () in
+        let open Bignum_bigint in
+        [| ( if s0_neg_v then Step.Field.Constant.one
+             else Step.Field.Constant.zero )
+         ; FF.bignum_to_field_const (s0_abs land FF.limb_mask)
+         ; FF.bignum_to_field_const (shift_right s0_abs FF.limb_bits land FF.limb_mask)
+         ; ( if s1_neg_v then Step.Field.Constant.one
+             else Step.Field.Constant.zero )
+         ; FF.bignum_to_field_const (s1_abs land FF.limb_mask)
+         ; FF.bignum_to_field_const (shift_right s1_abs FF.limb_bits land FF.limb_mask)
+        |] )
   in
-  let s00 =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let _, a, _, _ = get () in
-        FF.bignum_to_field_const Bignum_bigint.(a land FF.limb_mask))
-  in
-  let s01 =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let _, a, _, _ = get () in
-        FF.bignum_to_field_const Bignum_bigint.(shift_right a FF.limb_bits land FF.limb_mask))
-  in
-  let s1_neg =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let _, _, neg, _ = get () in
-        if neg then Step.Field.Constant.one else Step.Field.Constant.zero)
-  in
-  let s10 =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let _, _, _, a = get () in
-        FF.bignum_to_field_const Bignum_bigint.(a land FF.limb_mask))
-  in
-  let s11 =
-    Step.exists Step.Field.typ ~compute:(fun () ->
-        let _, _, _, a = get () in
-        FF.bignum_to_field_const Bignum_bigint.(shift_right a FF.limb_bits land FF.limb_mask))
-  in
+  let s0_neg = witnesses.(0) in
+  let s00 = witnesses.(1) in
+  let s01 = witnesses.(2) in
+  let s1_neg = witnesses.(3) in
+  let s10 = witnesses.(4) in
+  let s11 = witnesses.(5) in
   let s0 : FF.Field3.t = (s00, s01, Step.Field.zero) in
   let s1 : FF.Field3.t = (s10, s11, Step.Field.zero) in
   Step.assert_ (Boolean s0_neg) ;
