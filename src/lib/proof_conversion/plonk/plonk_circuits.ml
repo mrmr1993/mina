@@ -253,21 +253,28 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        Plonk_accumulator.hash_packed acc
   | 7 ->
       (* KZG digest part 0: first 11 blocks of SHA-256 for gamma_kzg.
-         TODO: implement gammaKzgDigest_part0. Uses partial SHA-256. *)
+         Matches nori zkp7. *)
       fun input_hash ->
        let acc = witness_accumulator () in
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* TODO: acc.fs.gammaKzgDigest_part0(...) → acc.state.H *)
+       let h = Fiat_shamir.gamma_kzg_digest_part0 acc.fs
+         ~proof:acc.proof ~vk:plonk_vk
+         ~linearized_cm_x:acc.state.lcm_x
+         ~linearized_cm_y:acc.state.lcm_y
+         ~linearized_opening:acc.state.linearized_opening in
+       acc.state.h_state <- h ;
        Plonk_accumulator.hash_packed acc
   | 8 ->
-      (* KZG digest part 1 + fold state 0.
-         TODO: implement gammaKzgDigest_part1 + squeezeGammaKzgFromDigest. *)
+      (* KZG digest part 1 + squeeze gamma_kzg + fold state 0.
+         Matches nori zkp8. *)
       fun input_hash ->
        let acc = witness_accumulator () in
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* TODO: gammaKzgDigest_part1, squeezeGammaKzgFromDigest *)
+       Fiat_shamir.gamma_kzg_digest_part1 acc.fs
+         ~proof:acc.proof ~h_state:acc.state.h_state ;
+       Fiat_shamir.squeeze_gamma_kzg_from_digest acc.fs ;
        let cm_x, cm_y, cm_opening =
          Piop.fold_state_0
            ~proof:acc.proof

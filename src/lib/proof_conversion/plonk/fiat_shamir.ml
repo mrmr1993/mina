@@ -294,6 +294,159 @@ let squeeze_zeta (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
   fs.zeta_digest <- digest ;
   fs.zeta <- Sha_to_fr.sha_to_fr digest
 
+(** Partial SHA-256 for gamma_kzg: process first 11 blocks.
+    Matches nori gammaKzgDigest_part0 (fiat-shamir/index.ts:470-545).
+    Returns intermediate SHA-256 state (8 UInt32 words). *)
+let gamma_kzg_digest_part0 (fs : t)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(vk : Plonk_proof.vk)
+    ~(linearized_cm_x : FF.FpA.t) ~(linearized_cm_y : FF.FpA.t)
+    ~(linearized_opening : FF.FpA.t) : Uint32.t array =
+  let gamma_separator = FF.FpA.of_constant
+    (Bignum_bigint.of_string "0x67616d6d61") in
+  let separator_bytes = provable_bn254_base_field_to_bytes gamma_separator in
+
+  (* gamma is 39 bits, so we leave only 40 bits (to keep it multiple of 8)
+     and we cut the rest (256 - 40) bits which is 27 bytes *)
+  let cm_bytes = ref (Array.sub separator_bytes ~pos:27 ~len:5 |> Array.to_list) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  (* note that here they compute challenge from zeta_reduced and not unreduced as before *)
+  append (provable_bn254_scalar_field_to_bytes fs.zeta) ;
+
+  append (provable_bn254_base_field_to_bytes linearized_cm_x) ;
+  append (provable_bn254_base_field_to_bytes linearized_cm_y) ;
+
+  append (provable_bn254_base_field_to_bytes proof.l_com_x) ;
+  append (provable_bn254_base_field_to_bytes proof.l_com_y) ;
+  append (provable_bn254_base_field_to_bytes proof.r_com_x) ;
+  append (provable_bn254_base_field_to_bytes proof.r_com_y) ;
+  append (provable_bn254_base_field_to_bytes proof.o_com_x) ;
+  append (provable_bn254_base_field_to_bytes proof.o_com_y) ;
+
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s1.x)) ;
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s1.y)) ;
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s2.x)) ;
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant vk.s2.y)) ;
+
+  let qcp_0 = match vk.qcp_0 with
+    | Some pt -> pt
+    | None -> failwith "gamma_kzg_digest_part0: VK missing qcp_0"
+  in
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant qcp_0.x)) ;
+  append (provable_bn254_base_field_to_bytes (FF.FpA.of_constant qcp_0.y)) ;
+
+  append (provable_bn254_scalar_field_to_bytes linearized_opening) ;
+  append (provable_bn254_scalar_field_to_bytes proof.l_at_zeta) ;
+  append (provable_bn254_scalar_field_to_bytes proof.r_at_zeta) ;
+  append (provable_bn254_scalar_field_to_bytes proof.o_at_zeta) ;
+  append (provable_bn254_scalar_field_to_bytes proof.s1_at_zeta) ;
+  append (provable_bn254_scalar_field_to_bytes proof.s2_at_zeta) ;
+  (* qcp_0_at_zeta: only first 27 bytes *)
+  let qcp_0_at_zeta_bytes = provable_bn254_scalar_field_to_bytes proof.qcp_0_at_zeta in
+  append (Array.sub qcp_0_at_zeta_bytes ~pos:0 ~len:27) ;
+
+  (* Convert bytes to UInt32 words (4 bytes each, little-endian reversed) *)
+  let all_bytes = Array.of_list !cm_bytes in
+  let n_words = Array.length all_bytes / 4 in
+  let chunks = Array.init n_words ~f:(fun i ->
+      let b = Array.sub all_bytes ~pos:(i * 4) ~len:4 in
+      (* bytesToWord(cm_bytes.slice(i, i+4).reverse()) — reverse to LE *)
+      let rev = [| b.(3); b.(2); b.(1); b.(0) |] in
+      Field_to_bytes.bytes_to_word rev ) in
+
+  (* Process first 11 blocks *)
+  let h = ref (Sha256.initial_state ()) in
+  for i = 0 to 10 do
+    let message_block = Array.sub chunks ~pos:(16 * i) ~len:16 in
+    let w = Sha256.message_schedule message_block in
+    h := Sha256.compress !h w
+  done ;
+  !h
+
+(** Partial SHA-256 for gamma_kzg: process final block.
+    Matches nori gammaKzgDigest_part1 (fiat-shamir/index.ts:547-573). *)
+let gamma_kzg_digest_part1 (fs : t)
+    ~(proof : Plonk_accumulator.circuit_proof)
+    ~(h_state : Uint32.t array) : unit =
+  (* remaining bytes: qcp_0_at_zeta[27:32] + grand_product_at_omega_zeta *)
+  let qcp_0_at_zeta_bytes = provable_bn254_scalar_field_to_bytes proof.qcp_0_at_zeta in
+  let cm_bytes = ref (Array.sub qcp_0_at_zeta_bytes ~pos:27 ~len:5 |> Array.to_list) in
+  let append bs = cm_bytes := !cm_bytes @ (Array.to_list bs) in
+
+  append (provable_bn254_scalar_field_to_bytes proof.grand_product_at_omega_zeta) ;
+
+  (* Append SHA-256 padding for total message of 741 bytes *)
+  let total_msg_len = 741 in
+  let bit_len = total_msg_len * 8 in
+  let padded_len =
+    let base = total_msg_len + 1 + 8 in
+    let rem = base mod 64 in
+    if rem = 0 then base else base + (64 - rem)
+  in
+  (* Only the padding portion after the 37 bytes in this block *)
+  let current_bytes = List.length !cm_bytes in
+  let pad_len = padded_len - (11 * 64) - current_bytes in
+  let padding = Array.create ~len:pad_len Step.Field.zero in
+  padding.(0) <- Step.Field.of_int 0x80 ;
+  (* Length in bits as big-endian 8 bytes at end of padding *)
+  let total_pad = current_bytes + pad_len in
+  for i = 0 to 7 do
+    let shift = 8 * (7 - i) in
+    let byte_val = (bit_len lsr shift) land 0xff in
+    padding.(total_pad - 8 + i - current_bytes) <- Step.Field.of_int byte_val
+  done ;
+  append padding ;
+
+  (* Convert to words and process final block *)
+  let all_bytes = Array.of_list !cm_bytes in
+  let n_words = Array.length all_bytes / 4 in
+  let chunks = Array.init n_words ~f:(fun i ->
+      let b = Array.sub all_bytes ~pos:(i * 4) ~len:4 in
+      let rev = [| b.(3); b.(2); b.(1); b.(0) |] in
+      Field_to_bytes.bytes_to_word rev ) in
+
+  let message_block = chunks in
+  let w = Sha256.message_schedule message_block in
+  let h = Sha256.compress h_state w in
+
+  (* Convert H to bytes for digest *)
+  let digest_bytes =
+    Array.concat_map h ~f:(fun word ->
+        Array.init 4 ~f:(fun j ->
+            Step.exists Step.Field.typ ~compute:(fun () ->
+                let wv = Step.As_prover.read_var (Uint32.to_field word) in
+                let w_big =
+                  Bignum_bigint.of_string (Step.Field.Constant.to_string wv)
+                in
+                let shift = 8 * (3 - j) in
+                let byte_val =
+                  Bignum_bigint.(
+                    bit_and (shift_right w_big shift) (of_int 255))
+                in
+                Step.Field.Constant.of_string
+                  (Bignum_bigint.to_string byte_val) ) ) )
+  in
+  Array.iteri h ~f:(fun i word ->
+      let b = Array.sub digest_bytes ~pos:(i * 4) ~len:4 in
+      let reconstructed =
+        Step.Field.(
+          add
+            (add
+               (scale b.(0) (Step.Field.Constant.of_int (1 lsl 24)))
+               (scale b.(1) (Step.Field.Constant.of_int (1 lsl 16))))
+            (add
+               (scale b.(2) (Step.Field.Constant.of_int (1 lsl 8)))
+               b.(3)))
+      in
+      Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ) ;
+  fs.gamma_kzg_digest <- digest_bytes
+
+(** Squeeze gamma_kzg from precomputed digest.
+    Matches nori squeezeGammaKzgFromDigest (fiat-shamir/index.ts:575-577). *)
+let squeeze_gamma_kzg_from_digest (fs : t) : unit =
+  fs.gamma_kzg <- Sha_to_fr.sha_to_fr fs.gamma_kzg_digest
+
 (** Create an empty Fiat-Shamir state (all zeros). *)
 let empty () : t =
   { gamma_digest = Array.create ~len:32 Step.Field.zero
