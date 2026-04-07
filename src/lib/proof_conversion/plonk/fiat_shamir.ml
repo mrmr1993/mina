@@ -54,39 +54,44 @@ let sha256_hash (bytes : Field_to_bytes.byte array) :
   let blocks = sha256_pad_and_block bytes in
   let h = Sha256.hash_blocks blocks in
   (* Convert 8 UInt32 words to 32 bytes (for digest storage).
-     Each word → 4 big-endian bytes via wordToBytes.
-     Matches nori: H.map(x => wordToBytes(x.value, 4).reverse()).flat() *)
+     Each word → witness 4 bytes + constrain, matching nori:
+     H.map(x => wordToBytes(x.value, 4).reverse()).flat()
+     Interleave witness + constrain per word to match nori gate order. *)
   let digest_bytes =
     Array.concat_map h ~f:(fun word ->
-        Array.init 4 ~f:(fun j ->
+        (* wordToBytes: witness 4 LE bytes *)
+        let bytes_le = Array.init 4 ~f:(fun j ->
+            let shift = 8 * j in
             Step.exists Step.Field.typ ~compute:(fun () ->
                 let wv = Step.As_prover.read_var (Uint32.to_field word) in
                 let w_big =
                   Bignum_bigint.of_string
                     (Step.Field.Constant.to_string wv)
                 in
-                let shift = 8 * (3 - j) in
                 let byte_val =
                   Bignum_bigint.(
                     bit_and (shift_right w_big shift) (of_int 255))
                 in
                 Step.Field.Constant.of_string
-                  (Bignum_bigint.to_string byte_val) ) ) )
+                  (Bignum_bigint.to_string byte_val) ) )
+        in
+        (* bytesToWord(bytes).assertEquals(word) *)
+        let reconstructed =
+          Array.foldi bytes_le ~init:Step.Field.zero ~f:(fun j acc b ->
+              let shift = Step.Field.Constant.of_int (1 lsl (8 * j)) in
+              Step.Field.add acc (Step.Field.scale b shift) )
+        in
+        Step.Field.Assert.equal reconstructed (Uint32.to_field word) ;
+        (* .reverse() for big-endian *)
+        let bytes_be = Array.copy bytes_le in
+        let n = Array.length bytes_be in
+        for k = 0 to (n / 2) - 1 do
+          let tmp = bytes_be.(k) in
+          bytes_be.(k) <- bytes_be.(n - 1 - k) ;
+          bytes_be.(n - 1 - k) <- tmp
+        done ;
+        bytes_be )
   in
-  (* Constrain byte decomposition *)
-  Array.iteri h ~f:(fun i word ->
-      let b = Array.sub digest_bytes ~pos:(i * 4) ~len:4 in
-      let reconstructed =
-        Step.Field.(
-          add
-            (add
-               (scale b.(0) (Step.Field.Constant.of_int (1 lsl 24)))
-               (scale b.(1) (Step.Field.Constant.of_int (1 lsl 16))))
-            (add
-               (scale b.(2) (Step.Field.Constant.of_int (1 lsl 8)))
-               b.(3)))
-      in
-      Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ) ;
   (h, digest_bytes)
 
 (** provableBn254BaseFieldToBytes: convert FpA to 32 bytes.
