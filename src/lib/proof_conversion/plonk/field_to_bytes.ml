@@ -42,7 +42,24 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
           then Step.Boolean.true_
           else Step.Boolean.false_ )
     | None ->
-      Step.Field.choose_preimage_var limb ~length
+      (* Match o1js Field.toBits(length):
+         1. Provable.witness(Array(Bool, length), ...) — witness + check
+         2. Field.fromBits(bits).assertEquals(this)
+         choose_preimage_var emits an extra reconstruction gate vs o1js,
+         so we replicate the o1js approach directly. *)
+      let bits = List.init length ~f:(fun k ->
+          Step.exists Step.Boolean.typ ~compute:(fun () ->
+              let v = Step.As_prover.read_var limb in
+              let bi = FF.field_const_to_bignum v in
+              Bignum_bigint.(bit_and (shift_right bi k) one = one) ) ) in
+      (* Field.fromBits(bits).assertEquals(this) *)
+      let lc = List.foldi bits ~init:Step.Field.zero ~f:(fun i acc bit ->
+          let coeff = FF.bignum_to_field_const
+            Bignum_bigint.(pow (of_int 2) (of_int i)) in
+          Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) ) in
+      let sealed = FF.seal lc in
+      Step.Field.Assert.equal sealed limb ;
+      bits
   in
   let bits0 = decompose_limb l0 limb_size in
   let bits1 = decompose_limb l1 limb_size in
