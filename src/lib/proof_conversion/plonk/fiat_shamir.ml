@@ -58,39 +58,46 @@ let sha256_hash (bytes : Field_to_bytes.byte array) :
      H.map(x => wordToBytes(x.value, 4).reverse()).flat()
      Interleave witness + constrain per word to match nori gate order. *)
   let digest_bytes =
-    Array.concat_map h ~f:(fun word ->
-        (* wordToBytes: witness 4 LE bytes *)
-        let bytes_le = Array.init 4 ~f:(fun j ->
-            let shift = 8 * j in
-            Step.exists Step.Field.typ ~compute:(fun () ->
-                let wv = Step.As_prover.read_var (Uint32.to_field word) in
-                let w_big =
-                  Bignum_bigint.of_string
-                    (Step.Field.Constant.to_string wv)
-                in
-                let byte_val =
-                  Bignum_bigint.(
-                    bit_and (shift_right w_big shift) (of_int 255))
-                in
-                Step.Field.Constant.of_string
-                  (Bignum_bigint.to_string byte_val) ) )
-        in
-        (* bytesToWord(bytes).assertEquals(word) *)
-        let reconstructed =
-          Array.foldi bytes_le ~init:Step.Field.zero ~f:(fun j acc b ->
-              let shift = Step.Field.Constant.of_int (1 lsl (8 * j)) in
-              Step.Field.add acc (Step.Field.scale b shift) )
-        in
-        Step.Field.Assert.equal reconstructed (Uint32.to_field word) ;
-        (* .reverse() for big-endian *)
-        let bytes_be = Array.copy bytes_le in
-        let n = Array.length bytes_be in
-        for k = 0 to (n / 2) - 1 do
-          let tmp = bytes_be.(k) in
-          bytes_be.(k) <- bytes_be.(n - 1 - k) ;
-          bytes_be.(n - 1 - k) <- tmp
-        done ;
-        bytes_be )
+    let all_bytes = Queue.create () in
+    for wi = 0 to 7 do
+      let word = h.(wi) in
+      (* wordToBytes: Provable.witness(Array(UInt8, 4), ...)
+         Witness all 4 bytes first, then check all 4 (matching nori order) *)
+      let bytes_le = Array.init 4 ~f:(fun j ->
+          let shift = 8 * j in
+          Step.exists Step.Field.typ ~compute:(fun () ->
+              let wv = Step.As_prover.read_var (Uint32.to_field word) in
+              let w_big =
+                Bignum_bigint.of_string
+                  (Step.Field.Constant.to_string wv)
+              in
+              let byte_val =
+                Bignum_bigint.(
+                  bit_and (shift_right w_big shift) (of_int 255))
+              in
+              Step.Field.Constant.of_string
+                (Bignum_bigint.to_string byte_val) ) )
+      in
+      (* UInt8 check: rangeCheck8 on each byte *)
+      Array.iter bytes_le ~f:Uint32.range_check_8 ;
+      (* bytesToWord(bytes).assertEquals(word) *)
+      let reconstructed =
+        Array.foldi bytes_le ~init:Step.Field.zero ~f:(fun j acc b ->
+            let shift = Step.Field.Constant.of_int (1 lsl (8 * j)) in
+            Step.Field.add acc (Step.Field.scale b shift) )
+      in
+      Step.Field.Assert.equal reconstructed (Uint32.to_field word) ;
+      (* .reverse() for big-endian *)
+      let bytes_be = Array.copy bytes_le in
+      let n = Array.length bytes_be in
+      for k = 0 to (n / 2) - 1 do
+        let tmp = bytes_be.(k) in
+        bytes_be.(k) <- bytes_be.(n - 1 - k) ;
+        bytes_be.(n - 1 - k) <- tmp
+      done ;
+      Array.iter bytes_be ~f:(Queue.enqueue all_bytes)
+    done ;
+    Queue.to_array all_bytes
   in
   (h, digest_bytes)
 

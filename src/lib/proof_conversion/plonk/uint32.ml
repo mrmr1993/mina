@@ -68,6 +68,17 @@ let range_check_32 (x : Field.t) : unit =
 let range_check_16 (x : Field.t) : unit =
   range_check_n x ~num_bits:16
 
+(** Range-check to 8 bits. Matches o1js rangeCheck8.
+    Checks x fits in 16 bits, then checks 2^8*x fits in 16 bits. *)
+let range_check_8 (x : Field.t) : unit =
+  match Field.to_constant x with
+  | Some _ -> ()
+  | None ->
+    range_check_n x ~num_bits:16 ;
+    let x256 = Snarky_foreign_field.Foreign_field.seal
+      (Field.scale x (Field.Constant.of_int (1 lsl 8))) in
+    range_check_n x256 ~num_bits:16
+
 (** divMod32: divide n by 2^32, returning (quotient, remainder).
     Matches o1js divMod32 from arithmetic.ts.
     [n_bits] is the maximum bit width of [n]. *)
