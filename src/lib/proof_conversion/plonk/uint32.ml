@@ -156,7 +156,7 @@ let xor (a : t) (b : t) : t =
     of_field (Field.constant (Field.Constant.of_string
       (Bignum_bigint.to_string Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b)))))
   else
-    Bitwise.bxor (ensure_var a) (ensure_var b) 32 ~len_xor:4
+    Bitwise.bxor a b 32 ~len_xor:4
 
 (** Bitwise AND (32-bit).
     Uses kimchi AND gadget via Bitwise.band. *)
@@ -165,7 +165,7 @@ let bit_and (a : t) (b : t) : t =
     of_field (Field.constant (Field.Constant.of_string
       (Bignum_bigint.to_string Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b)))))
   else
-    Bitwise.band (ensure_var a) (ensure_var b) 32 ~len_xor:4
+    Bitwise.band a b 32 ~len_xor:4
 
 (** Bitwise NOT (32-bit, unchecked).
     Uses allOnes - x. *)
@@ -173,8 +173,11 @@ let bit_not (a : t) : t =
   if is_constant a then
     of_field (Field.constant (Field.Constant.of_string
       (Bignum_bigint.to_string Bignum_bigint.(bit_xor (to_bigint_const a) mask_32))))
-  else
-    Bitwise.bnot_unchecked a 32
+  else begin
+    (* Match nori: allOnes.sub(a).seal() *)
+    let all_ones = Field.of_int ((1 lsl 32) - 1) in
+    Snarky_foreign_field.Foreign_field.seal (Field.sub all_ones a)
+  end
 
 (** Bitwise right rotation (32-bit).
     Matches o1js UInt32.rotate(n, 'right').

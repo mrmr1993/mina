@@ -359,28 +359,24 @@ let bxor64 (input1 : Circuit.Field.t) (input2 : Circuit.Field.t) :
 let band ?(len_xor = 4) (input1 : Circuit.Field.t) (input2 : Circuit.Field.t)
     (length : int) : Circuit.Field.t =
   let open Circuit in
-  (* Recursively build And gadget with leading Xors and a final Generic gate *)
-  (* It will also check the correct lengths of the inputs, no need to do it again *)
-  let xor_output = bxor input1 input2 length ~len_xor in
-
+  (* Matching nori and() order: witness → sum → xor → assertEquals *)
   let and_output =
     exists Field.typ ~compute:(fun () ->
         Common.cvar_field_bits_combine_as_prover input1 input2 (fun b1 b2 ->
             b1 && b2 ) )
   in
 
-  (* Compute sum of a + b and constrain in the circuit *)
-  let sum = Generic.add input1 input2 in
-  let neg_one = Field.Constant.(negate one) in
-  let neg_two = Field.Constant.(neg_one + neg_one) in
+  let sum = Field.add input1 input2 in
 
-  (* Constrain AND as 2 * and = sum - xor *)
+  let xor_output = bxor input1 input2 length ~len_xor in
+
+  (* Constrain AND: outputAnd.mul(2).add(xorOutput).assertEquals(sum) *)
   with_label "and_equation" (fun () ->
       assert_
         (Basic
-           { l = (Field.Constant.one, sum)
-           ; r = (neg_one, xor_output)
-           ; o = (neg_two, and_output)
+           { l = (Field.Constant.of_int 2, and_output)
+           ; r = (Field.Constant.one, xor_output)
+           ; o = (Field.Constant.(negate one), sum)
            ; m = Field.Constant.zero
            ; c = Field.Constant.zero
            } ) ) ;
