@@ -47,11 +47,13 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
          2. Field.fromBits(bits).assertEquals(this)
          choose_preimage_var emits an extra reconstruction gate vs o1js,
          so we replicate the o1js approach directly. *)
-      let bits = List.init length ~f:(fun k ->
+      let bits_rev = List.init length ~f:(fun k ->
+          let k' = length - 1 - k in
           Step.exists Step.Boolean.typ ~compute:(fun () ->
               let v = Step.As_prover.read_var limb in
               let bi = FF.field_const_to_bignum v in
-              Bignum_bigint.(bit_and (shift_right bi k) one = one) ) ) in
+              Bignum_bigint.(bit_and (shift_right bi k') one = one) ) ) in
+      let bits = List.rev bits_rev in
       (* Field.fromBits(bits).assertEquals(this) *)
       let lc = List.foldi bits ~init:Step.Field.zero ~f:(fun i acc bit ->
           let coeff = FF.bignum_to_field_const
