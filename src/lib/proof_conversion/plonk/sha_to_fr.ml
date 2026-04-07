@@ -40,8 +40,20 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let bit_256 = ref Step.Boolean.false_ in
 
   for i = 31 downto 0 do
-    let bits = Step.Field.choose_preimage_var fields.(i)
-        ~length:Step.Field.size_in_bits in
+    let length = Step.Field.size_in_bits - 1 in
+    let bits_rev = List.init length ~f:(fun k ->
+        let k' = length - 1 - k in
+        Step.exists Step.Boolean.typ ~compute:(fun () ->
+            let v = Step.As_prover.read_var fields.(i) in
+            let bi = FF.field_const_to_bignum v in
+            Bignum_bigint.(bit_and (shift_right bi k') one = one) ) ) in
+    let bits = List.rev bits_rev in
+    let lc = List.foldi bits ~init:Step.Field.zero ~f:(fun j acc bit ->
+        let coeff = FF.bignum_to_field_const
+          Bignum_bigint.(pow (of_int 2) (of_int j)) in
+        Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) ) in
+    let sealed = FF.seal lc in
+    Step.Field.Assert.equal sealed fields.(i) ;
     let bits = Array.of_list bits in
     for j = 0 to 7 do
       (* we skip last 2 bits *)
