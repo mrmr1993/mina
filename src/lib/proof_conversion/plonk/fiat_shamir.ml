@@ -177,10 +177,8 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
   let pi0_bytes = provable_bn254_scalar_field_to_bytes pi0 in
   append pi0_bytes ;
 
-
   let pi1_bytes = provable_bn254_scalar_field_to_bytes pi1 in
   append pi1_bytes ;
-
 
   (* there is one gate, so we have just 1 [l, r, o] *)
   let lx = provable_bn254_base_field_to_bytes proof.l_com_x in
