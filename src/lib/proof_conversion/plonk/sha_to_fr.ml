@@ -92,31 +92,29 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
 
   (* const a = Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
-  let cond_field3 (b : Step.Boolean.var) (c : Bignum_bigint.t) : FF.Field3.t =
-    let l0, l1, l2 = FF.Field3.Constant.split c in
-    let bf = (b :> Step.Field.t) in
-    ( Step.Field.scale bf (FF.bignum_to_field_const l0)
-    , Step.Field.scale bf (FF.bignum_to_field_const l1)
-    , Step.Field.scale bf (FF.bignum_to_field_const l2) )
-  in
-  let a = cond_field3 !bit_255 two_254_mod_r in
-  let b = cond_field3 !bit_256 two_255_mod_r in
-
+  (* Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
+  let fr_typ = FF.FpA.typ ~f:Bn254_params.r in
+  let a = G1.provable_if fr_typ (!bit_255 :> Step.Field.t)
+    ~if_true:(FF.FpA.of_constant two_254_mod_r)
+    ~if_false:(FF.FpA.of_constant Bignum_bigint.zero) in
+  let b = G1.provable_if fr_typ (!bit_256 :> Step.Field.t)
+    ~if_true:(FF.FpA.of_constant two_255_mod_r)
+    ~if_false:(FF.FpA.of_constant Bignum_bigint.zero) in
   (* const res: FrC = x.add(a).add(b).assertCanonical() *)
-  let x_f3 = FF.FpU.to_field3 x in
-  let sum =
-    FF.Sum.add
-      (FF.Sum.add (FF.Sum.of_field3 x_f3) a)
-      b
-  in
-  let result = FF.Sum.finish_simple sum ~f:Bn254_params.r in
-  let result_checked =
+  let r = Bn254_params.r in
+  let x_fpa = FF.FpA.of_field3_unsafe (FF.FpU.to_field3 x) in
+  let sum1 = FF.add (FF.FpA.to_field3 x_fpa) (FF.FpA.to_field3 a) ~f:r in
+  let sum1_checked =
     match FF.FpA.assert_almost_reduced
-            [ FF.FpU.of_field3_unsafe result ] ~f:Bn254_params.r () with
-    | [ a ] -> a
+            [ FF.FpU.of_field3_unsafe sum1 ] ~f:r () with
+    | [ v ] -> v
     | _ -> assert false
   in
-  let canonical =
-    FF.FpC.assert_canonical result_checked ~f:Bn254_params.r
+  let sum2 = FF.add (FF.FpA.to_field3 sum1_checked) (FF.FpA.to_field3 b) ~f:r in
+  let sum2_checked =
+    match FF.FpA.assert_almost_reduced
+            [ FF.FpU.of_field3_unsafe sum2 ] ~f:r () with
+    | [ v ] -> v
+    | _ -> assert false
   in
-  FF.FpC.to_fpa canonical
+  FF.FpC.to_fpa (FF.FpC.assert_canonical sum2_checked ~f:r)
