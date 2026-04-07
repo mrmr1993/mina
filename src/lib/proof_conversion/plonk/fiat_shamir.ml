@@ -200,10 +200,8 @@ let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
   append oy ;
 
   (* assert(cm_bytes.length === gammaSizeInBytes()) *)
-
   let bytes = Array.of_list !cm_bytes in
   let _h, digest = sha256_hash bytes in
-
   fs.gamma_digest <- digest ;
   fs.gamma <- Sha_to_fr.sha_to_fr digest
 

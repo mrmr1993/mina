@@ -207,16 +207,17 @@ let compress (h : Uint32.t array) (w : Uint32.t array) : Uint32.t array =
     (* mod 32bit *)
     a := snd (Uint32.div_mod_32 Step.Field.(unreduced_t2 + unreduced_t1) ~n_bits:48)
   done ;
-  (* new intermediate hash value *)
-  [| Uint32.add h.(0) !a
-   ; Uint32.add h.(1) !b
-   ; Uint32.add h.(2) !c
-   ; Uint32.add h.(3) !d
-   ; Uint32.add h.(4) !e
-   ; Uint32.add h.(5) !f
-   ; Uint32.add h.(6) !g
-   ; Uint32.add h.(7) !hh
-  |]
+  (* new intermediate hash value — use let bindings to ensure
+     left-to-right evaluation order matching o1js *)
+  let r0 = Uint32.add h.(0) !a in
+  let r1 = Uint32.add h.(1) !b in
+  let r2 = Uint32.add h.(2) !c in
+  let r3 = Uint32.add h.(3) !d in
+  let r4 = Uint32.add h.(4) !e in
+  let r5 = Uint32.add h.(5) !f in
+  let r6 = Uint32.add h.(6) !g in
+  let r7 = Uint32.add h.(7) !hh in
+  [| r0; r1; r2; r3; r4; r5; r6; r7 |]
 
 (** Prepares the message schedule for the SHA-256 compression function
     from the given message block.
