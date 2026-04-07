@@ -68,9 +68,9 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
   let bits2 = decompose_limb l2 l2_bits in
   (* Concatenate: bits0 ++ bits1 ++ bits2 = size_in_bits bits total *)
   let all_bits = bits0 @ bits1 @ bits2 in
-  (* Prepend 2 zero bits to reach 256 bits *)
+  (* Append 2 zero bits to reach 256 bits (matching nori: x.toBits().concat([false, false])) *)
   let zero_bit = Step.Boolean.false_ in
-  let padded_bits = [ zero_bit; zero_bit ] @ all_bits in
+  let padded_bits = all_bits @ [ zero_bit; zero_bit ] in
   assert (List.length padded_bits = 256) ;
   (* Group into 32 bytes, 8 bits each.
      For each group of 8 bits, reconstruct a field element via fromBits.
@@ -83,10 +83,7 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
         let terms =
           Array.to_list
             (Array.mapi byte_bits ~f:(fun j bit ->
-                 let coeff =
-                   Step.Field.Constant.of_string
-                     (Int.to_string (1 lsl j))
-                 in
+                 let coeff = Step.Field.Constant.of_int (1 lsl j) in
                  Step.Field.scale (bit :> Step.Field.t) coeff ) )
         in
         FF.seal (List.fold terms ~init:Step.Field.zero ~f:Step.Field.add) )
