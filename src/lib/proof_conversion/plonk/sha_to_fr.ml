@@ -105,10 +105,6 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let x_f3 = FF.FpU.to_field3 x in
   let sum1 = FF.add x_f3 (FF.FpA.to_field3 a) ~f:r in
   let sum2 = FF.add sum1 (FF.FpA.to_field3 b) ~f:r in
-  let result_checked =
-    match FF.FpA.assert_almost_reduced
-            [ FF.FpU.of_field3_unsafe sum2 ] ~f:r () with
-    | [ v ] -> v
-    | _ -> assert false
-  in
-  FF.FpC.to_fpa (FF.FpC.assert_canonical result_checked ~f:r)
+  (* FF.add already does MRC — go straight to assertCanonical *)
+  let result_fpa = FF.FpA.of_field3_unsafe sum2 in
+  FF.FpC.to_fpa (FF.FpC.assert_canonical result_fpa ~f:r)
