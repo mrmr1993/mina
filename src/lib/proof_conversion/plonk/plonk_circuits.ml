@@ -373,7 +373,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
              }
          ; state =
              { f = c_inv
-             ; lines_hashes_digest = Step.Field.zero
+             ; lines_hashes_digest = Kzg_accumulator.array_list_hasher_empty
              }
          }
        in

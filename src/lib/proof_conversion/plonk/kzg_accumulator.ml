@@ -19,6 +19,13 @@ let ate_loop_count =
 
 let ate_loop_len = Array.length ate_loop_count  (* 65 *)
 
+(** ArrayListHasher.empty() = Poseidon.hashPacked(Array(Field, 65), zeros).
+    Precomputed constant matching nori's ArrayListHasher.empty(). *)
+let array_list_hasher_empty =
+  Step.Field.constant
+    (Step.Field.Constant.of_string
+       "28832630828976582602038031409816593539422152810927507906214302524112741671461")
+
 (** KZG proof: pairing points + shift + c values. *)
 type kzg_proof =
   { a_x : FF.FpA.t  (** G1Affine A point *)
