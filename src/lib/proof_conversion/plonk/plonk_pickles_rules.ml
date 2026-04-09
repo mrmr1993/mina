@@ -23,6 +23,7 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
       ; range_check1 = true
       ; foreign_field_add = true
       ; foreign_field_mul = true
+      ; xor = Array.exists ~f:(( = ) n) [| 0; 1; 3; 7; 8; 10 |]
       }
   }
 
