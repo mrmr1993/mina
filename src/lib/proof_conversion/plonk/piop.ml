@@ -77,11 +77,11 @@ let inv_fr (x : FF.FpA.t) : FF.FpA.t =
   let inv_fpu =
     FF.FpU.of_field3_unsafe (inv_limbs.(0), inv_limbs.(1), inv_limbs.(2))
   in
-  let inv =
-    match FF.FpA.assert_almost_reduced [ inv_fpu ] ~f:r () with
-    | [ a ] -> a
-    | _ -> assert false
-  in
+  (* Nori: Provable.witness(FrC.provable, ...) does MRC + assertLessThan *)
+  let inv_f3 = FF.FpU.to_field3 inv_fpu in
+  FF.multi_range_check inv_f3 ;
+  FF.assert_less_than inv_f3 ~bound:r ;
+  let inv = FF.FpA.of_field3_unsafe inv_f3 in
   let product = FF.mul (FF.FpA.to_field3 x) (FF.FpA.to_field3 inv) ~f:r in
   FF.assert_equal product (FF.Field3.of_constant Bignum_bigint.one) ;
   inv
@@ -92,7 +92,8 @@ let inv_fr (x : FF.FpA.t) : FF.FpA.t =
 
     For SP1 domain_size = 2^24, the bit array is [1, 0, 0, ..., 0] (25 elements). *)
 let pow_fr (base : FF.FpA.t) ~(exp_bits : int array) : FF.FpA.t =
-  let result = ref base in
+  (* Nori: let r = Fr.from(x).assertCanonical() *)
+  let result = ref (assert_canonical_fr (FF.FpA.to_field3 base)) in
   for i = 1 to Array.length exp_bits - 1 do
     result := mul_fr !result !result ;
     if exp_bits.(i) = 1 then
@@ -219,14 +220,18 @@ let opening_of_linearized_polynomial
     ~(proof : Plonk_accumulator.circuit_proof)
     ~(alpha : FF.FpA.t) ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t)
     ~(pi : FF.FpA.t) ~(alpha_2_l0 : FF.FpA.t) : FF.FpA.t =
-  (* s1 = (l(ζ)+β*s1(ζ)+γ) *)
-  let s1 =
-    add_fr (add_fr (mul_fr proof.s1_at_zeta beta) gamma) proof.l_at_zeta
-  in
-  (* s2 = (r(ζ)+β*s2(ζ)+γ) *)
-  let s2 =
-    add_fr (add_fr (mul_fr proof.s2_at_zeta beta) gamma) proof.r_at_zeta
-  in
+  (* s1 = (l(ζ)+β*s1(ζ)+γ)
+     Nori: .mul(beta).assertCanonical().add(gamma).add(l_at_zeta).assertCanonical() *)
+  let s1_tmp = mul_fr proof.s1_at_zeta beta in
+  let s1_add1 = FF.add (FF.FpA.to_field3 s1_tmp) (FF.FpA.to_field3 gamma) ~f:r in
+  let s1 = assert_canonical_fr
+    (FF.add s1_add1 (FF.FpA.to_field3 proof.l_at_zeta) ~f:r) in
+  (* s2 = (r(ζ)+β*s2(ζ)+γ)
+     Nori: .mul(beta).assertCanonical().add(gamma).add(r_at_zeta).assertCanonical() *)
+  let s2_tmp = mul_fr proof.s2_at_zeta beta in
+  let s2_add1 = FF.add (FF.FpA.to_field3 s2_tmp) (FF.FpA.to_field3 gamma) ~f:r in
+  let s2 = assert_canonical_fr
+    (FF.add s2_add1 (FF.FpA.to_field3 proof.r_at_zeta) ~f:r) in
   (* o = (o(ζ)+γ) *)
   let o = add_fr proof.o_at_zeta gamma in
   (* α*Z(μζ)*(l(ζ)+β*s1(ζ)+γ)*(r(ζ)+β*s2(ζ)+γ)*(o(ζ)+γ) *)
@@ -234,10 +239,12 @@ let opening_of_linearized_polynomial
   let acc = mul_fr acc proof.grand_product_at_omega_zeta in
   let acc = mul_fr acc s2 in
   let acc = mul_fr acc o in
-  (* - [PI(ζ) - α²*L₁(ζ) + α(...)] *)
-  let acc = add_fr acc pi in
-  let acc = sub_fr acc alpha_2_l0 in
-  neg_fr acc
+  (* - [PI(ζ) - α²*L₁(ζ) + α(...)]
+     Nori: acc.add(pi).sub(alpha_2_lagrange_0).neg().assertCanonical() *)
+  let acc_add = FF.add (FF.FpA.to_field3 acc) (FF.FpA.to_field3 pi) ~f:r in
+  let acc_sub = FF.sub acc_add (FF.FpA.to_field3 alpha_2_l0) ~f:r in
+  let acc_neg = FF.negate acc_sub ~f:r in
+  assert_canonical_fr acc_neg
 
 (** Linearized commitment (split 0): ql*l + qr*r + qm*(l*r).
     Matches nori compute_commitment_linearized_polynomial_split_0. *)
@@ -276,9 +283,16 @@ let compute_commitment_linearized_polynomial_split_1
   let qcp_0 = { G1.Circuit.x = proof.qcp_0_wire_x
               ; y = proof.qcp_0_wire_y } in
   let lcm = G1.add lcm (G1.scale qcp_0 (FF.FpA.to_field3 proof.qcp_0_at_zeta)) in
-  (* s1 coefficient *)
-  let p1 = add_fr (add_fr (mul_fr proof.s1_at_zeta beta) gamma) proof.l_at_zeta in
-  let p2 = add_fr (add_fr (mul_fr proof.s2_at_zeta beta) gamma) proof.r_at_zeta in
+  (* s1 coefficient
+     Nori: .mul(beta).assertCanonical().add(gamma).add(l_at_zeta).assertCanonical() *)
+  let p1_mul = mul_fr proof.s1_at_zeta beta in
+  let p1_add1 = FF.add (FF.FpA.to_field3 p1_mul) (FF.FpA.to_field3 gamma) ~f:r in
+  let p1 = assert_canonical_fr
+    (FF.add p1_add1 (FF.FpA.to_field3 proof.l_at_zeta) ~f:r) in
+  let p2_mul = mul_fr proof.s2_at_zeta beta in
+  let p2_add1 = FF.add (FF.FpA.to_field3 p2_mul) (FF.FpA.to_field3 gamma) ~f:r in
+  let p2 = assert_canonical_fr
+    (FF.add p2_add1 (FF.FpA.to_field3 proof.r_at_zeta) ~f:r) in
   let s1_coeff = mul_fr (mul_fr (mul_fr (mul_fr p1 p2) beta) alpha)
       proof.grand_product_at_omega_zeta in
   let s3 = { G1.Circuit.x = FF.FpA.of_constant vk.s3.x
@@ -299,17 +313,29 @@ let compute_commitment_linearized_polynomial_split_2
     ~(hx : FF.FpA.t) ~(hy : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
   let lcm = { G1.Circuit.x = lcm_x; y = lcm_y } in
   let coset = FF.FpA.of_constant vk.coset_shift in
-  let r1 = add_fr (add_fr (mul_fr zeta beta) proof.l_at_zeta) gamma in
-  let r2 = add_fr (add_fr (mul_fr (mul_fr beta coset) zeta) proof.r_at_zeta) gamma in
-  let r3 = add_fr
-    (add_fr (mul_fr (mul_fr (mul_fr beta coset) coset) zeta) proof.o_at_zeta) gamma in
-  let s2_coeff =
-    add_fr (neg_fr (mul_fr (mul_fr (mul_fr alpha r1) r2) r3)) alpha_2_l0 in
+  (* Nori: .mul(beta).assertCanonical().add(l_at_zeta).add(gamma).assertCanonical() *)
+  let r1_mul = mul_fr zeta beta in
+  let r1_add1 = FF.add (FF.FpA.to_field3 r1_mul) (FF.FpA.to_field3 proof.l_at_zeta) ~f:r in
+  let r1 = assert_canonical_fr (FF.add r1_add1 (FF.FpA.to_field3 gamma) ~f:r) in
+  (* Nori: beta.mul(coset).assertCanonical().mul(zeta).assertCanonical().add(r_at_zeta).add(gamma).assertCanonical() *)
+  let r2_mul = mul_fr (mul_fr beta coset) zeta in
+  let r2_add1 = FF.add (FF.FpA.to_field3 r2_mul) (FF.FpA.to_field3 proof.r_at_zeta) ~f:r in
+  let r2 = assert_canonical_fr (FF.add r2_add1 (FF.FpA.to_field3 gamma) ~f:r) in
+  (* Nori: beta.mul(coset).assertCanonical().mul(coset).assertCanonical().mul(zeta).assertCanonical().add(o_at_zeta).add(gamma).assertCanonical() *)
+  let r3_mul = mul_fr (mul_fr (mul_fr beta coset) coset) zeta in
+  let r3_add1 = FF.add (FF.FpA.to_field3 r3_mul) (FF.FpA.to_field3 proof.o_at_zeta) ~f:r in
+  let r3 = assert_canonical_fr (FF.add r3_add1 (FF.FpA.to_field3 gamma) ~f:r) in
+  (* Nori: alpha.mul(r1).assertCanonical().mul(r2).assertCanonical().mul(r3).neg().add(alpha_2_l0).assertCanonical() *)
+  let s2_mul = mul_fr (mul_fr alpha r1) r2 in
+  let s2_mul3 = FF.mul (FF.FpA.to_field3 s2_mul) (FF.FpA.to_field3 r3) ~f:r in
+  let s2_neg = FF.negate s2_mul3 ~f:r in
+  let s2_coeff = assert_canonical_fr
+    (FF.add s2_neg (FF.FpA.to_field3 alpha_2_l0) ~f:r) in
   let gp = { G1.Circuit.x = proof.grand_product_x
            ; y = proof.grand_product_y } in
   let lcm = G1.add lcm (G1.scale gp (FF.FpA.to_field3 s2_coeff)) in
   (* Subtract folded quotient *)
-  let neg_hq = G1.negate_constant_y { G1.Circuit.x = hx; y = hy } in
+  let neg_hq = G1.negate { G1.Circuit.x = hx; y = hy } in
   let lcm = G1.add lcm neg_hq in
   let rx = assert_canonical_fp (FF.FpA.to_field3 lcm.x) in
   let ry = assert_canonical_fp (FF.FpA.to_field3 lcm.y) in
@@ -332,14 +358,20 @@ let fold_state_0
   let cm = { G1.Circuit.x = lcm_x; y = lcm_y } in
   let cm = G1.add cm (G1.scale l_pt (FF.FpA.to_field3 gamma_kzg)) in
   let cm = G1.add cm (G1.scale r_pt (FF.FpA.to_field3 g2)) in
-  (* Openings accumulation *)
-  let op = ref lcm_opening in
-  op := add_fr (mul_fr proof.l_at_zeta gamma_kzg) !op ;
-  op := add_fr (mul_fr proof.r_at_zeta g2) !op ;
-  op := add_fr (mul_fr proof.o_at_zeta g3) !op ;
-  op := add_fr (mul_fr proof.s1_at_zeta g4) !op ;
-  op := add_fr (mul_fr proof.s2_at_zeta g5) !op ;
-  op := add_fr (mul_fr proof.qcp_0_at_zeta g6) !op ;
+  (* Openings accumulation.
+     Nori: opening = FrC.from(lcm_opening).assertCanonical()
+     then: opening = proof.x.mul(gamma).add(opening).assertCanonical() *)
+  let op = ref (assert_canonical_fr (FF.FpA.to_field3 lcm_opening)) in
+  let chain_mul_add scalar gamma =
+    let m = FF.mul (FF.FpA.to_field3 scalar) (FF.FpA.to_field3 gamma) ~f:r in
+    assert_canonical_fr (FF.add m (FF.FpA.to_field3 !op) ~f:r)
+  in
+  op := chain_mul_add proof.l_at_zeta gamma_kzg ;
+  op := chain_mul_add proof.r_at_zeta g2 ;
+  op := chain_mul_add proof.o_at_zeta g3 ;
+  op := chain_mul_add proof.s1_at_zeta g4 ;
+  op := chain_mul_add proof.s2_at_zeta g5 ;
+  op := chain_mul_add proof.qcp_0_at_zeta g6 ;
   let rx = assert_canonical_fp (FF.FpA.to_field3 cm.x) in
   let ry = assert_canonical_fp (FF.FpA.to_field3 cm.y) in
   (rx, ry, !op)
@@ -405,7 +437,7 @@ let prepare_pairing_0
   let folded_q = { G1.Circuit.x = proof.batch_opening_at_zeta_x
                  ; y = proof.batch_opening_at_zeta_y } in
   let folded_q = G1.add folded_q (G1.scale batch_shifted (FF.FpA.to_field3 random)) in
-  let neg_folded_q = G1.negate_constant_y folded_q in
+  let neg_folded_q = G1.negate folded_q in
   (* Commitment part *)
   let gp = { G1.Circuit.x = proof.grand_product_x
            ; y = proof.grand_product_y } in
@@ -414,9 +446,12 @@ let prepare_pairing_0
   (* Evals part *)
   let gen = { G1.Circuit.x = FF.FpA.of_constant vk.g1_gen.x
             ; y = FF.FpA.of_constant vk.g1_gen.y } in
-  let folded_evals = add_fr (mul_fr proof.grand_product_at_omega_zeta random)
-      cm_opening in
-  let neg_fe_curve = G1.negate_constant_y
+  (* Nori: .mul(random).add(cm_opening).assertCanonical() — no intermediate assertCanonical *)
+  let folded_evals_mul =
+    FF.mul (FF.FpA.to_field3 proof.grand_product_at_omega_zeta) (FF.FpA.to_field3 random) ~f:r in
+  let folded_evals = assert_canonical_fr
+    (FF.add folded_evals_mul (FF.FpA.to_field3 cm_opening) ~f:r) in
+  let neg_fe_curve = G1.negate
       (G1.scale gen (FF.FpA.to_field3 folded_evals)) in
   let folded_cm = G1.add folded_cm neg_fe_curve in
   ( assert_canonical_fp (FF.FpA.to_field3 folded_cm.x)

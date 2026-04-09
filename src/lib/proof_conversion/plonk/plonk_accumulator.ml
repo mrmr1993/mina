@@ -61,7 +61,14 @@ let uint32_checked_typ : (Step.Field.t, Step.Field.Constant.t) Step.Typ.t =
     }
 
 (** Typ for canonical foreign field, returning FpA.t.
-    Uses FpC.typ internally, then transports FpC.t ↔ FpA.t. *)
+    Nori's FrC.provable / FpC.provable check does:
+    1. assertAlmostReduced (MRC + bound check)
+    2. assertLessThan (FFA + MRC)
+    OCaml's FpC.typ only does MRC + assertLessThan. We add the
+    assertAlmostReduced to match nori's check. *)
+(** Typ for canonical foreign field, returning FpA.t.
+    Uses FpC.typ internally, then transports FpC.t ↔ FpA.t.
+    Check: multiRangeCheck + assertLessThan (matching nori CanonicalForeignField.check). *)
 let fpc_typ : (FF.FpA.t, field3_const) Step.Typ.t =
   Step.Typ.transport_var (FF.FpC.typ ~f:p)
     ~there:(fun (a : FF.FpA.t) -> FF.FpC.of_fpa_unsafe a)

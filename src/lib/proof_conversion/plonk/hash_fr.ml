@@ -79,8 +79,8 @@ let shr128 (digest_bytes : Step.Field.t array) : FF.FpA.t =
         Step.Field.scale (bit :> Step.Field.t) coeff )) in
     List.fold terms ~init:Step.Field.zero ~f:Step.Field.add
   in
-  let limb0 = pack_limb ~pos:0 ~len:88 in
-  let limb1 = pack_limb ~pos:88 ~len:40 in
+  let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
+  let limb1 = FF.seal (pack_limb ~pos:88 ~len:40) in
   let f3 = (limb0, limb1, Step.Field.zero) in
   assert_canonical_fr f3
 
@@ -130,16 +130,18 @@ let shl_128_mod_r (digest_bytes : Step.Field.t array) : FF.FpA.t =
         Step.Field.scale (bit :> Step.Field.t) coeff )) in
     List.fold terms ~init:Step.Field.zero ~f:Step.Field.add
   in
-  let limb0 = pack_limb ~pos:0 ~len:88 in
-  let limb1 = pack_limb ~pos:88 ~len:88 in
-  let limb2 = pack_limb ~pos:176 ~len:78 in
+  let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
+  let limb1 = FF.seal (pack_limb ~pos:88 ~len:88) in
+  let limb2 = FF.seal (pack_limb ~pos:176 ~len:78) in
   let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
   let cond_field3 (b : Step.Boolean.var) (c : Bignum_bigint.t) : FF.Field3.t =
     let l0, l1, l2 = FF.Field3.Constant.split c in
     let bf = (b :> Step.Field.t) in
-    ( Step.Field.scale bf (FF.bignum_to_field_const l0)
-    , Step.Field.scale bf (FF.bignum_to_field_const l1)
-    , Step.Field.scale bf (FF.bignum_to_field_const l2) )
+    (* Nori: Provable.if seals each limb in order *)
+    let s0 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l0)) in
+    let s1 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l1)) in
+    let s2 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l2)) in
+    (s0, s1, s2)
   in
   let a = cond_field3 !bit_255 two_254_mod_r in
   let b = cond_field3 !bit_256 two_255_mod_r in
@@ -147,11 +149,9 @@ let shl_128_mod_r (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let res = mul_fr
     (FF.FpA.of_field3_unsafe (FF.FpU.to_field3 x)) sh_fpa in
   (* res.add(a.mul(SH).assertCanonical()).assertCanonical() *)
-  let a_fpa = assert_canonical_fr a in
-  let res = add_fr res (mul_fr a_fpa sh_fpa) in
+  let res = add_fr res (mul_fr (FF.FpA.of_field3_unsafe a) sh_fpa) in
   (* res.add(b.mul(SH).assertCanonical()).assertCanonical() *)
-  let b_fpa = assert_canonical_fr b in
-  add_fr res (mul_fr b_fpa sh_fpa)
+  add_fr res (mul_fr (FF.FpA.of_field3_unsafe b) sh_fpa)
 
 (** BSB22-PLONK hash: hash two BN254 Fp elements to an Fr element.
     Matches nori HashFr.hash (hash_fr.ts:133-171). *)

@@ -344,7 +344,13 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       (* Prepare pairing (split 1) + KZG accumulator initialization.
          Matches nori zkp12. Transitions from Accumulator to KzgAccumulator. *)
       fun input_hash ->
+       (* Nori witnesses all private inputs [Accumulator, Field, Fp12] at start *)
        let acc = witness_accumulator () in
+       let shift_power =
+         Step.exists Step.Field.typ
+           ~compute:(fun () -> Step.Field.Constant.zero)
+       in
+       let c = Fp12.witness () in
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
        let kzg_cm_x, kzg_cm_y =
@@ -355,14 +361,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
            ~folded_cm_y:acc.state.kzg_cm_y
            ~zeta:acc.fs.zeta
        in
-       (* Witness c (Fp12) and compute c_inv = c.inverse() *)
-       let c = Fp12.witness () in
        let c_inv = Fp12.inverse c in
-       (* Witness shift_power *)
-       let shift_power =
-         Step.exists Step.Field.typ
-           ~compute:(fun () -> Step.Field.Constant.zero)
-       in
        (* Build KzgAccumulator *)
        let kzg_acc : Kzg_accumulator.t =
          { proof =
@@ -473,16 +472,17 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       in
       let rhs_size = ate_len - lhs_size - chunk_size in
       fun input_hash ->
+       (* Nori witnesses all private inputs at start:
+          [KzgAccumulator, Array(Fp12, chunk_size), Array(Field, ate_len-chunk_size)] *)
        let kzg = Kzg_accumulator.witness () in
+       let g_chunk = Array.init chunk_size ~f:(fun _ -> Fp12.witness ()) in
+       let remaining = ate_len - chunk_size in
+       let flat_hashes = Array.init remaining ~f:(fun _ ->
+           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
+       let lhs_hashes = Array.sub flat_hashes ~pos:0 ~len:lhs_size in
+       let rhs_hashes = Array.sub flat_hashes ~pos:lhs_size ~len:rhs_size in
        let in_digest = Kzg_accumulator.hash_packed kzg in
        Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* Witness g_chunk *)
-       let g_chunk = Array.init chunk_size ~f:(fun _ -> Fp12.witness ()) in
-       (* Witness lhs/rhs lines_hashes for ArrayListHasher.open *)
-       let lhs_hashes = Array.init lhs_size ~f:(fun _ ->
-           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
-       let rhs_hashes = Array.init rhs_size ~f:(fun _ ->
-           Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
        (* ArrayListHasher.open: hash g_chunk, concat lhs ++ opening_hashes ++ rhs, hash all *)
        let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
        let full_arr = Array.concat [ lhs_hashes; opening_hashes; rhs_hashes ] in
@@ -503,13 +503,14 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
          Matches nori zkp23. *)
       let ate_len = Array.length Kzg_accumulator.ate_loop_count in
       fun input_hash ->
+       (* Nori witnesses all private inputs at start:
+          [KzgAccumulator, Array(Field, 64), Array(Fp12, 1)] *)
        let kzg = Kzg_accumulator.witness () in
-       let in_digest = Kzg_accumulator.hash_packed kzg in
-       Step.assert_ (Equal (in_digest, input_hash)) ;
-       (* Witness lhs_line_hashes and g_chunk for ArrayListHasher.open *)
        let lhs_hashes = Array.init (ate_len - 1) ~f:(fun _ ->
            Step.exists Step.Field.typ ~compute:(fun () -> Step.Field.Constant.zero)) in
        let g_chunk = Array.init 1 ~f:(fun _ -> Fp12.witness ()) in
+       let in_digest = Kzg_accumulator.hash_packed kzg in
+       Step.assert_ (Equal (in_digest, input_hash)) ;
        let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
        let full_arr = Array.concat [ lhs_hashes; opening_hashes ] in
        let opening = Accumulator_hash.poseidon_hash full_arr in
@@ -523,12 +524,28 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Shift power selection: Provable.switch *)
        let w27 = Fp12.of_constant (Bn254_params.w27 ()) in
        let w27_sq = Fp12.of_constant (Bn254_params.w27_sq ()) in
-       let is_0 = (Step.Field.equal kzg.proof.shift_power Step.Field.zero
-                    :> Step.Field.t) in
-       let is_1 = (Step.Field.equal kzg.proof.shift_power (Step.Field.of_int 1)
-                    :> Step.Field.t) in
-       let is_2 = (Step.Field.equal kzg.proof.shift_power (Step.Field.of_int 2)
-                    :> Step.Field.t) in
+       (* Nori: shift_power.equals(Field(k)) — direct seal + assertMul,
+          NOT chunked equality like Step.Field.equal *)
+       let field_equals x c =
+         let module FF = Snarky_foreign_field.Foreign_field in
+         let diff = FF.seal Step.Field.(x - constant (Step.Field.Constant.of_int c)) in
+         let b = Step.exists Step.Field.typ ~compute:(fun () ->
+             let xv = Step.As_prover.read_var x in
+             if Step.Field.Constant.(equal xv (of_int c)) then Step.Field.Constant.one
+             else Step.Field.Constant.zero) in
+         let z = Step.exists Step.Field.typ ~compute:(fun () ->
+             let dv = Step.As_prover.read_var diff in
+             if Step.Field.Constant.(equal dv zero) then Step.Field.Constant.zero
+             else Step.Field.Constant.(one / dv)) in
+         (* b * diff = 0 *)
+         Step.assert_ (R1CS (b, diff, Step.Field.zero)) ;
+         (* z * diff = 1 - b *)
+         Step.assert_ (R1CS (z, diff, Step.Field.(sub (of_int 1) b))) ;
+         b
+       in
+       let is_0 = field_equals kzg.proof.shift_power 0 in
+       let is_1 = field_equals kzg.proof.shift_power 1 in
+       let is_2 = field_equals kzg.proof.shift_power 2 in
        let shift = Circuit_utils.provable_switch Fp12.typ
          [| is_0; is_1; is_2 |]
          [| Fp12.one; w27; w27_sq |] in

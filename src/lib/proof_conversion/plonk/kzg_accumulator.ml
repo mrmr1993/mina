@@ -80,7 +80,7 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   (* G1Affine negB *)
   add_fpa acc.proof.neg_b_x ;
   add_fpa acc.proof.neg_b_y ;
-  (* shift_power: native Field, unpacked *)
+  (* shift_power: native Field, unpacked (matching o1js Field.toInput → {fields: [value]}) *)
   Queue.enqueue fields acc.proof.shift_power ;
   (* c: Fp12 *)
   add_fp12 acc.proof.c ;
@@ -92,7 +92,7 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   (* === state fields === *)
   (* f: Fp12 *)
   add_fp12 acc.state.f ;
-  (* lines_hashes_digest: native Field, unpacked *)
+  (* lines_hashes_digest: native Field, unpacked (matching o1js Field.toInput → {fields: [value]}) *)
   Queue.enqueue fields acc.state.lines_hashes_digest ;
   { field_elements = Queue.to_array fields
   ; packeds = Queue.to_array packeds
@@ -141,8 +141,13 @@ let default_const : t_const =
 let typ : (t, t_const) Step.Typ.t =
   let p = Bn254_params.p in
   let r = Bn254_params.r in
+  (* G1Affine (x:FpA, y:FpA) and Fp12 components use FpA.typ (assertAlmostReduced).
+     pi0/pi1 use FrC (canonical with assertLessThan), matching nori's FrC.provable. *)
   let fpc_typ = FF.FpA.typ ~f:p in
-  let frc_typ = FF.FpA.typ ~f:r in
+  let frc_typ =
+    Step.Typ.transport_var (FF.FpC.typ ~f:r)
+      ~there:(fun a -> FF.FpC.of_fpa_unsafe a)
+      ~back:(fun c -> (c :> FF.FpA.t)) in
   let proof_typ =
     Step.Typ.of_hlistable
       [ fpc_typ; fpc_typ; fpc_typ; fpc_typ

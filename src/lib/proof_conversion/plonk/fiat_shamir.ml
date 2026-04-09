@@ -384,10 +384,8 @@ let gamma_kzg_digest_part0 (fs : t)
   let all_bytes = Array.of_list !cm_bytes in
   let n_words = Array.length all_bytes / 4 in
   let chunks = Array.init n_words ~f:(fun i ->
-      let b = Array.sub all_bytes ~pos:(i * 4) ~len:4 in
-      (* bytesToWord(cm_bytes.slice(i, i+4).reverse()) — reverse to LE *)
-      let rev = [| b.(3); b.(2); b.(1); b.(0) |] in
-      Field_to_bytes.bytes_to_word rev ) in
+      Field_to_bytes.bytes_to_word
+        (Array.sub all_bytes ~pos:(i * 4) ~len:4) ) in
 
   (* Process first 11 blocks *)
   let h = ref (Sha256.initial_state ()) in
@@ -436,44 +434,44 @@ let gamma_kzg_digest_part1 (fs : t)
   let all_bytes = Array.of_list !cm_bytes in
   let n_words = Array.length all_bytes / 4 in
   let chunks = Array.init n_words ~f:(fun i ->
-      let b = Array.sub all_bytes ~pos:(i * 4) ~len:4 in
-      let rev = [| b.(3); b.(2); b.(1); b.(0) |] in
-      Field_to_bytes.bytes_to_word rev ) in
+      Field_to_bytes.bytes_to_word
+        (Array.sub all_bytes ~pos:(i * 4) ~len:4) ) in
 
   let message_block = chunks in
   let w = Sha256.message_schedule message_block in
   let h = Sha256.compress h_state w in
 
-  (* Convert H to bytes for digest *)
-  let digest_bytes =
-    Array.concat_map h ~f:(fun word ->
-        Array.init 4 ~f:(fun j ->
-            Step.exists Step.Field.typ ~compute:(fun () ->
-                let wv = Step.As_prover.read_var (Uint32.to_field word) in
-                let w_big =
-                  Bignum_bigint.of_string (Step.Field.Constant.to_string wv)
-                in
-                let shift = 8 * (3 - j) in
-                let byte_val =
-                  Bignum_bigint.(
-                    bit_and (shift_right w_big shift) (of_int 255))
-                in
-                Step.Field.Constant.of_string
-                  (Bignum_bigint.to_string byte_val) ) ) )
-  in
+  (* Nori: wordToBytes(word, 4) witnesses 4 UInt8 in LE order,
+     rangeCheck8 each, then bytesToWord(bytes).assertEquals(word).
+     Digest = H.map(x => wordToBytes(x.value, 4).reverse()).flat(). *)
+  let digest_bytes = Array.create ~len:32 Step.Field.zero in
   Array.iteri h ~f:(fun i word ->
-      let b = Array.sub digest_bytes ~pos:(i * 4) ~len:4 in
-      let reconstructed =
-        Step.Field.(
-          add
-            (add
-               (scale b.(0) (Step.Field.Constant.of_int (1 lsl 24)))
-               (scale b.(1) (Step.Field.Constant.of_int (1 lsl 16))))
-            (add
-               (scale b.(2) (Step.Field.Constant.of_int (1 lsl 8)))
-               b.(3)))
+      (* witness 4 bytes in LE order: b_le[0]=LSB .. b_le[3]=MSB *)
+      let b_le = Array.init 4 ~f:(fun j ->
+          Step.exists Step.Field.typ ~compute:(fun () ->
+              let wv = Step.As_prover.read_var (Uint32.to_field word) in
+              let w_big =
+                Bignum_bigint.of_string (Step.Field.Constant.to_string wv)
+              in
+              let shift = 8 * j in
+              let byte_val =
+                Bignum_bigint.(bit_and (shift_right w_big shift) (of_int 255))
+              in
+              Step.Field.Constant.of_string (Bignum_bigint.to_string byte_val) ) )
       in
-      Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ) ;
+      (* rangeCheck8 each byte *)
+      Array.iter b_le ~f:Uint32.range_check_8 ;
+      (* bytesToWord(bytes).assertEquals(word) — LE reconstruction *)
+      let reconstructed =
+        Array.foldi b_le ~init:Step.Field.zero ~f:(fun j acc b ->
+            let coeff = Step.Field.Constant.of_int (1 lsl (8 * j)) in
+            Step.Field.add acc (Step.Field.scale b coeff) ) in
+      Step.assert_ (Equal (Uint32.to_field word, reconstructed)) ;
+      (* Store as big-endian: reverse of LE *)
+      digest_bytes.(i * 4)     <- b_le.(3) ;
+      digest_bytes.(i * 4 + 1) <- b_le.(2) ;
+      digest_bytes.(i * 4 + 2) <- b_le.(1) ;
+      digest_bytes.(i * 4 + 3) <- b_le.(0) ) ;
   fs.gamma_kzg_digest <- digest_bytes
 
 (** Squeeze gamma_kzg from precomputed digest.

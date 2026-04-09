@@ -116,7 +116,11 @@ let fr_to_bytes (x : FF.FpA.t) : byte array =
     word = byte[3] + byte[2]*256 + byte[1]*65536 + byte[0]*16777216 *)
 let bytes_to_word (bytes : byte array) : Uint32.t =
   assert (Array.length bytes = 4) ;
-  (* Reverse to little-endian, then pack *)
+  (* Reverse to little-endian, then pack.
+     Seal the result to match nori's bytesToWord which produces
+     a compound Cvar that gets reduced during sigma's Assert.equal.
+     Sealing here ensures the UInt32 is a simple variable, avoiding
+     platform-dependent reduce_lincom decomposition order. *)
   let result =
     Array.foldi bytes ~init:Step.Field.zero ~f:(fun i acc b ->
         let shift = 8 * (3 - i) in
