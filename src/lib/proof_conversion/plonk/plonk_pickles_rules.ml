@@ -17,7 +17,13 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
           ; public_output = [| output_hash |]
           ; auxiliary_output = ()
           } )
-  ; feature_flags = Pickles_types.Plonk_types.Features.none_bool
+  ; feature_flags =
+      { Pickles_types.Plonk_types.Features.none_bool with
+        range_check0 = true
+      ; range_check1 = true
+      ; foreign_field_add = true
+      ; foreign_field_mul = true
+      }
   }
 
 let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
