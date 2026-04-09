@@ -356,12 +356,11 @@ let fold_state_0
   let l_pt = { G1.Circuit.x = proof.l_com_x; y = proof.l_com_y } in
   let r_pt = { G1.Circuit.x = proof.r_com_x; y = proof.r_com_y } in
   let cm = { G1.Circuit.x = lcm_x; y = lcm_y } in
+  (* Nori: opening = FrC.from(lcm_opening).assertCanonical() — before EC scales *)
+  let op = ref (assert_canonical_fr (FF.FpA.to_field3 lcm_opening)) in
   let cm = G1.add cm (G1.scale l_pt (FF.FpA.to_field3 gamma_kzg)) in
   let cm = G1.add cm (G1.scale r_pt (FF.FpA.to_field3 g2)) in
-  (* Openings accumulation.
-     Nori: opening = FrC.from(lcm_opening).assertCanonical()
-     then: opening = proof.x.mul(gamma).add(opening).assertCanonical() *)
-  let op = ref (assert_canonical_fr (FF.FpA.to_field3 lcm_opening)) in
+  (* Openings accumulation. *)
   let chain_mul_add scalar gamma =
     let m = FF.mul (FF.FpA.to_field3 scalar) (FF.FpA.to_field3 gamma) ~f:r in
     assert_canonical_fr (FF.add m (FF.FpA.to_field3 !op) ~f:r)
