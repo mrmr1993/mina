@@ -12,7 +12,8 @@
 open Core_kernel
 module Step = Pickles.Impls.Step
 
-let compile_circuit ~(vk : Proof_conversion.Vk_constants.t) ~(n : int) : string =
+let compile_circuit ~(vk : Proof_conversion.Vk_constants.t) ~(n : int) : string
+    =
   let rule = Proof_conversion.Pickles_rules.make_rule ~vk ~n in
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise

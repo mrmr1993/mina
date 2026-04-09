@@ -1524,26 +1524,26 @@ end = struct
       add_row sys [| l; r; o; None; None; None |] Generic coeffs ;
       () )
     else
-    match sys.pending_generic_gate with
-    (* if the queue of generic gate is empty, queue this *)
-    | None ->
-        (* DEBUG: log half-generic pairing when TRACE_GENERIC is set *)
-        if Option.is_some (Stdlib.Sys.getenv_opt "TRACE_GENERIC") then
-          add_row sys [| l; r; o |] Zero
-            (Array.append
-               [| Fp.of_int 5
-                ; Fp.of_int 5
-                ; Fp.of_int 5
-                ; Fp.of_int 5
-                ; Fp.of_int 5
-               |]
-               coeffs ) ;
-        sys.pending_generic_gate <- Some (l, r, o, coeffs)
-    (* otherwise empty the queue and create the row  *)
-    | Some (l2, r2, o2, coeffs2) ->
-        let coeffs = Array.append coeffs coeffs2 in
-        add_row sys [| l; r; o; l2; r2; o2 |] Generic coeffs ;
-        sys.pending_generic_gate <- None
+      match sys.pending_generic_gate with
+      (* if the queue of generic gate is empty, queue this *)
+      | None ->
+          (* DEBUG: log half-generic pairing when TRACE_GENERIC is set *)
+          if Option.is_some (Stdlib.Sys.getenv_opt "TRACE_GENERIC") then
+            add_row sys [| l; r; o |] Zero
+              (Array.append
+                 [| Fp.of_int 5
+                  ; Fp.of_int 5
+                  ; Fp.of_int 5
+                  ; Fp.of_int 5
+                  ; Fp.of_int 5
+                 |]
+                 coeffs ) ;
+          sys.pending_generic_gate <- Some (l, r, o, coeffs)
+      (* otherwise empty the queue and create the row  *)
+      | Some (l2, r2, o2, coeffs2) ->
+          let coeffs = Array.append coeffs coeffs2 in
+          add_row sys [| l; r; o; l2; r2; o2 |] Generic coeffs ;
+          sys.pending_generic_gate <- None
 
   (** Converts a number of scaled additions \sum s_i * x_i
       to as many constraints as needed,

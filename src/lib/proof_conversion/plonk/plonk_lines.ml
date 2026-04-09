@@ -30,14 +30,13 @@ let ate_cnt_slice ~(from : int) ~(to_ : int) : int =
   let ate = Bn254_params.ate_loop_count in
   let cnt = ref 0 in
   for i = from to to_ - 1 do
-    if ate.(i) = 0 then incr cnt
-    else cnt := !cnt + 2
+    if ate.(i) = 0 then incr cnt else cnt := !cnt + 2
   done ;
   !cnt
 
 (** Parse g2 lines for iterations [from, to). *)
-let parse_g2 (all_g2 : Lines.G2Line.constant array) ~(from : int) ~(to_ : int)
-    : Lines.G2Line.constant array =
+let parse_g2 (all_g2 : Lines.G2Line.constant array) ~(from : int) ~(to_ : int) :
+    Lines.G2Line.constant array =
   let start = ate_cnt_slice ~from:1 ~to_:from in
   let len = ate_cnt_slice ~from ~to_ in
   Array.sub all_g2 ~pos:start ~len

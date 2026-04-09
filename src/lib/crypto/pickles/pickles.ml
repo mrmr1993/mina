@@ -627,9 +627,9 @@ module Make_str (_ : Wire_types.Concrete) = struct
             Step_branch_data.create ~index:0 ~feature_flags ~num_chunks:1
               ~actual_feature_flags ~max_proofs_verified:Max_proofs_verified.n
               ~branches:Branches.n ~self ~public_input:(Input typ)
-              ~auxiliary_typ:typ ~o1js_compatible_mode:None
-              A.to_field_elements A_value.to_field_elements
-              rule ~wrap_domains ~chain_to:(Promise.return ())
+              ~auxiliary_typ:typ ~o1js_compatible_mode:None A.to_field_elements
+              A_value.to_field_elements rule ~wrap_domains
+              ~chain_to:(Promise.return ())
             (* TODO? *)
           in
           let step_domains = Vector.singleton inner_step_data.domains in

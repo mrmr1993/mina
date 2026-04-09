@@ -122,6 +122,7 @@ module Fp12 = struct
     (* Only valid for unitary elements in the cyclotomic subgroup,
        where inverse = conjugate. *)
     conjugate (a0, a1)
+
   (** Frobenius: f^p. Conjugate Fp2 components, multiply by gamma_1s. *)
   let frobenius_pow_p ((c0, c1) : t) : t =
     let c00, c01, c02 = c0 in

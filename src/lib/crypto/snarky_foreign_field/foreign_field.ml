@@ -22,8 +22,10 @@ let enable_abort () = abort_enabled := true
 let check_abort tag =
   if !abort_enabled then
     match Stdlib.Sys.getenv_opt "ABORT_SCALE" with
-    | Some s when String.equal s tag -> raise Circuit_abort
-    | _ -> ()
+    | Some s when String.equal s tag ->
+        raise Circuit_abort
+    | _ ->
+        ()
 
 (* ------------------------------------------------------------------ *)
 (* Constants                                                           *)
@@ -364,7 +366,7 @@ let assert_bilinear (x : Circuit.Field.t) (y : Circuit.Field.t)
 (** Matches o1js's ifField: b*(x-y)+y, sealed. *)
 let if_field (b : Circuit.Field.t) ~(then_ : Circuit.Field.t)
     ~(else_ : Circuit.Field.t) : Circuit.Field.t =
-  seal Circuit.Field.(b * (then_ - else_) + else_)
+  seal Circuit.Field.((b * (then_ - else_)) + else_)
 
 (** Assert x is one of the allowed values.
     Emits (n-1) Generic gates for n allowed values. *)
@@ -1085,15 +1087,13 @@ let field_var_equal (x : Circuit.Field.t) (y : Circuit.Field.t) :
             let dv = Circuit.As_prover.read_var diff in
             if Circuit.Field.Constant.(equal dv zero) then
               (Circuit.Field.Constant.one, Circuit.Field.Constant.zero)
-            else
-              ( Circuit.Field.Constant.zero
-              , Circuit.Field.Constant.(inv dv) ) )
+            else (Circuit.Field.Constant.zero, Circuit.Field.Constant.(inv dv))
+            )
       in
       (* b * diff = 0 (if b=true then diff must be 0) *)
       Circuit.assert_ (R1CS (b, diff, Circuit.Field.zero)) ;
       (* z * diff = 1 - b (if diff != 0 then b must be false) *)
-      Circuit.assert_
-        (R1CS (z, diff, Circuit.Field.(constant Constant.one - b))) ;
+      Circuit.assert_ (R1CS (z, diff, Circuit.Field.(constant Constant.one - b))) ;
       Circuit.Boolean.Unsafe.of_cvar b
 
 let field_equal (x : Circuit.Field.t) (c : Bignum_bigint.t) :
@@ -1195,7 +1195,7 @@ module Sum = struct
       t.result <- Some r ;
       r )
     else
-      (let xs = t.summands in
+      let xs = t.summands in
       let signs = t.ops in
       if List.for_all xs ~f:Field3.is_constant then (
         let x_bigs = List.map xs ~f:Field3.to_constant in
@@ -1208,7 +1208,7 @@ module Sum = struct
         let r = Field3.of_constant result_mod in
         t.result <- Some r ;
         r )
-      else (
+      else
         let xs =
           List.map xs ~f:(fun (l0, l1, l2) ->
               let l0 = to_var l0 in
@@ -1307,7 +1307,7 @@ module Sum = struct
           Circuit.assert_
             (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ) ;
         t.result <- Some !result ;
-        !result ))
+        !result
 end
 
 (** Input type for assert_mul_sum: either a Sum accumulator or a

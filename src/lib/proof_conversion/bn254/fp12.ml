@@ -7,6 +7,7 @@ open! Core_kernel
 
 module Constant = struct
   type t = Fp6.Constant.t * Fp6.Constant.t
+
   let one : t = (Fp6.Constant.one, Fp6.Constant.zero)
 end
 
@@ -119,7 +120,6 @@ let one : Circuit.t =
 
 let assert_one (a : Circuit.t) : unit = assert_equal a one
 
-(** Witness an Fp12 value with all-zero limbs. *)
 (** Typ.t for Fp12 (with range checks on each FpA component).
     Matches nori Fp12 provable type. *)
 let typ : (Circuit.t, Constant.t) Pickles.Impls.Step.Typ.t =

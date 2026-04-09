@@ -70,4 +70,3 @@ let add_from_line (p1 : Circuit.t) ~(lambda : Fp2.Circuit.t) (p2 : Circuit.t) :
   let x3 = Fp2.sub (Fp2.sub lambda_sq p1.x) p2.x in
   let y3 = Fp2.sub (Fp2.mul lambda (Fp2.sub p1.x x3)) p1.y in
   { x = x3; y = y3 }
-

@@ -178,8 +178,8 @@ module Make (Inductive_rule : Inductive_rule.Intf) = struct
          Staged.t =
    fun (module Req) max_proofs_verified ~self_branches ~local_signature
        ~local_signature_length ~local_branches_length ~proofs_verified ~lte
-       ~public_input ~auxiliary_typ ~basic ~known_wrap_keys ~o1js_compatible_mode
-       ~self rule ->
+       ~public_input ~auxiliary_typ ~basic ~known_wrap_keys
+       ~o1js_compatible_mode ~self rule ->
     let module Typ_with_max_proofs_verified = struct
       type ('var, 'value, 'local_max_proofs_verified, 'local_branches) t =
         ( ( 'var

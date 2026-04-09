@@ -44,7 +44,6 @@ let dummy_constraints () =
 (** Match o1js's [public_input_typ] which uses [Typ.array ~length:n Field.typ] *)
 let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
 
-
 (* ------------------------------------------------------------------ *)
 (* Test 1: Non-recursive program (max_proofs_verified = N0)            *)
 (* ------------------------------------------------------------------ *)

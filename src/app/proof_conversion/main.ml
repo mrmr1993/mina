@@ -18,7 +18,8 @@ let () =
   in
   Arg.parse spec
     (fun _ -> ())
-    "mina-proof-conversion --proof-type <type> [--info --vk <path> | --input <path> --output <path>]" ;
+    "mina-proof-conversion --proof-type <type> [--info --vk <path> | --input \
+     <path> --output <path>]" ;
   if String.is_empty !proof_type then (
     Arg.usage spec "Missing --proof-type" ;
     exit 1 ) ;
@@ -36,13 +37,10 @@ let () =
         let circuits =
           match Stdlib.Sys.getenv_opt "COMPILE_ZKP" with
           | Some s ->
-              let n =
-                Int.of_string (String.chop_prefix_exn s ~prefix:"zkp")
-              in
+              let n = Int.of_string (String.chop_prefix_exn s ~prefix:"zkp") in
               [| n |]
           | None ->
-              Array.init
-                Proof_conversion.Plonk_circuits.num_circuits ~f:Fn.id
+              Array.init Proof_conversion.Plonk_circuits.num_circuits ~f:Fn.id
         in
         Array.iter circuits ~f:(fun n ->
             let rule = Proof_conversion.Plonk_pickles_rules.make_rule ~n in
@@ -51,25 +49,23 @@ let () =
                 ~public_input:
                   (Pickles.Inductive_rule.Input_and_output
                      ( Proof_conversion.Circuit_utils.public_input_typ 1
-                     , Proof_conversion.Circuit_utils.public_input_typ 1
-                     ) )
+                     , Proof_conversion.Circuit_utils.public_input_typ 1 ) )
                 ~auxiliary_typ:Pickles.Impls.Step.Typ.unit
-                ~max_proofs_verified:
-                  (module Pickles_types.Nat.N0)
+                ~max_proofs_verified:(module Pickles_types.Nat.N0)
                 ~name:(sprintf "plonk-info-zkp%d" n)
                 ~o1js_compatible_mode:false
                 ~choices:(fun ~self:_ -> [ rule ])
                 ()
             in
-            ( try
-                let _vk =
-                  Promise.block_on_async_exn (fun () ->
-                      Lazy.force Proof.verification_key_promise )
-                in
-                ()
-              with e ->
-                eprintf "Warning: wrap compilation failed for zkp%d: %s\n"
-                  n (Exn.to_string e) ) )
+            try
+              let _vk =
+                Promise.block_on_async_exn (fun () ->
+                    Lazy.force Proof.verification_key_promise )
+              in
+              ()
+            with e ->
+              eprintf "Warning: wrap compilation failed for zkp%d: %s\n" n
+                (Exn.to_string e) )
     | other ->
         eprintf "Unknown proof type: %s\n" other ;
         exit 1 )

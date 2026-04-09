@@ -66,10 +66,10 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
     result := Fp12.cyclotomic_square !result ;
     result := Fp12.mul !result g_chunk.(i) ;
     let ate_idx = g_start + i + 1 in
-    if ate_idx < Array.length ate then (
+    if ate_idx < Array.length ate then
       let bit = ate.(ate_idx) in
       if bit = 1 then result := Fp12.mul !result acc.proof.c_inv
-      else if bit = -1 then result := Fp12.mul !result acc.proof.c_fp12 )
+      else if bit = -1 then result := Fp12.mul !result acc.proof.c_fp12
   done ;
   let updated_acc : Accumulator.Circuit.t =
     { proof = acc.proof; state = { acc.state with f = !result } }

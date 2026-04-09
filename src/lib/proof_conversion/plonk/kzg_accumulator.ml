@@ -11,20 +11,81 @@ module FF = Snarky_foreign_field.Foreign_field
 
 (** ATE_LOOP_COUNT for BN254 pairing. Length = 65. *)
 let ate_loop_count =
-  [| 1; 1; 0; 1; 0; 0; -1; 0; 1; 1; 0; 0; 0; -1; 0; 0
-   ; 1; 1; 0; 0; -1; 0; 0; 0; 0; 0; 1; 0; 0; -1; 0; 0
-   ; 1; 1; 1; 0; 0; 0; 0; -1; 0; 1; 0; 0; -1; 0; 1; 1
-   ; 0; 0; 1; 0; 0; -1; 1; 0; 0; -1; 0; 1; 0; 1; 0; 0; 0
+  [| 1
+   ; 1
+   ; 0
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 1
+   ; 1
+   ; 0
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 0
+   ; 1
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 0
+   ; 0
+   ; 0
+   ; 0
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 0
+   ; 1
+   ; 1
+   ; 1
+   ; 0
+   ; 0
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 1
+   ; 1
+   ; 0
+   ; 0
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 1
+   ; 0
+   ; 0
+   ; -1
+   ; 0
+   ; 1
+   ; 0
+   ; 1
+   ; 0
+   ; 0
+   ; 0
   |]
 
-let ate_loop_len = Array.length ate_loop_count  (* 65 *)
+let ate_loop_len = Array.length ate_loop_count (* 65 *)
 
 (** ArrayListHasher.empty() = Poseidon.hashPacked(Array(Field, 65), zeros).
     Precomputed constant matching nori's ArrayListHasher.empty(). *)
 let array_list_hasher_empty =
   Step.Field.constant
     (Step.Field.Constant.of_string
-       "28832630828976582602038031409816593539422152810927507906214302524112741671461")
+       "28832630828976582602038031409816593539422152810927507906214302524112741671461" )
 
 (** KZG proof: pairing points + shift + c values. *)
 type kzg_proof =
@@ -41,15 +102,10 @@ type kzg_proof =
 
 (** KZG state: f accumulator + lines hash digest. *)
 type kzg_state =
-  { mutable f : Fp12.Circuit.t
-  ; mutable lines_hashes_digest : Step.Field.t
-  }
+  { mutable f : Fp12.Circuit.t; mutable lines_hashes_digest : Step.Field.t }
 
 (** Full KZG accumulator. *)
-type t =
-  { proof : kzg_proof
-  ; state : kzg_state
-  }
+type t = { proof : kzg_proof; state : kzg_state }
 
 (** Build Random_oracle_input.Chunked.t matching nori's
     Poseidon.hashPacked(KzgAccumulator, acc).
@@ -72,9 +128,7 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
        Fp6 = { c0: Fp2, c1: Fp2, c2: Fp2 }
        Fp2 = { c0: FpA, c1: FpA }
        Each FpA → 3 packed entries *)
-    let add_fp2 (fp2 : Fp2.Circuit.t) =
-      add_fpa fp2.c0 ; add_fpa fp2.c1
-    in
+    let add_fp2 (fp2 : Fp2.Circuit.t) = add_fpa fp2.c0 ; add_fpa fp2.c1 in
     let add_fp6 (fp6 : Fp6.Circuit.t) =
       add_fp2 fp6.c0 ; add_fp2 fp6.c1 ; add_fp2 fp6.c2
     in
@@ -101,9 +155,7 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   add_fp12 acc.state.f ;
   (* lines_hashes_digest: native Field, unpacked (matching o1js Field.toInput → {fields: [value]}) *)
   Queue.enqueue fields acc.state.lines_hashes_digest ;
-  { field_elements = Queue.to_array fields
-  ; packeds = Queue.to_array packeds
-  }
+  { field_elements = Queue.to_array fields; packeds = Queue.to_array packeds }
 
 (** Hash with Poseidon, matching hashPacked(KzgAccumulator, acc). *)
 let hash_packed (acc : t) : Step.Field.t =
@@ -113,35 +165,37 @@ let hash_packed (acc : t) : Step.Field.t =
 
 (** Constant types for KzgAccumulator. *)
 type kzg_proof_const =
-  { a_x : FF.Field3.Constant.t ; a_y : FF.Field3.Constant.t
-  ; neg_b_x : FF.Field3.Constant.t ; neg_b_y : FF.Field3.Constant.t
+  { a_x : FF.Field3.Constant.t
+  ; a_y : FF.Field3.Constant.t
+  ; neg_b_x : FF.Field3.Constant.t
+  ; neg_b_y : FF.Field3.Constant.t
   ; shift_power : Step.Field.Constant.t
-  ; c : Fp12.Constant.t ; c_inv : Fp12.Constant.t
-  ; pi0 : FF.Field3.Constant.t ; pi1 : FF.Field3.Constant.t
+  ; c : Fp12.Constant.t
+  ; c_inv : Fp12.Constant.t
+  ; pi0 : FF.Field3.Constant.t
+  ; pi1 : FF.Field3.Constant.t
   }
 
 type kzg_state_const =
-  { f : Fp12.Constant.t
-  ; lines_hashes_digest : Step.Field.Constant.t
-  }
+  { f : Fp12.Constant.t; lines_hashes_digest : Step.Field.Constant.t }
 
-type t_const =
-  { proof : kzg_proof_const
-  ; state : kzg_state_const
-  }
+type t_const = { proof : kzg_proof_const; state : kzg_state_const }
 
 let default_const : t_const =
   let z3 = FF.Field3.Constant.zero in
   { proof =
-      { a_x = z3; a_y = z3; neg_b_x = z3; neg_b_y = z3
+      { a_x = z3
+      ; a_y = z3
+      ; neg_b_x = z3
+      ; neg_b_y = z3
       ; shift_power = Step.Field.Constant.zero
-      ; c = Fp12.Constant.one; c_inv = Fp12.Constant.one
-      ; pi0 = z3; pi1 = z3
+      ; c = Fp12.Constant.one
+      ; c_inv = Fp12.Constant.one
+      ; pi0 = z3
+      ; pi1 = z3
       }
   ; state =
-      { f = Fp12.Constant.one
-      ; lines_hashes_digest = Step.Field.Constant.zero
-      }
+      { f = Fp12.Constant.one; lines_hashes_digest = Step.Field.Constant.zero }
   }
 
 (** Typ.t for KzgAccumulator with proper range checks. *)
@@ -154,60 +208,88 @@ let typ : (t, t_const) Step.Typ.t =
   let frc_typ =
     Step.Typ.transport_var (FF.FpC.typ ~f:r)
       ~there:(fun a -> FF.FpC.of_fpa_unsafe a)
-      ~back:(fun c -> (c :> FF.FpA.t)) in
+      ~back:(fun c -> (c :> FF.FpA.t))
+  in
   let proof_typ =
     Step.Typ.of_hlistable
-      [ fpc_typ; fpc_typ; fpc_typ; fpc_typ
+      [ fpc_typ
+      ; fpc_typ
+      ; fpc_typ
+      ; fpc_typ
       ; Step.Field.typ
-      ; Fp12.typ; Fp12.typ
-      ; frc_typ; frc_typ
+      ; Fp12.typ
+      ; Fp12.typ
+      ; frc_typ
+      ; frc_typ
       ]
       ~var_to_hlist:(fun (p : kzg_proof) ->
-        [ p.a_x; p.a_y; p.neg_b_x; p.neg_b_y
+        [ p.a_x
+        ; p.a_y
+        ; p.neg_b_x
+        ; p.neg_b_y
         ; p.shift_power
-        ; p.c; p.c_inv
-        ; p.pi0; p.pi1 ] )
-      ~var_of_hlist:(fun
-        ([ a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 ] :
-           (unit, _) Snarky_backendless.H_list.t) ->
+        ; p.c
+        ; p.c_inv
+        ; p.pi0
+        ; p.pi1
+        ] )
+      ~var_of_hlist:(fun ([ a_x
+                          ; a_y
+                          ; neg_b_x
+                          ; neg_b_y
+                          ; shift_power
+                          ; c
+                          ; c_inv
+                          ; pi0
+                          ; pi1
+                          ] :
+                           (unit, _) Snarky_backendless.H_list.t ) ->
         { a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 } )
       ~value_to_hlist:(fun (p : kzg_proof_const) ->
-        [ p.a_x; p.a_y; p.neg_b_x; p.neg_b_y
+        [ p.a_x
+        ; p.a_y
+        ; p.neg_b_x
+        ; p.neg_b_y
         ; p.shift_power
-        ; p.c; p.c_inv
-        ; p.pi0; p.pi1 ] )
-      ~value_of_hlist:(fun
-        ([ a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 ] :
-           (unit, _) Snarky_backendless.H_list.t) ->
+        ; p.c
+        ; p.c_inv
+        ; p.pi0
+        ; p.pi1
+        ] )
+      ~value_of_hlist:(fun ([ a_x
+                            ; a_y
+                            ; neg_b_x
+                            ; neg_b_y
+                            ; shift_power
+                            ; c
+                            ; c_inv
+                            ; pi0
+                            ; pi1
+                            ] :
+                             (unit, _) Snarky_backendless.H_list.t ) ->
         { a_x; a_y; neg_b_x; neg_b_y; shift_power; c; c_inv; pi0; pi1 } )
   in
   let state_typ =
     Step.Typ.of_hlistable
       [ Fp12.typ; Step.Field.typ ]
-      ~var_to_hlist:(fun (s : kzg_state) ->
-        [ s.f; s.lines_hashes_digest ] )
-      ~var_of_hlist:(fun
-        ([ f; lines_hashes_digest ] :
-           (unit, _) Snarky_backendless.H_list.t) ->
+      ~var_to_hlist:(fun (s : kzg_state) -> [ s.f; s.lines_hashes_digest ])
+      ~var_of_hlist:(fun ([ f; lines_hashes_digest ] :
+                           (unit, _) Snarky_backendless.H_list.t ) ->
         { f; lines_hashes_digest } )
       ~value_to_hlist:(fun (s : kzg_state_const) ->
         [ s.f; s.lines_hashes_digest ] )
-      ~value_of_hlist:(fun
-        ([ f; lines_hashes_digest ] :
-           (unit, _) Snarky_backendless.H_list.t) ->
+      ~value_of_hlist:(fun ([ f; lines_hashes_digest ] :
+                             (unit, _) Snarky_backendless.H_list.t ) ->
         { f; lines_hashes_digest } )
   in
-  Step.Typ.of_hlistable
-    [ proof_typ; state_typ ]
-    ~var_to_hlist:(fun (a : t) -> [ a.proof; a.state ] )
-    ~var_of_hlist:(fun
-      ([ proof; state ] : (unit, _) Snarky_backendless.H_list.t) ->
-      { proof; state } )
-    ~value_to_hlist:(fun (a : t_const) -> [ a.proof; a.state ] )
-    ~value_of_hlist:(fun
-      ([ proof; state ] : (unit, _) Snarky_backendless.H_list.t) ->
+  Step.Typ.of_hlistable [ proof_typ; state_typ ]
+    ~var_to_hlist:(fun (a : t) -> [ a.proof; a.state ])
+    ~var_of_hlist:(fun ([ proof; state ] : (unit, _) Snarky_backendless.H_list.t)
+                       -> { proof; state } )
+    ~value_to_hlist:(fun (a : t_const) -> [ a.proof; a.state ])
+    ~value_of_hlist:(fun ([ proof; state ] :
+                           (unit, _) Snarky_backendless.H_list.t ) ->
       { proof; state } )
 
 (** Witness a KzgAccumulator using the proper Typ.t. *)
-let witness () : t =
-  Step.exists typ ~compute:(fun () -> default_const)
+let witness () : t = Step.exists typ ~compute:(fun () -> default_const)

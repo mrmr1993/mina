@@ -36,32 +36,38 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
   let decompose_limb limb length =
     match Step.Field.to_constant limb with
     | Some c ->
-      let v = FF.field_const_to_bignum c in
-      List.init length ~f:(fun k ->
-          if Bignum_bigint.(bit_and (shift_right v k) one = one)
-          then Step.Boolean.true_
-          else Step.Boolean.false_ )
+        let v = FF.field_const_to_bignum c in
+        List.init length ~f:(fun k ->
+            if Bignum_bigint.(bit_and (shift_right v k) one = one) then
+              Step.Boolean.true_
+            else Step.Boolean.false_ )
     | None ->
-      (* Match o1js Field.toBits(length):
-         1. Provable.witness(Array(Bool, length), ...) — witness + check
-         2. Field.fromBits(bits).assertEquals(this)
-         choose_preimage_var emits an extra reconstruction gate vs o1js,
-         so we replicate the o1js approach directly. *)
-      let bits_rev = List.init length ~f:(fun k ->
-          let k' = length - 1 - k in
-          Step.exists Step.Boolean.typ ~compute:(fun () ->
-              let v = Step.As_prover.read_var limb in
-              let bi = FF.field_const_to_bignum v in
-              Bignum_bigint.(bit_and (shift_right bi k') one = one) ) ) in
-      let bits = List.rev bits_rev in
-      (* Field.fromBits(bits).assertEquals(this) *)
-      let lc = List.foldi bits ~init:Step.Field.zero ~f:(fun i acc bit ->
-          let coeff = FF.bignum_to_field_const
-            Bignum_bigint.(pow (of_int 2) (of_int i)) in
-          Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) ) in
-      let sealed = FF.seal lc in
-      Step.Field.Assert.equal sealed limb ;
-      bits
+        (* Match o1js Field.toBits(length):
+           1. Provable.witness(Array(Bool, length), ...) — witness + check
+           2. Field.fromBits(bits).assertEquals(this)
+           choose_preimage_var emits an extra reconstruction gate vs o1js,
+           so we replicate the o1js approach directly. *)
+        let bits_rev =
+          List.init length ~f:(fun k ->
+              let k' = length - 1 - k in
+              Step.exists Step.Boolean.typ ~compute:(fun () ->
+                  let v = Step.As_prover.read_var limb in
+                  let bi = FF.field_const_to_bignum v in
+                  Bignum_bigint.(bit_and (shift_right bi k') one = one) ) )
+        in
+        let bits = List.rev bits_rev in
+        (* Field.fromBits(bits).assertEquals(this) *)
+        let lc =
+          List.foldi bits ~init:Step.Field.zero ~f:(fun i acc bit ->
+              let coeff =
+                FF.bignum_to_field_const
+                  Bignum_bigint.(pow (of_int 2) (of_int i))
+              in
+              Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) )
+        in
+        let sealed = FF.seal lc in
+        Step.Field.Assert.equal sealed limb ;
+        bits
   in
   let bits0 = decompose_limb l0 limb_size in
   let bits1 = decompose_limb l1 limb_size in
@@ -124,15 +130,16 @@ let bytes_to_word (bytes : byte array) : Uint32.t =
   let result =
     Array.foldi bytes ~init:Step.Field.zero ~f:(fun i acc b ->
         let shift = 8 * (3 - i) in
-        let coeff = Step.Field.Constant.of_string (Int.to_string (1 lsl shift)) in
+        let coeff =
+          Step.Field.Constant.of_string (Int.to_string (1 lsl shift))
+        in
         Step.Field.add acc (Step.Field.scale b coeff) )
   in
   Uint32.of_field result
 
 (** Convert a foreign field element to UInt32 words for SHA-256 input.
     Returns 8 UInt32 words (32 bytes / 4 bytes per word). *)
-let field3_to_words (f3 : FF.Field3.t) ~(size_in_bits : int) :
-    Uint32.t array =
+let field3_to_words (f3 : FF.Field3.t) ~(size_in_bits : int) : Uint32.t array =
   let bytes = field3_to_bytes f3 ~size_in_bits in
   Array.init 8 ~f:(fun i ->
       bytes_to_word (Array.sub bytes ~pos:(i * 4) ~len:4) )

@@ -12,8 +12,10 @@ open! Core_kernel
 module WT = Witness_tracker
 
 type t =
-  { delta_lines : WT.Line.t array  (** All delta line coefficients (91 entries) *)
-  ; gamma_lines : WT.Line.t array  (** All gamma line coefficients (91 entries) *)
+  { delta_lines : WT.Line.t array
+        (** All delta line coefficients (91 entries) *)
+  ; gamma_lines : WT.Line.t array
+        (** All gamma line coefficients (91 entries) *)
   ; alpha_beta : Fp12.Circuit.t  (** VK.alpha_beta as circuit constant *)
   ; w27 : Fp12.Circuit.t  (** VK.w27 as circuit constant *)
   ; w27_sq : Fp12.Circuit.t  (** VK.w27^2 as circuit constant *)

@@ -41,28 +41,30 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
 
   for i = 31 downto 0 do
     let length = Step.Field.size_in_bits - 1 in
-    let bits_rev = List.init length ~f:(fun k ->
-        let k' = length - 1 - k in
-        Step.exists Step.Boolean.typ ~compute:(fun () ->
-            let v = Step.As_prover.read_var fields.(i) in
-            let bi = FF.field_const_to_bignum v in
-            Bignum_bigint.(bit_and (shift_right bi k') one = one) ) ) in
+    let bits_rev =
+      List.init length ~f:(fun k ->
+          let k' = length - 1 - k in
+          Step.exists Step.Boolean.typ ~compute:(fun () ->
+              let v = Step.As_prover.read_var fields.(i) in
+              let bi = FF.field_const_to_bignum v in
+              Bignum_bigint.(bit_and (shift_right bi k') one = one) ) )
+    in
     let bits = List.rev bits_rev in
-    let lc = List.foldi bits ~init:Step.Field.zero ~f:(fun j acc bit ->
-        let coeff = FF.bignum_to_field_const
-          Bignum_bigint.(pow (of_int 2) (of_int j)) in
-        Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) ) in
+    let lc =
+      List.foldi bits ~init:Step.Field.zero ~f:(fun j acc bit ->
+          let coeff =
+            FF.bignum_to_field_const Bignum_bigint.(pow (of_int 2) (of_int j))
+          in
+          Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) )
+    in
     let sealed = FF.seal lc in
     Step.Field.Assert.equal sealed fields.(i) ;
     let bits = Array.of_list bits in
     for j = 0 to 7 do
       (* we skip last 2 bits *)
-      if i = 0 && j = 6 then
-        bit_255 := bits.(j)
-      else if i = 0 && j = 7 then
-        bit_256 := bits.(j)
-      else
-        Queue.enqueue sha_bit_repr bits.(j)
+      if i = 0 && j = 6 then bit_255 := bits.(j)
+      else if i = 0 && j = 7 then bit_256 := bits.(j)
+      else Queue.enqueue sha_bit_repr bits.(j)
     done
   done ;
 
@@ -80,7 +82,8 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
         (Array.init len ~f:(fun j ->
              let bit = sha_bit_repr.(pos + j) in
              let coeff =
-               FF.bignum_to_field_const Bignum_bigint.(pow (of_int 2) (of_int j))
+               FF.bignum_to_field_const
+                 Bignum_bigint.(pow (of_int 2) (of_int j))
              in
              Step.Field.scale (bit :> Step.Field.t) coeff ) )
     in
@@ -94,12 +97,18 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
   (* const a = Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
   (* Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
   let fr_typ = FF.FpA.typ ~f:Bn254_params.r in
-  let a = G1.provable_if fr_typ (!bit_255 :> Step.Field.t)
-    ~if_true:(FF.FpA.of_constant two_254_mod_r)
-    ~if_false:(FF.FpA.of_constant Bignum_bigint.zero) in
-  let b = G1.provable_if fr_typ (!bit_256 :> Step.Field.t)
-    ~if_true:(FF.FpA.of_constant two_255_mod_r)
-    ~if_false:(FF.FpA.of_constant Bignum_bigint.zero) in
+  let a =
+    G1.provable_if fr_typ
+      (!bit_255 :> Step.Field.t)
+      ~if_true:(FF.FpA.of_constant two_254_mod_r)
+      ~if_false:(FF.FpA.of_constant Bignum_bigint.zero)
+  in
+  let b =
+    G1.provable_if fr_typ
+      (!bit_256 :> Step.Field.t)
+      ~if_true:(FF.FpA.of_constant two_255_mod_r)
+      ~if_false:(FF.FpA.of_constant Bignum_bigint.zero)
+  in
   (* const res: FrC = x.add(a).add(b).assertCanonical() *)
   let r = Bn254_params.r in
   let x_f3 = FF.FpU.to_field3 x in

@@ -151,4 +151,3 @@ let total_b_lines =
 
 (** B-line start offset in the flat array for a given circuit range. *)
 let b_line_offset ~begin_idx = b_line_count ~from:1 ~to_:begin_idx
-

@@ -160,16 +160,22 @@ let inverse (a : Circuit.t) : Circuit.t =
      Both assertAlmostReduced use skipMrc:true *)
   let norm_a =
     match FpA.assert_almost_reduced [ norm ] ~f:p ~skip_mrc:true () with
-    | [ n ] -> n
-    | _ -> failwith "inverse"
+    | [ n ] ->
+        n
+    | _ ->
+        failwith "inverse"
   in
   let norm_inv = FpA.inv norm_a ~f:p in
   let norm_inv =
-    match FpA.assert_almost_reduced
+    match
+      FpA.assert_almost_reduced
         [ FF.FpU.of_field3_unsafe (FpA.to_field3 norm_inv) ]
-        ~f:p ~skip_mrc:true () with
-    | [ n ] -> n
-    | _ -> failwith "inverse"
+        ~f:p ~skip_mrc:true ()
+    with
+    | [ n ] ->
+        n
+    | _ ->
+        failwith "inverse"
   in
   let c0 = FpA.mul a.c0 norm_inv ~f:p in
   let c1_pos = FpA.mul a.c1 norm_inv ~f:p in
