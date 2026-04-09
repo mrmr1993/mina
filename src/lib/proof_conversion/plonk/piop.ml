@@ -93,7 +93,7 @@ let inv_fr (x : FF.FpA.t) : FF.FpA.t =
   FF.multi_range_check inv_f3 ;
   FF.assert_less_than inv_f3 ~bound:r ;
   let inv = FF.FpA.of_field3_unsafe inv_f3 in
-  let product = FF.mul (FF.FpA.to_field3 x) (FF.FpA.to_field3 inv) ~f:r in
+  let product = FF.mul (FF.FpA.to_field3 inv) (FF.FpA.to_field3 x) ~f:r in
   FF.assert_equal product (FF.Field3.of_constant Bignum_bigint.one) ;
   inv
 

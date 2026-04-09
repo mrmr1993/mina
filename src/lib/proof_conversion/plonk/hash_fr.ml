@@ -188,11 +188,13 @@ let hash (x : FF.FpA.t) (y : FF.FpA.t) : FF.FpA.t =
     Fiat_shamir.provable_bn254_base_field_to_bytes
   in
   (* bytes = 64 zeros ++ x_bytes ++ y_bytes ++ HASH_FR_LEN_IN_BYTES ++ BSB22_Plonk ++ HASH_FR_SIZE_DOMAIN *)
+  let x_bytes = provable_bn254_base_field_to_bytes x in
+  let y_bytes = provable_bn254_base_field_to_bytes y in
   let b0_input =
     Array.concat
       [ Array.create ~len:64 Step.Field.zero
-      ; provable_bn254_base_field_to_bytes x
-      ; provable_bn254_base_field_to_bytes y
+      ; x_bytes
+      ; y_bytes
       ; const_bytes hash_fr_len_in_bytes
       ; const_bytes bsb22_plonk
       ; const_bytes hash_fr_size_domain

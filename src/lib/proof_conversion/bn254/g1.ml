@@ -852,11 +852,11 @@ let point_equals (pt : Circuit.t) (c : Constant.t) : Step.Boolean.var =
       in
       Step.Boolean.( &&& ) e01 e2
     in
-    Step.Boolean.( ||| ) is_c is_cpf
+    Circuit_utils.boolean_or is_c is_cpf
   in
   let x_eq = ff_equals pt.x c.x in
   let y_eq = ff_equals pt.y c.y in
-  Step.Boolean.( &&& ) x_eq y_eq
+  Circuit_utils.boolean_and x_eq y_eq
 
 (* --- Provable.if for points (matching nori) ----------------------------- *)
 
@@ -935,8 +935,8 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
           if j = 0 then pt_j
           else
             let beta_x =
-              FF.mul (FpA.to_field3 pt_j.x)
-                (FF.Field3.of_constant Bn254_params.glv_beta)
+              FF.mul (FF.Field3.of_constant Bn254_params.glv_beta)
+                (FpA.to_field3 pt_j.x)
                 ~f:p
             in
             let _, _, beta_x2 = beta_x in
@@ -952,10 +952,10 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
             let beta_x_a = FpA.of_field3_unsafe beta_x in
             { Circuit.x = beta_x_a; y = pt_j.y } )
     in
-    tables2.(2 * i) <- Array.map table ~f:(negate_if s0_neg) ;
-    tables2.((2 * i) + 1) <- Array.map endo_table ~f:(negate_if s1_neg) ;
     scalars2.(2 * i) <- s0 ;
     scalars2.((2 * i) + 1) <- s1 ;
+    tables2.(2 * i) <- Array.map table ~f:(negate_if s0_neg) ;
+    tables2.((2 * i) + 1) <- Array.map endo_table ~f:(negate_if s1_neg) ;
 
     points2.(2 * i) <- tables2.(2 * i).(1) ;
     points2.((2 * i) + 1) <- tables2.((2 * i) + 1).(1) ;
