@@ -341,6 +341,7 @@ module Plonk_constraint = struct
           ; coeffs : 'fp array
           }
       | Set_o1js_compatible_mode of bool
+      | Set_skip_wiring of bool
     [@@deriving sexp]
   end
 
@@ -686,6 +687,8 @@ module Plonk_constraint = struct
           Raw { kind; values = Array.map ~f values; coeffs }
       | Set_o1js_compatible_mode b ->
           Set_o1js_compatible_mode b
+      | Set_skip_wiring b ->
+          Set_skip_wiring b
 
     let log_constraint (basic : t) get_value =
       match basic with
@@ -747,7 +750,8 @@ module Plonk_constraint = struct
       | AddFixedLookupTable _
       | AddRuntimeTableCfg _
       | Raw _
-      | Set_o1js_compatible_mode _ ->
+      | Set_o1js_compatible_mode _
+      | Set_skip_wiring _ ->
           (* Skip validation *)
           true
   end
@@ -863,6 +867,7 @@ type ('f, 'rust_gates) t =
            these desired equalities as well. *)
   ; union_finds : V.t Core_kernel.Union_find.t V.Table.t
   ; mutable o1js_compatible_mode : bool
+  ; mutable skip_wiring : bool
   }
 
 let get_public_input_size sys = sys.public_input_size
@@ -1207,6 +1212,7 @@ end = struct
     ; cached_constants = Hashtbl.create (module Fp)
     ; union_finds = V.Table.create ()
     ; o1js_compatible_mode = false
+    ; skip_wiring = false
     }
 
   (** Returns the number of auxiliary inputs. *)
@@ -1307,8 +1313,9 @@ end = struct
         *)
         let num_vars = min Constants.permutation_cols (Array.length vars) in
         let vars_for_perm = Array.slice vars 0 num_vars in
-        Array.iteri vars_for_perm ~f:(fun col x ->
-            Option.iter x ~f:(fun x -> wire sys x sys.next_row col) ) ;
+        if not sys.skip_wiring then
+          Array.iteri vars_for_perm ~f:(fun col x ->
+              Option.iter x ~f:(fun x -> wire sys x sys.next_row col) ) ;
         (* Add to gates. *)
         let open Position in
         sys.gates <- Unfinalized_rev ({ kind; wired_to = [||]; coeffs } :: gates) ;
@@ -2808,6 +2815,8 @@ end = struct
         add_row sys values kind coeffs
     | Set_o1js_compatible_mode b ->
         sys.o1js_compatible_mode <- b
+    | Set_skip_wiring b ->
+        sys.skip_wiring <- b
 
   (* ((Fp.t * V.t) list * Fp.t option) *)
   type concrete_table = ((Fp.t * V.t) list * Fp.t option) Internal_var.Table.t
