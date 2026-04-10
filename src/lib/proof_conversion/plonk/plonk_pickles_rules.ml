@@ -58,6 +58,46 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
         (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof)
 
+(** Compile a single circuit and return the proof, VK, and output hash.
+    Used for cross-verification with nori. *)
+let compile_prove_and_export ~(n : int) ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Plonk_requests.witness) :
+    Step.Field.Constant.t
+    * Pickles_types.Nat.N0.n Pickles.Proof.t
+    * Pickles.Side_loaded.Verification_key.t =
+  let rule = make_rule ~n in
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:Step.Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "plonk-zkp%d" n) ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Plonk_requests.handler witness in
+  let output_hash, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith
+        (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  (output_hash, proof, vk)
+
 let compile_and_prove_all ~(witnesses : Plonk_requests.witness array) :
     Pickles_types.Nat.N0.n Pickles.Proof.t array =
   assert (Array.length witnesses = Plonk_circuits.num_circuits) ;
