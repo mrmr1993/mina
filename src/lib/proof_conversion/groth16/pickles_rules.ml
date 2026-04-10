@@ -38,7 +38,8 @@ let make_rule ~(vk : Vk_constants.t) ~(n : int) :
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
 let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) :
+    ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Groth16_requests.witness) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~vk ~n in
   let _tag, _cache, (module Proof), provers =
@@ -54,8 +55,9 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
+  let handler = Groth16_requests.handler witness in
   let output_hash, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prove input_hash)
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
   (* Verify *)
   let verified =
@@ -70,13 +72,16 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
   (output_hash, proof)
 
 (** Compile and prove all 16 circuits, chaining input/output hashes. *)
-let compile_and_prove_all ~(vk : Vk_constants.t) () :
+let compile_and_prove_all ~(vk : Vk_constants.t)
+    ~(witnesses : Groth16_requests.witness array) :
     Pickles_types.Nat.N0.n Pickles.Proof.t array =
+  assert (Array.length witnesses = Circuits.num_circuits) ;
   let current_hash = ref Step.Field.Constant.zero in
   let proofs =
     Array.init Circuits.num_circuits ~f:(fun n ->
         let output_hash, proof =
           compile_and_prove_one ~vk ~n ~input_hash:!current_hash
+            ~witness:witnesses.(n)
         in
         current_hash := output_hash ;
         proof )

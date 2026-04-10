@@ -15,6 +15,7 @@ module Circuit_info = Circuit_info
 module Plonk_circuits = Plonk_circuits
 module Plonk_requests = Plonk_requests
 module Plonk_pickles_rules = Plonk_pickles_rules
+module Groth16_requests = Groth16_requests
 module Pickles_rules = Pickles_rules
 module Circuit_utils = Circuit_utils
 module Circuits = Circuits
@@ -42,7 +43,14 @@ module Groth16 : PROOF_SYSTEM = struct
     let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
     let vk_const = Vk_constants.create vk in
-    let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const () in
+    let witnesses =
+      Array.init Circuits.num_circuits ~f:(fun _n ->
+          (* TODO: populate witnesses from tracker data *)
+          Groth16_requests.empty_witness )
+    in
+    let proofs =
+      Pickles_rules.compile_and_prove_all ~vk:vk_const ~witnesses
+    in
     (* TODO: hash_pairs should use actual proof output hashes, not synthetic
        values. Currently the compression tree operates on dummy data. *)
     let module Step = Pickles.Impls.Step in

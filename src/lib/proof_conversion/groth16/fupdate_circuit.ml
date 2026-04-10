@@ -31,27 +31,23 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   (* Witness ALL private inputs first (matching nori's ZkProgram parameter
      witnessing, which happens before the method body runs). *)
   let acc =
-    Step.exists Accumulator.typ ~compute:(fun () ->
-        WT.get_accumulator_constant (Circuit_config.get_tracker ()) )
+    Step.exists Accumulator.typ
+      ~request:(fun () -> Groth16_requests.Groth16_accumulator)
   in
   let g_chunk =
-    Array.init n_iters ~f:(fun i ->
-        Step.exists Fp12.Circuit.typ ~compute:(fun () ->
-            WT.get_g (Circuit_config.get_tracker ()) (g_start + i) ) )
+    Step.exists (Step.Typ.array ~length:n_iters Fp12.typ)
+      ~request:(fun () -> Groth16_requests.G_chunk)
   in
   let lhs_hashes =
-    Array.init g_start ~f:(fun i ->
-        Step.exists Step.Field.typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            (WT.get_line_hashes tracker).(i) ) )
+    Step.exists (Step.Typ.array ~length:g_start Step.Field.typ)
+      ~request:(fun () -> Groth16_requests.Lhs_hashes)
   in
   let n_total = Array.length Bn254_params.ate_loop_count in
   let rhs_start = g_start + n_iters in
+  let rhs_len = n_total - rhs_start in
   let rhs_hashes =
-    Array.init (n_total - rhs_start) ~f:(fun i ->
-        Step.exists Step.Field.typ ~compute:(fun () ->
-            let tracker = Circuit_config.get_tracker () in
-            (WT.get_line_hashes tracker).(rhs_start + i) ) )
+    Step.exists (Step.Typ.array ~length:rhs_len Step.Field.typ)
+      ~request:(fun () -> Groth16_requests.Rhs_hashes)
   in
   (* Now compute hashes and assertions (method body). *)
   let acc_hash = Accumulator.hash acc in
