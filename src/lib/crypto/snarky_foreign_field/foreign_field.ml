@@ -1220,11 +1220,24 @@ module Sum = struct
         in
         let f0 = Bignum_bigint.(f land limb_mask) in
         let n = List.length signs in
-        (* Generic gates for low limbs *)
+        (* Generic gates for low limbs.
+           Track the full accumulated value (matching o1js xRef) to
+           correctly determine overflow across iterations. *)
         let x0 =
           ref
             (let l0, _, _ = List.hd_exn xs in
              l0 )
+        in
+        (* Track the full accumulated value across iterations, matching
+           o1js's Unconstrained.witness(xRef). Overflow depends on the
+           full value, not just the low limb. *)
+        let x_full_ref =
+          Circuit.exists (Circuit.Typ.prover_value ()) ~compute:(fun () ->
+              let l0, l1, l2 = List.hd_exn xs in
+              let rl v = field_const_to_bignum (Circuit.As_prover.read_var v) in
+              ref
+                Bignum_bigint.(
+                  rl l0 + (rl l1 * two_to_limb) + (rl l2 * two_to_2limb)) )
         in
         let x0s = Array.create ~len:n Circuit.Field.zero in
         let overflows = Array.create ~len:n Circuit.Field.zero in
@@ -1237,6 +1250,12 @@ module Sum = struct
                 Circuit.exists
                   (Circuit.Typ.tuple2 Circuit.Field.typ Circuit.Field.typ)
                   ~compute:(fun () ->
+                    let xr =
+                      Circuit.As_prover.read
+                        (Circuit.Typ.prover_value ())
+                        x_full_ref
+                    in
+                    let x_full = !xr in
                     let x0v =
                       field_const_to_bignum (Circuit.As_prover.read_var !x0)
                     in
@@ -1248,25 +1267,23 @@ module Sum = struct
                       Bignum_bigint.(
                         rl l0 + (rl l1 * two_to_limb) + (rl l2 * two_to_2limb))
                     in
-                    let full =
+                    let x_new = Bignum_bigint.(x_full + (sign_bi * xi_full)) in
+                    let overflow =
+                      if Bignum_bigint.(sign_bi > zero && x_new >= f) then
+                        Bignum_bigint.one
+                      else if Bignum_bigint.(sign_bi < zero && x_new < zero)
+                      then Bignum_bigint.(neg one)
+                      else Bignum_bigint.zero
+                    in
+                    (xr := Bignum_bigint.(x_new - (overflow * f))) ;
+                    let x0_new =
                       Bignum_bigint.(
                         x0v
                         + sign_bi
                           * field_const_to_bignum
-                              (Circuit.As_prover.read_var xi0))
+                              (Circuit.As_prover.read_var xi0)
+                        - (overflow * f0))
                     in
-                    let overflow =
-                      if
-                        Bignum_bigint.(sign_bi > zero)
-                        && Bignum_bigint.(x0v + (sign_bi * xi_full) >= f)
-                      then Bignum_bigint.one
-                      else if
-                        Bignum_bigint.(sign_bi < zero)
-                        && Bignum_bigint.(x0v + (sign_bi * xi_full) < zero)
-                      then Bignum_bigint.(neg one)
-                      else Bignum_bigint.zero
-                    in
-                    let x0_new = Bignum_bigint.(full - (overflow * f0)) in
                     let carry = Bignum_bigint.(shift_right x0_new limb_bits) in
                     (bignum_to_field_const carry, bignum_to_field_const overflow) )
               in
