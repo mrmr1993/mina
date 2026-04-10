@@ -52,8 +52,8 @@ let neg_fr (a : FF.FpA.t) : FF.FpA.t =
 
 (** Witness the inverse of x, verify by asserting x * inv = 1.
     Matches nori: Provable.witness(FrC, () => x.inv().assertCanonical())
-    followed by x.mul(inv).assertEquals(FrC.from(1n)) *)
-(** [inv_witness_first]: when true, mul order is [inv * x] (matching nori
+    followed by x.mul(inv).assertEquals(FrC.from(1n)).
+    [inv_witness_first]: when true, mul order is [inv * x] (matching nori
     [den.mul(den_inv)]). When false, order is [x * inv] (matching nori
     [input.mul(den)]). Different nori call sites use different orders. *)
 let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
@@ -99,8 +99,7 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
   let product =
     if inv_witness_first then
       FF.mul (FF.FpA.to_field3 inv) (FF.FpA.to_field3 x) ~f:r
-    else
-      FF.mul (FF.FpA.to_field3 x) (FF.FpA.to_field3 inv) ~f:r
+    else FF.mul (FF.FpA.to_field3 x) (FF.FpA.to_field3 inv) ~f:r
   in
   FF.assert_equal product (FF.Field3.of_constant Bignum_bigint.one) ;
   inv
