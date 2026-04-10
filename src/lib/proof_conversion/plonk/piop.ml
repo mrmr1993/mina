@@ -53,7 +53,10 @@ let neg_fr (a : FF.FpA.t) : FF.FpA.t =
 (** Witness the inverse of x, verify by asserting x * inv = 1.
     Matches nori: Provable.witness(FrC, () => x.inv().assertCanonical())
     followed by x.mul(inv).assertEquals(FrC.from(1n)) *)
-let inv_fr (x : FF.FpA.t) : FF.FpA.t =
+(** [inv_witness_first]: when true, mul order is [inv * x] (matching nori
+    [den.mul(den_inv)]). When false, order is [x * inv] (matching nori
+    [input.mul(den)]). Different nori call sites use different orders. *)
+let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
   (* Witness the inverse: allocate 3 limbs *)
   let inv_limbs =
     Array.init 3 ~f:(fun limb_idx ->
@@ -93,7 +96,12 @@ let inv_fr (x : FF.FpA.t) : FF.FpA.t =
   FF.multi_range_check inv_f3 ;
   FF.assert_less_than inv_f3 ~bound:r ;
   let inv = FF.FpA.of_field3_unsafe inv_f3 in
-  let product = FF.mul (FF.FpA.to_field3 inv) (FF.FpA.to_field3 x) ~f:r in
+  let product =
+    if inv_witness_first then
+      FF.mul (FF.FpA.to_field3 inv) (FF.FpA.to_field3 x) ~f:r
+    else
+      FF.mul (FF.FpA.to_field3 x) (FF.FpA.to_field3 inv) ~f:r
+  in
   FF.assert_equal product (FF.Field3.of_constant Bignum_bigint.one) ;
   inv
 
@@ -126,7 +134,7 @@ let compute_alpha_square_lagrange_0 ~(zh_eval : FF.FpA.t) ~(zeta : FF.FpA.t)
     ~(alpha : FF.FpA.t) ~(inv_domain_size : FF.FpA.t) : FF.FpA.t =
   let one = FF.FpA.of_constant Bignum_bigint.one in
   let zeta_minus_1 = sub_fr zeta one in
-  let den = inv_fr zeta_minus_1 in
+  let den = inv_fr ~inv_witness_first:false zeta_minus_1 in
   let den = mul_fr den inv_domain_size in
   let den = mul_fr den alpha in
   let den = mul_fr den alpha in
