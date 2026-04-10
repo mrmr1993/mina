@@ -187,6 +187,7 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
            ~zeta:acc.fs.zeta ~zh_eval:acc.state.zh_eval
            ~domain_inv:inv_domain_size ~omega
        in
+       Step.assert_ (Set_skip_wiring true) ;
        (* Custom PI Lagrange *)
        let omega_pow_i = FF.FpA.of_constant plonk_vk.omega_pow_i in
        let omega_pow_i_div_n = FF.FpA.of_constant plonk_vk.omega_pow_i_div_n in

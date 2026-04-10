@@ -1291,9 +1291,63 @@ end = struct
           0 )
 
   (** Adds a row/gate/constraint to a constraint system `sys`. *)
+
+  (** When [TRACE_WIRING] is set to a directory path, each circuit's
+      wire calls are logged to [<dir>/wire_<hash>_<n>.log].
+      Each line is [row col var_id gate_kind].
+      Diffing OCaml vs nori output reveals the first variable identity
+      divergence. *)
+  let trace_wiring_dir = lazy (Stdlib.Sys.getenv_opt "TRACE_WIRING")
+
+  let trace_wire_oc : Stdlib.out_channel option ref = ref None
+
+  let trace_wire_counter = ref 0
+
+  let trace_wire_ensure_open () =
+    match (Lazy.force trace_wiring_dir, !trace_wire_oc) with
+    | Some _, Some _ ->
+        () (* already open *)
+    | Some dir, None ->
+        let n = !trace_wire_counter in
+        incr trace_wire_counter ;
+        let path =
+          Printf.sprintf "%s/wire_%s_%d_%d.log" dir
+            (Fp.size |> Fp.Bigint.to_hex_string |> String.sub ~pos:54 ~len:4)
+            !make_counter n
+        in
+        trace_wire_oc := Some (Stdlib.open_out path)
+    | None, _ ->
+        ()
+
+  let trace_wire_close () =
+    Option.iter !trace_wire_oc ~f:Stdlib.close_out ;
+    trace_wire_oc := None
+
+  let trace_wire kind row col (var : V.t) =
+    match Lazy.force trace_wiring_dir with
+    | None ->
+        ()
+    | Some _ ->
+        trace_wire_ensure_open () ;
+        Option.iter !trace_wire_oc ~f:(fun oc ->
+            let var_id =
+              match var with
+              | V.External i ->
+                  Printf.sprintf "E%d" i
+              | V.Internal i ->
+                  Printf.sprintf "I%d"
+                    ( Internal_var.sexp_of_t i |> Sexplib0.Sexp.to_string
+                    |> int_of_string )
+            in
+            let kind_s =
+              Kimchi_gate_type.sexp_of_t kind |> Sexplib0.Sexp.to_string
+            in
+            Printf.fprintf oc "%d %d %s %s\n" row col var_id kind_s )
+
   let add_row sys (vars : V.t option array) kind coeffs =
     ( match Lazy.force break_at_gate with
-    | Some n when sys.next_row = n ->
+    | Some n
+      when sys.next_row + Set_once.get_exn sys.public_input_size [%here] = n ->
         if !break_skip_remaining > 0 then decr break_skip_remaining
         else (
           Printf.eprintf "BREAK_AT_GATE: gate %d is %s\n%!" n
@@ -1315,7 +1369,9 @@ end = struct
         let vars_for_perm = Array.slice vars 0 num_vars in
         if not sys.skip_wiring then
           Array.iteri vars_for_perm ~f:(fun col x ->
-              Option.iter x ~f:(fun x -> wire sys x sys.next_row col) ) ;
+              Option.iter x ~f:(fun x ->
+                  trace_wire kind sys.next_row col x ;
+                  wire sys x sys.next_row col ) ) ;
         (* Add to gates. *)
         let open Position in
         sys.gates <- Unfinalized_rev ({ kind; wired_to = [||]; coeffs } :: gates) ;
@@ -1479,7 +1535,7 @@ end = struct
     | Unfinalized_rev _ ->
         finalize sys ; digest sys
     | Compiled (digest, _) ->
-        maybe_dump_gates sys ; digest
+        trace_wire_close () ; maybe_dump_gates sys ; digest
 
   (** Regroup terms that share the same variable.
       For example, (3, i2) ; (2, i2) can be simplified to (5, i2).
@@ -2807,9 +2863,6 @@ end = struct
     | Raw { kind; values; coeffs } ->
         let values =
           Array.init 15 ~f:(fun i ->
-              (* Insert [None] if the index is beyond the end of the [values]
-                 array.
-              *)
               Option.try_with (fun () -> reduce_to_v values.(i)) )
         in
         add_row sys values kind coeffs

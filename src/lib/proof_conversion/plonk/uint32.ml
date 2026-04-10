@@ -11,7 +11,6 @@
 open! Core_kernel
 module Step = Pickles.Impls.Step
 module Field = Step.Field
-module Bitwise = Kimchi_gadgets.Bitwise
 
 type t = Field.t
 
@@ -162,28 +161,105 @@ let ensure_var (x : t) : t =
       Step.assert_ (Equal (v, Field.constant c)) ;
       v
 
+(** Read a circuit variable as a Bignum_bigint during proving. *)
+let read_bigint (x : Field.t) : Bignum_bigint.t =
+  Bignum_bigint.of_string
+    (Field.Constant.to_string (Step.As_prover.read_var x))
+
+(** Convert a Bignum_bigint to a field constant. *)
+let bigint_to_const (x : Bignum_bigint.t) : Field.Constant.t =
+  Field.Constant.of_string (Bignum_bigint.to_string x)
+
+(** Extract a bit slice from a bigint: bits [start, start+len). *)
+let bit_slice (x : Bignum_bigint.t) ~(start : int) ~(len : int) : Bignum_bigint.t =
+  Bignum_bigint.(bit_and (shift_right x start) (pow (of_int 2) (of_int len) - one))
+
+(** Build a chain of Xor16 gates for a 32-bit XOR, matching o1js buildXor.
+    Processes 16 bits per iteration. Emits Xor gates + terminal Zero gate.
+    Reference: o1js/src/lib/provable/gadgets/bitwise.ts:buildXor *)
+let build_xor (a : Field.t) (b : Field.t) (out : Field.t) : unit =
+  let a_ref = ref a in
+  let b_ref = ref b in
+  let out_ref = ref out in
+  for _ = 1 to 2 (* 32 bits / 16 bits per iteration *) do
+    let a_cur = !a_ref in
+    let b_cur = !b_ref in
+    let out_cur = !out_ref in
+    (* Witness 15 values: 4 nybble slices each of a, b, out; 3 next values.
+       Matches o1js exists(15, ...) *)
+    let slices =
+      Array.init 15 ~f:(fun idx ->
+          Step.exists Field.typ ~compute:(fun () ->
+              let a0 = read_bigint a_cur in
+              let b0 = read_bigint b_cur in
+              let o0 = read_bigint out_cur in
+              let src, start =
+                match idx with
+                | 0 -> (a0, 0)  | 1 -> (a0, 4)  | 2 -> (a0, 8)  | 3 -> (a0, 12)
+                | 4 -> (b0, 0)  | 5 -> (b0, 4)  | 6 -> (b0, 8)  | 7 -> (b0, 12)
+                | 8 -> (o0, 0)  | 9 -> (o0, 4)  | 10 -> (o0, 8) | 11 -> (o0, 12)
+                | _ -> assert false
+              in
+              if idx < 12 then bigint_to_const (bit_slice src ~start ~len:4)
+              else
+                let v = match idx with
+                  | 12 -> Bignum_bigint.(shift_right a0 16)
+                  | 13 -> Bignum_bigint.(shift_right b0 16)
+                  | 14 -> Bignum_bigint.(shift_right o0 16)
+                  | _ -> assert false
+                in bigint_to_const v ) )
+    in
+    Step.assert_
+      (Xor
+         { in1 = a_cur ; in2 = b_cur ; out = out_cur
+         ; in1_0 = slices.(0) ; in1_1 = slices.(1)
+         ; in1_2 = slices.(2) ; in1_3 = slices.(3)
+         ; in2_0 = slices.(4) ; in2_1 = slices.(5)
+         ; in2_2 = slices.(6) ; in2_3 = slices.(7)
+         ; out_0 = slices.(8) ; out_1 = slices.(9)
+         ; out_2 = slices.(10) ; out_3 = slices.(11)
+         } ) ;
+    a_ref := slices.(12) ;
+    b_ref := slices.(13) ;
+    out_ref := slices.(14)
+  done ;
+  Step.assert_
+    (Raw { kind = Zero ; values = [| !a_ref; !b_ref; !out_ref |] ; coeffs = [||] })
+
 (** Bitwise XOR (32-bit).
-    Uses kimchi Xor gate via Bitwise.bxor.
-    Falls back to constant computation when both inputs are constant. *)
+    Matches o1js Gadgets.xor from gadgets/bitwise.ts:
+    witness output, build xor chain, return output.
+    Reference: o1js/src/lib/provable/gadgets/bitwise.ts:xor *)
 let xor (a : t) (b : t) : t =
   if is_constant a && is_constant b then
-    of_field
-      (Field.constant
-         (Field.Constant.of_string
-            (Bignum_bigint.to_string
-               Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b)) ) ) )
-  else Bitwise.bxor a b 32 ~len_xor:4
+    of_field (Field.constant (bigint_to_const
+      Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b))))
+  else
+    let output =
+      Step.exists Field.typ ~compute:(fun () ->
+          bigint_to_const Bignum_bigint.(bit_xor (read_bigint a) (read_bigint b)))
+    in
+    build_xor a b output ;
+    of_field output
 
 (** Bitwise AND (32-bit).
-    Uses kimchi AND gadget via Bitwise.band. *)
+    Matches o1js Gadgets.and from gadgets/bitwise.ts:
+    witness output, compute xor(a,b), assert 2*output + xor = a + b.
+    Reference: o1js/src/lib/provable/gadgets/bitwise.ts:and *)
 let bit_and (a : t) (b : t) : t =
   if is_constant a && is_constant b then
-    of_field
-      (Field.constant
-         (Field.Constant.of_string
-            (Bignum_bigint.to_string
-               Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b)) ) ) )
-  else Bitwise.band a b 32 ~len_xor:4
+    of_field (Field.constant (bigint_to_const
+      Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b))))
+  else
+    let output =
+      Step.exists Field.typ ~compute:(fun () ->
+          bigint_to_const Bignum_bigint.(bit_and (read_bigint a) (read_bigint b)))
+    in
+    let xor_output = xor a b in
+    Step.Field.Assert.equal
+      (Field.add (Field.scale output (Field.Constant.of_int 2)) xor_output)
+      (Field.add a b) ;
+    of_field output
 
 (** Bitwise NOT (32-bit, unchecked).
     Uses allOnes - x. *)
