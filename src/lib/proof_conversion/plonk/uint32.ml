@@ -163,23 +163,25 @@ let ensure_var (x : t) : t =
 
 (** Read a circuit variable as a Bignum_bigint during proving. *)
 let read_bigint (x : Field.t) : Bignum_bigint.t =
-  Bignum_bigint.of_string
-    (Field.Constant.to_string (Step.As_prover.read_var x))
+  Bignum_bigint.of_string (Field.Constant.to_string (Step.As_prover.read_var x))
 
 (** Convert a Bignum_bigint to a field constant. *)
 let bigint_to_const (x : Bignum_bigint.t) : Field.Constant.t =
   Field.Constant.of_string (Bignum_bigint.to_string x)
 
 (** Extract a bit slice from a bigint: bits [start, start+len). *)
-let bit_slice (x : Bignum_bigint.t) ~(start : int) ~(len : int) : Bignum_bigint.t =
-  Bignum_bigint.(bit_and (shift_right x start) (pow (of_int 2) (of_int len) - one))
+let bit_slice (x : Bignum_bigint.t) ~(start : int) ~(len : int) :
+    Bignum_bigint.t =
+  Bignum_bigint.(
+    bit_and (shift_right x start) (pow (of_int 2) (of_int len) - one))
 
 (** Build a chain of Xor16 gates matching o1js buildXor.
     Processes 16 bits per iteration. Emits Xor gates + terminal Zero gate
     + assertEquals(0) on terminal values.
     [num_bits] must be a positive multiple of 16 (padded by caller).
     Reference: o1js/src/lib/provable/gadgets/bitwise.ts:buildXor *)
-let build_xor (a : Field.t) (b : Field.t) (out : Field.t) ~(num_bits : int) : unit =
+let build_xor (a : Field.t) (b : Field.t) (out : Field.t) ~(num_bits : int) :
+    unit =
   let iterations = num_bits / 16 in
   let a_ref = ref a in
   let b_ref = ref b in
@@ -199,36 +201,72 @@ let build_xor (a : Field.t) (b : Field.t) (out : Field.t) ~(num_bits : int) : un
               if idx < 12 then
                 let src, start =
                   match idx with
-                  | 0 -> (a0, 0)  | 1 -> (a0, 4)  | 2 -> (a0, 8)  | 3 -> (a0, 12)
-                  | 4 -> (b0, 0)  | 5 -> (b0, 4)  | 6 -> (b0, 8)  | 7 -> (b0, 12)
-                  | 8 -> (o0, 0)  | 9 -> (o0, 4)  | 10 -> (o0, 8) | 11 -> (o0, 12)
-                  | _ -> assert false
+                  | 0 ->
+                      (a0, 0)
+                  | 1 ->
+                      (a0, 4)
+                  | 2 ->
+                      (a0, 8)
+                  | 3 ->
+                      (a0, 12)
+                  | 4 ->
+                      (b0, 0)
+                  | 5 ->
+                      (b0, 4)
+                  | 6 ->
+                      (b0, 8)
+                  | 7 ->
+                      (b0, 12)
+                  | 8 ->
+                      (o0, 0)
+                  | 9 ->
+                      (o0, 4)
+                  | 10 ->
+                      (o0, 8)
+                  | 11 ->
+                      (o0, 12)
+                  | _ ->
+                      assert false
                 in
                 bigint_to_const (bit_slice src ~start ~len:4)
               else
-                let v = match idx with
-                  | 12 -> Bignum_bigint.(shift_right a0 16)
-                  | 13 -> Bignum_bigint.(shift_right b0 16)
-                  | 14 -> Bignum_bigint.(shift_right o0 16)
-                  | _ -> assert false
-                in bigint_to_const v ) )
+                let v =
+                  match idx with
+                  | 12 ->
+                      Bignum_bigint.(shift_right a0 16)
+                  | 13 ->
+                      Bignum_bigint.(shift_right b0 16)
+                  | 14 ->
+                      Bignum_bigint.(shift_right o0 16)
+                  | _ ->
+                      assert false
+                in
+                bigint_to_const v ) )
     in
     Step.assert_
       (Xor
-         { in1 = a_cur ; in2 = b_cur ; out = out_cur
-         ; in1_0 = slices.(0) ; in1_1 = slices.(1)
-         ; in1_2 = slices.(2) ; in1_3 = slices.(3)
-         ; in2_0 = slices.(4) ; in2_1 = slices.(5)
-         ; in2_2 = slices.(6) ; in2_3 = slices.(7)
-         ; out_0 = slices.(8) ; out_1 = slices.(9)
-         ; out_2 = slices.(10) ; out_3 = slices.(11)
+         { in1 = a_cur
+         ; in2 = b_cur
+         ; out = out_cur
+         ; in1_0 = slices.(0)
+         ; in1_1 = slices.(1)
+         ; in1_2 = slices.(2)
+         ; in1_3 = slices.(3)
+         ; in2_0 = slices.(4)
+         ; in2_1 = slices.(5)
+         ; in2_2 = slices.(6)
+         ; in2_3 = slices.(7)
+         ; out_0 = slices.(8)
+         ; out_1 = slices.(9)
+         ; out_2 = slices.(10)
+         ; out_3 = slices.(11)
          } ) ;
     a_ref := slices.(12) ;
     b_ref := slices.(13) ;
     out_ref := slices.(14)
   done ;
   Step.assert_
-    (Raw { kind = Zero ; values = [| !a_ref; !b_ref; !out_ref |] ; coeffs = [||] }) ;
+    (Raw { kind = Zero; values = [| !a_ref; !b_ref; !out_ref |]; coeffs = [||] }) ;
   (* Match o1js buildXor which asserts all terminal values are zero *)
   let zero = Step.Field.constant Step.Field.Constant.zero in
   Step.Field.Assert.equal zero !a_ref ;
@@ -241,20 +279,21 @@ let build_xor (a : Field.t) (b : Field.t) (out : Field.t) ~(num_bits : int) : un
     Reference: o1js/src/lib/provable/gadgets/bitwise.ts:xor *)
 let xor_n (a : Field.t) (b : Field.t) ~(length : int) : Field.t =
   if is_constant (of_field a) && is_constant (of_field b) then
-    Field.constant (bigint_to_const
-      Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b)))
+    Field.constant
+      (bigint_to_const
+         Bignum_bigint.(bit_xor (to_bigint_const a) (to_bigint_const b)) )
   else
-    let pad_length = ((length + 15) / 16) * 16 in
+    let pad_length = (length + 15) / 16 * 16 in
     let output =
       Step.exists Field.typ ~compute:(fun () ->
-          bigint_to_const Bignum_bigint.(bit_xor (read_bigint a) (read_bigint b)))
+          bigint_to_const
+            Bignum_bigint.(bit_xor (read_bigint a) (read_bigint b)) )
     in
     build_xor a b output ~num_bits:pad_length ;
     output
 
 (** 32-bit XOR for UInt32. *)
-let xor (a : t) (b : t) : t =
-  of_field (xor_n a b ~length:32)
+let xor (a : t) (b : t) : t = of_field (xor_n a b ~length:32)
 
 (** Bitwise AND (32-bit).
     Matches o1js Gadgets.and from gadgets/bitwise.ts:
@@ -262,12 +301,15 @@ let xor (a : t) (b : t) : t =
     Reference: o1js/src/lib/provable/gadgets/bitwise.ts:and *)
 let bit_and (a : t) (b : t) : t =
   if is_constant a && is_constant b then
-    of_field (Field.constant (bigint_to_const
-      Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b))))
+    of_field
+      (Field.constant
+         (bigint_to_const
+            Bignum_bigint.(bit_and (to_bigint_const a) (to_bigint_const b)) ) )
   else
     let output =
       Step.exists Field.typ ~compute:(fun () ->
-          bigint_to_const Bignum_bigint.(bit_and (read_bigint a) (read_bigint b)))
+          bigint_to_const
+            Bignum_bigint.(bit_and (read_bigint a) (read_bigint b)) )
     in
     let xor_output = xor a b in
     Step.Field.Assert.equal
