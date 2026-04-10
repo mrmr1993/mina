@@ -196,14 +196,15 @@ let build_xor (a : Field.t) (b : Field.t) (out : Field.t) ~(num_bits : int) : un
               let a0 = read_bigint a_cur in
               let b0 = read_bigint b_cur in
               let o0 = read_bigint out_cur in
-              let src, start =
-                match idx with
-                | 0 -> (a0, 0)  | 1 -> (a0, 4)  | 2 -> (a0, 8)  | 3 -> (a0, 12)
-                | 4 -> (b0, 0)  | 5 -> (b0, 4)  | 6 -> (b0, 8)  | 7 -> (b0, 12)
-                | 8 -> (o0, 0)  | 9 -> (o0, 4)  | 10 -> (o0, 8) | 11 -> (o0, 12)
-                | _ -> assert false
-              in
-              if idx < 12 then bigint_to_const (bit_slice src ~start ~len:4)
+              if idx < 12 then
+                let src, start =
+                  match idx with
+                  | 0 -> (a0, 0)  | 1 -> (a0, 4)  | 2 -> (a0, 8)  | 3 -> (a0, 12)
+                  | 4 -> (b0, 0)  | 5 -> (b0, 4)  | 6 -> (b0, 8)  | 7 -> (b0, 12)
+                  | 8 -> (o0, 0)  | 9 -> (o0, 4)  | 10 -> (o0, 8) | 11 -> (o0, 12)
+                  | _ -> assert false
+                in
+                bigint_to_const (bit_slice src ~start ~len:4)
               else
                 let v = match idx with
                   | 12 -> Bignum_bigint.(shift_right a0 16)
