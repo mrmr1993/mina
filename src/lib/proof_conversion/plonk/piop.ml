@@ -517,10 +517,11 @@ let prepare_pairing_0 ~(vk : Plonk_proof.vk)
   in
   let neg_fe_curve = G1.negate (G1.scale gen (FF.FpA.to_field3 folded_evals)) in
   let folded_cm = G1.add folded_cm neg_fe_curve in
-  ( assert_canonical_fp (FF.FpA.to_field3 folded_cm.x)
-  , assert_canonical_fp (FF.FpA.to_field3 folded_cm.y)
-  , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.x)
-  , assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.y) )
+  let r0 = assert_canonical_fp (FF.FpA.to_field3 folded_cm.x) in
+  let r1 = assert_canonical_fp (FF.FpA.to_field3 folded_cm.y) in
+  let r2 = assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.x) in
+  let r3 = assert_canonical_fp (FF.FpA.to_field3 neg_folded_q.y) in
+  (r0, r1, r2, r3)
 
 (** Prepare pairing (split 1): add quotients_g1.
     Matches nori preparePairing_1. *)
@@ -547,5 +548,6 @@ let prepare_pairing_1 ~(vk : Plonk_proof.vk)
     G1.add quotients_g1 (G1.scale batch_wz (FF.FpA.to_field3 random_zeta_omega))
   in
   let folded_cm = G1.add folded_cm quotients_g1 in
-  ( assert_canonical_fp (FF.FpA.to_field3 folded_cm.x)
-  , assert_canonical_fp (FF.FpA.to_field3 folded_cm.y) )
+  let rx = assert_canonical_fp (FF.FpA.to_field3 folded_cm.x) in
+  let ry = assert_canonical_fp (FF.FpA.to_field3 folded_cm.y) in
+  (rx, ry)
