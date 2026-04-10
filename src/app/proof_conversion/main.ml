@@ -48,8 +48,8 @@ let () =
               Pickles.compile_promise
                 ~public_input:
                   (Pickles.Inductive_rule.Input_and_output
-                     ( Proof_conversion.Circuit_utils.public_input_typ 1
-                     , Proof_conversion.Circuit_utils.public_input_typ 1 ) )
+                     (Pickles.Impls.Step.Field.typ, Pickles.Impls.Step.Field.typ)
+                  )
                 ~auxiliary_typ:Pickles.Impls.Step.Typ.unit
                 ~max_proofs_verified:(module Pickles_types.Nat.N0)
                 ~name:(sprintf "plonk-info-zkp%d" n)

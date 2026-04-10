@@ -10,8 +10,7 @@ let get_gate_count ~(vk : Vk_constants.t) ~(n : int) : int =
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
-        (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 1, Circuit_utils.public_input_typ 1)
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)

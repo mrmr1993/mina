@@ -14,14 +14,13 @@ let make_rule ~(vk : Vk_constants.t) ~(n : int) :
   { identifier = sprintf "zkp%d" n
   ; prevs = []
   ; main =
-      (fun { public_input = pub } ->
+      (fun { public_input = input_hash } ->
         Circuit_utils.dummy_constraints () ;
         (* pub is Field.t array of length 1 = [input_hash] *)
-        let input_hash = pub.(0) in
         let output_hash = body input_hash in
         Promise.return
           { Pickles.Inductive_rule.previous_proof_statements = []
-          ; public_output = [| output_hash |]
+          ; public_output = output_hash
           ; auxiliary_output = ()
           } )
   ; feature_flags =
@@ -45,8 +44,7 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
       ~public_input:
-        (Pickles.Inductive_rule.Input_and_output
-           (Circuit_utils.public_input_typ 1, Circuit_utils.public_input_typ 1)
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
@@ -56,14 +54,13 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let output, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prove [| input_hash |])
+  let output_hash, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prove input_hash)
   in
-  let output_hash = output.(0) in
   (* Verify *)
   let verified =
     Promise.block_on_async_exn (fun () ->
-        Proof.verify_promise [ (([| input_hash |], [| output_hash |]), proof) ] )
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
   in
   ( match verified with
   | Ok () ->
