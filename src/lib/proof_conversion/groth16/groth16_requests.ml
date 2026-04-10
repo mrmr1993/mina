@@ -29,7 +29,8 @@ type _ t += Rhs_hashes : Step.Field.Constant.t array t
 type _ t += Final_g : Fp12.Constant.t t
 
 (** Request for public inputs pis[0..4] (circuits 14-15). *)
-type _ t += Public_inputs : Snarky_foreign_field.Foreign_field.Field3.Constant.t array t
+type _ t +=
+  | Public_inputs : Snarky_foreign_field.Foreign_field.Field3.Constant.t array t
 
 (** Request for PI point (circuit 15). *)
 type _ t += Pi_point : G1.Constant.t t
@@ -67,8 +68,7 @@ let empty_witness : witness =
 
 (** Create a request handler from witness values. *)
 let handler (w : witness) :
-    Snarky_backendless.Request.request
-    -> Snarky_backendless.Request.response =
+    Snarky_backendless.Request.request -> Snarky_backendless.Request.response =
  fun (With { request; respond }) ->
   let k x = respond (Provide x) in
   match request with

@@ -11,7 +11,8 @@ let public_input_typ n = Step.Typ.array ~length:n Step.Field.typ
     OCaml's [Boolean.(&&&)] uses [assert_r1cs] which reduces right-to-left.
     Pre-sealing compound arguments ensures no reductions happen inside R1CS,
     making the gate sequence independent of reduction order. *)
-let boolean_and (x : Step.Boolean.var) (y : Step.Boolean.var) : Step.Boolean.var =
+let boolean_and (x : Step.Boolean.var) (y : Step.Boolean.var) : Step.Boolean.var
+    =
   let module FF = Snarky_foreign_field.Foreign_field in
   let x = Step.Boolean.Unsafe.of_cvar (FF.seal (x :> Step.Field.t)) in
   let y = Step.Boolean.Unsafe.of_cvar (FF.seal (y :> Step.Field.t)) in
@@ -21,10 +22,15 @@ let boolean_and (x : Step.Boolean.var) (y : Step.Boolean.var) : Step.Boolean.var
     o1js [Bool.or] expands to [not(not_x.and(not_y))].
     [assertMul(not_x, not_y, z)] reduces left-to-right: not_x then not_y.
     We pre-seal not_x and not_y left-to-right so the R1CS sees simple vars. *)
-let boolean_or (x : Step.Boolean.var) (y : Step.Boolean.var) : Step.Boolean.var =
+let boolean_or (x : Step.Boolean.var) (y : Step.Boolean.var) : Step.Boolean.var
+    =
   let module FF = Snarky_foreign_field.Foreign_field in
-  let not_x = FF.seal Step.Field.(constant Constant.one - (x :> Step.Field.t)) in
-  let not_y = FF.seal Step.Field.(constant Constant.one - (y :> Step.Field.t)) in
+  let not_x =
+    FF.seal Step.Field.(constant Constant.one - (x :> Step.Field.t))
+  in
+  let not_y =
+    FF.seal Step.Field.(constant Constant.one - (y :> Step.Field.t))
+  in
   let both_false =
     Step.Boolean.( &&& )
       (Step.Boolean.Unsafe.of_cvar not_x)

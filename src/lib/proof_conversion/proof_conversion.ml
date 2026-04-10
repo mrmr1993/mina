@@ -50,9 +50,7 @@ module Groth16 : PROOF_SYSTEM = struct
           (* TODO: populate witnesses from tracker data *)
           Groth16_requests.empty_witness )
     in
-    let proofs =
-      Pickles_rules.compile_and_prove_all ~vk:vk_const ~witnesses
-    in
+    let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const ~witnesses in
     (* TODO: hash_pairs should use actual proof output hashes, not synthetic
        values. Currently the compression tree operates on dummy data. *)
     let module Step = Pickles.Impls.Step in

@@ -62,8 +62,7 @@ let empty_witness : witness =
 
 (** Create a request handler from witness values. *)
 let handler (w : witness) :
-    Snarky_backendless.Request.request
-    -> Snarky_backendless.Request.response =
+    Snarky_backendless.Request.request -> Snarky_backendless.Request.response =
  fun (With { request; respond }) ->
   let k x = respond (Provide x) in
   match request with

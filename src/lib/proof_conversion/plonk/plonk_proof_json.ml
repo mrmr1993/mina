@@ -17,7 +17,8 @@ let hex_to_bytes (hex : string) : string =
   let hex = String.chop_prefix_exn hex ~prefix:"0x" in
   let len = String.length hex / 2 in
   String.init len ~f:(fun i ->
-      Char.of_int_exn (Int.of_string ("0x" ^ String.sub hex ~pos:(i * 2) ~len:2)) )
+      Char.of_int_exn
+        (Int.of_string ("0x" ^ String.sub hex ~pos:(i * 2) ~len:2)) )
 
 (** ABI-decode the SP1 hex proof into 27 uint256 bigints.
     Matching nori: skip first 4 bytes (selector), decode as uint256[27]. *)
@@ -42,7 +43,8 @@ let parse_public_inputs ~(program_vk : string) ~(pi_hex : string) :
   let digest_bigint =
     String.foldi digest ~init:Bignum_bigint.zero ~f:(fun i acc c ->
         let shift = 31 - i in
-        Bignum_bigint.(acc + (of_int (Char.to_int c) * pow (of_int 256) (of_int shift))) )
+        Bignum_bigint.(
+          acc + (of_int (Char.to_int c) * pow (of_int 256) (of_int shift))) )
   in
   (* Mask to 253 bits: clear top 3 bits *)
   let mask_253 = Bignum_bigint.(pow (of_int 2) (of_int 253) - one) in
@@ -55,15 +57,9 @@ let parse_public_inputs ~(program_vk : string) ~(pi_hex : string) :
     populated and state containing pi0/pi1. *)
 let load_fixture (path : string) : Plonk_accumulator.t_const =
   let json = Yojson.Safe.from_file path in
-  let hex_proof =
-    Yojson.Safe.Util.(member "hexProof" json |> to_string)
-  in
-  let program_vk =
-    Yojson.Safe.Util.(member "programVk" json |> to_string)
-  in
-  let pi_hex =
-    Yojson.Safe.Util.(member "piHex" json |> to_string)
-  in
+  let hex_proof = Yojson.Safe.Util.(member "hexProof" json |> to_string) in
+  let program_vk = Yojson.Safe.Util.(member "programVk" json |> to_string) in
+  let pi_hex = Yojson.Safe.Util.(member "piHex" json |> to_string) in
   (* Decode proof *)
   let vals = abi_decode_proof hex_proof in
   let f3 i = bigint_to_field3 vals.(i) in

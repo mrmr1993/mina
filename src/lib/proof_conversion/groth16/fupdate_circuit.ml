@@ -31,12 +31,12 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
   (* Witness ALL private inputs first (matching nori's ZkProgram parameter
      witnessing, which happens before the method body runs). *)
   let acc =
-    Step.exists Accumulator.typ
-      ~request:(fun () -> Groth16_requests.Groth16_accumulator)
+    Step.exists Accumulator.typ ~request:(fun () ->
+        Groth16_requests.Groth16_accumulator )
   in
   let g_chunk =
-    Step.exists (Step.Typ.array ~length:n_iters Fp12.typ)
-      ~request:(fun () -> Groth16_requests.G_chunk)
+    Step.exists (Step.Typ.array ~length:n_iters Fp12.typ) ~request:(fun () ->
+        Groth16_requests.G_chunk )
   in
   let lhs_hashes =
     Step.exists (Step.Typ.array ~length:g_start Step.Field.typ)

@@ -935,9 +935,9 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
           if j = 0 then pt_j
           else
             let beta_x =
-              FF.mul (FF.Field3.of_constant Bn254_params.glv_beta)
-                (FpA.to_field3 pt_j.x)
-                ~f:p
+              FF.mul
+                (FF.Field3.of_constant Bn254_params.glv_beta)
+                (FpA.to_field3 pt_j.x) ~f:p
             in
             let _, _, beta_x2 = beta_x in
             let bound =

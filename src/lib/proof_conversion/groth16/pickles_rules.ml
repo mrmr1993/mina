@@ -38,9 +38,8 @@ let make_rule ~(vk : Vk_constants.t) ~(n : int) :
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
 let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Groth16_requests.witness) :
-    Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    : Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~vk ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise

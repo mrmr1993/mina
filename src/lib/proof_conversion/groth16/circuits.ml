@@ -25,8 +25,8 @@ let num_circuits = 16
 (** Witness the accumulator and verify the input hash matches. *)
 let witness_and_verify_acc (input_hash : Step.Field.t) : Accumulator.Circuit.t =
   let acc =
-    Step.exists Accumulator.typ
-      ~request:(fun () -> Groth16_requests.Groth16_accumulator)
+    Step.exists Accumulator.typ ~request:(fun () ->
+        Groth16_requests.Groth16_accumulator )
   in
   let acc_hash = Accumulator.hash acc in
   Step.Field.Assert.equal input_hash acc_hash ;
@@ -133,8 +133,8 @@ let vk_lines_to_circuit (lines : WT.Line.t array) : Lines.G2Line.t array =
 let witness_ate_common (input_hash : Step.Field.t) :
     Accumulator.Circuit.t * Step.Field.t array * Lines.G2Line.t array =
   let acc =
-    Step.exists Accumulator.typ
-      ~request:(fun () -> Groth16_requests.Groth16_accumulator)
+    Step.exists Accumulator.typ ~request:(fun () ->
+        Groth16_requests.Groth16_accumulator )
   in
   let n_total = Array.length Bn254_params.ate_loop_count in
   let lines_hashes =
@@ -284,8 +284,8 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       fun input_hash ->
        (* Witness all private inputs first (matching nori's ZkProgram) *)
        let acc =
-         Step.exists Accumulator.typ
-           ~request:(fun () -> Groth16_requests.Groth16_accumulator)
+         Step.exists Accumulator.typ ~request:(fun () ->
+             Groth16_requests.Groth16_accumulator )
        in
        let n_total = Array.length Bn254_params.ate_loop_count in
        let g_idx = n_total - 1 in
@@ -294,8 +294,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
            ~request:(fun () -> Groth16_requests.Lhs_hashes)
        in
        let g =
-         Step.exists Fp12.typ
-           ~request:(fun () -> Groth16_requests.Final_g)
+         Step.exists Fp12.typ ~request:(fun () -> Groth16_requests.Final_g)
        in
        (* Circuit body — hash checks *)
        let acc_hash = Accumulator.hash acc in
@@ -343,7 +342,8 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
         FF.enable_abort () ;
         (* Witness the 5 public inputs as canonical scalars (FrC) *)
         let pis =
-          Step.exists (Step.Typ.array ~length:5 (FF.FpC.typ ~f:Bn254_params.r))
+          Step.exists
+            (Step.Typ.array ~length:5 (FF.FpC.typ ~f:Bn254_params.r))
             ~request:(fun () -> Groth16_requests.Public_inputs)
         in
         let pis_f3 = Array.map pis ~f:FF.FpC.to_field3 in
@@ -378,16 +378,17 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       fun input_hash ->
        (* Witness PI and partial accumulator as G1Affine *)
        let pi =
-         Step.exists G1.Circuit.typ
-           ~request:(fun () -> Groth16_requests.Pi_point)
+         Step.exists G1.Circuit.typ ~request:(fun () ->
+             Groth16_requests.Pi_point )
        in
        let partial_acc =
-         Step.exists G1.Circuit.typ
-           ~request:(fun () -> Groth16_requests.Partial_ic_acc)
+         Step.exists G1.Circuit.typ ~request:(fun () ->
+             Groth16_requests.Partial_ic_acc )
        in
        (* Witness pis as canonical scalars (FrC) *)
        let pis =
-         Step.exists (Step.Typ.array ~length:5 (FF.FpC.typ ~f:Bn254_params.r))
+         Step.exists
+           (Step.Typ.array ~length:5 (FF.FpC.typ ~f:Bn254_params.r))
            ~request:(fun () -> Groth16_requests.Public_inputs)
        in
        let pis_f3 = Array.map pis ~f:FF.FpC.to_field3 in
