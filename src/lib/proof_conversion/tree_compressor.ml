@@ -32,13 +32,13 @@ let subtree_carry_typ : (subtree_carry_var, subtree_carry_const) Step.Typ.t =
 let zkp_side_loaded_tag_left =
   Pickles.Side_loaded.create ~name:"zkp_left"
     ~max_proofs_verified:(module Pickles_types.Nat.N2)
-    ~feature_flags:Pickles_types.Plonk_types.Features.none
+    ~feature_flags:Pickles_types.Plonk_types.Features.maybe
     ~typ:Step.Typ.(Step.Field.typ * Step.Field.typ)
 
 let zkp_side_loaded_tag_right =
   Pickles.Side_loaded.create ~name:"zkp_right"
     ~max_proofs_verified:(module Pickles_types.Nat.N2)
-    ~feature_flags:Pickles_types.Plonk_types.Features.none
+    ~feature_flags:Pickles_types.Plonk_types.Features.maybe
     ~typ:Step.Typ.(Step.Field.typ * Step.Field.typ)
 
 (** Request types for layer1 circuit private inputs. *)
@@ -177,13 +177,13 @@ let layer1_rule : _ Pickles.Inductive_rule.Promise.t =
 let node_side_loaded_tag_left =
   Pickles.Side_loaded.create ~name:"node_left"
     ~max_proofs_verified:(module Pickles_types.Nat.N2)
-    ~feature_flags:Pickles_types.Plonk_types.Features.none
+    ~feature_flags:Pickles_types.Plonk_types.Features.maybe
     ~typ:subtree_carry_typ
 
 let node_side_loaded_tag_right =
   Pickles.Side_loaded.create ~name:"node_right"
     ~max_proofs_verified:(module Pickles_types.Nat.N2)
-    ~feature_flags:Pickles_types.Plonk_types.Features.none
+    ~feature_flags:Pickles_types.Plonk_types.Features.maybe
     ~typ:subtree_carry_typ
 
 (** Request types for node circuit private inputs. *)
@@ -303,4 +303,133 @@ let node_rule : _ Pickles.Inductive_rule.Promise.t =
           } )
   }
 
-(* Compilation functions will be added once the rules are tested. *)
+(** Witness data for a layer1 merge. *)
+type layer1_witness =
+  { proof_left : Pickles.Side_loaded.Proof.t
+  ; vk_left : Pickles.Side_loaded.Verification_key.t
+  ; verify_left : bool
+  ; proof_right : Pickles.Side_loaded.Proof.t
+  ; vk_right : Pickles.Side_loaded.Verification_key.t
+  ; verify_right : bool
+  ; pi_left : Step.Field.Constant.t * Step.Field.Constant.t
+  ; pi_right : Step.Field.Constant.t * Step.Field.Constant.t
+  }
+
+(** Handler for layer1 circuit requests. *)
+let layer1_handler (w : layer1_witness) :
+    Snarky_backendless.Request.request -> Snarky_backendless.Request.response =
+ fun (With { request; respond }) ->
+  match request with
+  | Layer1_proof_left ->
+      respond (Provide w.proof_left)
+  | Layer1_vk_left ->
+      respond (Provide w.vk_left)
+  | Layer1_verify_left ->
+      respond (Provide w.verify_left)
+  | Layer1_proof_right ->
+      respond (Provide w.proof_right)
+  | Layer1_vk_right ->
+      respond (Provide w.vk_right)
+  | Layer1_verify_right ->
+      respond (Provide w.verify_right)
+  | Layer1_pi_left ->
+      respond (Provide w.pi_left)
+  | Layer1_pi_right ->
+      respond (Provide w.pi_right)
+  | _ ->
+      respond Unhandled
+
+(** Witness data for a node merge. *)
+type node_witness =
+  { proof_left : Pickles.Side_loaded.Proof.t
+  ; vk_left : Pickles.Side_loaded.Verification_key.t
+  ; proof_right : Pickles.Side_loaded.Proof.t
+  ; vk_right : Pickles.Side_loaded.Verification_key.t
+  ; layer : int
+  ; carry_left : subtree_carry_const
+  ; carry_right : subtree_carry_const
+  }
+
+(** Handler for node circuit requests. *)
+let node_handler (w : node_witness) :
+    Snarky_backendless.Request.request -> Snarky_backendless.Request.response =
+ fun (With { request; respond }) ->
+  match request with
+  | Node_proof_left ->
+      respond (Provide w.proof_left)
+  | Node_vk_left ->
+      respond (Provide w.vk_left)
+  | Node_proof_right ->
+      respond (Provide w.proof_right)
+  | Node_vk_right ->
+      respond (Provide w.vk_right)
+  | Node_layer ->
+      respond (Provide w.layer)
+  | Node_carry_left ->
+      respond (Provide w.carry_left)
+  | Node_carry_right ->
+      respond (Provide w.carry_right)
+  | _ ->
+      respond Unhandled
+
+(** Compile the layer1 circuit.
+    Returns (tag, Proof module, prover). *)
+let compile_layer1 () =
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output
+           (Step.Typ.unit, subtree_carry_typ) )
+      ~auxiliary_typ:Step.Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N2)
+      ~name:"layer1" ~o1js_compatible_mode:false
+      ~override_wrap_domain:Pickles_base.Proofs_verified.N1
+      ~choices:(fun ~self:_ -> [ layer1_rule ])
+      ()
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  ( tag
+  , (module Proof : Pickles.Proof_intf
+      with type t = Pickles_types.Nat.N2.n Pickles.Proof.t
+       and type statement = unit * subtree_carry_const )
+  , prove )
+
+(** Compile the node circuit.
+    Returns (tag, Proof module, prover). *)
+let compile_node () =
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output
+           (Step.Typ.unit, subtree_carry_typ) )
+      ~auxiliary_typ:Step.Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N2)
+      ~name:"node" ~o1js_compatible_mode:false
+      ~override_wrap_domain:Pickles_base.Proofs_verified.N1
+      ~choices:(fun ~self:_ -> [ node_rule ])
+      ()
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  ( tag
+  , (module Proof : Pickles.Proof_intf
+      with type t = Pickles_types.Nat.N2.n Pickles.Proof.t
+       and type statement = unit * subtree_carry_const )
+  , prove )
+
+(** Prove a layer1 merge of two base-layer proofs.
+    [prover] comes from [compile_layer1]. *)
+let prove_layer1 ~prover ~(witness : layer1_witness) =
+  let handler = layer1_handler witness in
+  let output, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) ())
+  in
+  (output, proof)
+
+(** Prove a node merge of two sub-proofs.
+    [prover] comes from [compile_node]. *)
+let prove_node ~prover ~(witness : node_witness) =
+  let handler = node_handler witness in
+  let output, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) ())
+  in
+  (output, proof)
