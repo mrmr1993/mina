@@ -42,10 +42,7 @@ let xor_sha_outputs (lhs : Step.Field.t array) (rhs : Step.Field.t array) :
   assert (Array.length lhs = 32) ;
   assert (Array.length rhs = 32) ;
   Array.init 32 ~f:(fun i ->
-      Kimchi_gadgets.Bitwise.bxor
-        (FF.seal lhs.(i))
-        (FF.seal rhs.(i))
-        8 ~len_xor:4 )
+      Uint32.xor_n (FF.seal lhs.(i)) (FF.seal rhs.(i)) ~length:8 )
 
 (** Convert lower 128 bits (bytes 16..31) of SHA digest to Fr.
     Matches nori shr128 (hash_fr.ts:30-43).
