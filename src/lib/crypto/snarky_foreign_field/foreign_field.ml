@@ -184,14 +184,14 @@ end
 let range_check0 (v0 : Circuit.Field.t) ~(compact : bool) :
     Circuit.Field.t * Circuit.Field.t =
   let ws = witness_bit_slice v0 in
-  let v0c0 = ws ~start:0 ~length:2 in
-  let v0c1 = ws ~start:2 ~length:2 in
-  let v0c2 = ws ~start:4 ~length:2 in
-  let v0c3 = ws ~start:6 ~length:2 in
-  let v0c4 = ws ~start:8 ~length:2 in
-  let v0c5 = ws ~start:10 ~length:2 in
-  let v0c6 = ws ~start:12 ~length:2 in
-  let v0c7 = ws ~start:14 ~length:2 in
+  let v0c0 = ws ~start:14 ~length:2 in
+  let v0c1 = ws ~start:12 ~length:2 in
+  let v0c2 = ws ~start:10 ~length:2 in
+  let v0c3 = ws ~start:8 ~length:2 in
+  let v0c4 = ws ~start:6 ~length:2 in
+  let v0c5 = ws ~start:4 ~length:2 in
+  let v0c6 = ws ~start:2 ~length:2 in
+  let v0c7 = ws ~start:0 ~length:2 in
   let v0p5 = ws ~start:16 ~length:12 in
   let v0p4 = ws ~start:28 ~length:12 in
   let v0p3 = ws ~start:40 ~length:12 in
@@ -227,30 +227,32 @@ let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
     ~(y64 : Circuit.Field.t) ~(y76 : Circuit.Field.t) ~(z : Circuit.Field.t)
     ~(yz : Circuit.Field.t) : unit =
   let ws = witness_bit_slice z in
-  let v2c0 = ws ~start:22 ~length:2 in
-  let v2c1 = ws ~start:24 ~length:2 in
-  let v2c2 = ws ~start:26 ~length:2 in
-  let v2c3 = ws ~start:28 ~length:2 in
+  (* Current row: MSB-first crumbs and plookups, matching o1js rangeCheck1Helper *)
+  let v2c0 = ws ~start:86 ~length:2 in
+  let v2p0 = ws ~start:74 ~length:12 in
+  let v2p1 = ws ~start:62 ~length:12 in
+  let v2p2 = ws ~start:50 ~length:12 in
+  let v2p3 = ws ~start:38 ~length:12 in
+  let v2c1 = ws ~start:36 ~length:2 in
+  let v2c2 = ws ~start:34 ~length:2 in
+  let v2c3 = ws ~start:32 ~length:2 in
   let v2c4 = ws ~start:30 ~length:2 in
-  let v2c5 = ws ~start:32 ~length:2 in
-  let v2c6 = ws ~start:34 ~length:2 in
-  let v2c7 = ws ~start:36 ~length:2 in
-  let v2p0 = ws ~start:38 ~length:12 in
-  let v2p1 = ws ~start:50 ~length:12 in
-  let v2p2 = ws ~start:62 ~length:12 in
-  let v2p3 = ws ~start:74 ~length:12 in
-  let v2c8 = ws ~start:86 ~length:2 in
-  let v2c19 = ws ~start:0 ~length:2 in
-  let v2c18 = ws ~start:2 ~length:2 in
-  let v2c17 = ws ~start:4 ~length:2 in
-  let v2c16 = ws ~start:6 ~length:2 in
-  let v2c15 = ws ~start:8 ~length:2 in
-  let v2c14 = ws ~start:10 ~length:2 in
-  let v2c13 = ws ~start:12 ~length:2 in
-  let v2c12 = ws ~start:14 ~length:2 in
-  let v2c11 = ws ~start:16 ~length:2 in
-  let v2c10 = ws ~start:18 ~length:2 in
+  let v2c5 = ws ~start:28 ~length:2 in
+  let v2c6 = ws ~start:26 ~length:2 in
+  let v2c7 = ws ~start:24 ~length:2 in
+  let v2c8 = ws ~start:22 ~length:2 in
+  (* Next row: MSB-first crumbs, matching o1js rangeCheck1Helper *)
   let v2c9 = ws ~start:20 ~length:2 in
+  let v2c10 = ws ~start:18 ~length:2 in
+  let v2c11 = ws ~start:16 ~length:2 in
+  let v2c12 = ws ~start:14 ~length:2 in
+  let v2c13 = ws ~start:12 ~length:2 in
+  let v2c14 = ws ~start:10 ~length:2 in
+  let v2c15 = ws ~start:8 ~length:2 in
+  let v2c16 = ws ~start:6 ~length:2 in
+  let v2c17 = ws ~start:4 ~length:2 in
+  let v2c18 = ws ~start:2 ~length:2 in
+  let v2c19 = ws ~start:0 ~length:2 in
   Circuit.assert_
     (RangeCheck1
        { v2 = z
