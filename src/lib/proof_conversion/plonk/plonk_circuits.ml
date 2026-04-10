@@ -346,9 +346,12 @@ let zkp12 input_hash : Step.Field.t * Kzg_accumulator.t =
 
 (** zkp13-16: Miller loop line computation.
     Each circuit computes g values from precomputed lines for a chunk of
-    the ATE loop, then hashes them into lines_hashes. *)
+    the ATE loop, then hashes them into lines_hashes.
+    Returns (hash, kzg, lines_hashes, g_values) — the g_values are the
+    raw Fp12 line evaluations needed by zkp17-23. *)
 let zkp_lines ~circuit_index input_hash :
-    Step.Field.t * Kzg_accumulator.t * Step.Field.t array =
+    Step.Field.t * Kzg_accumulator.t * Step.Field.t array * Fp12.Circuit.t array
+    =
   let ate = Kzg_accumulator.ate_loop_count in
   let ate_len = Array.length ate in
   let from_, to_ =
@@ -388,6 +391,8 @@ let zkp_lines ~circuit_index input_hash :
     Lines.AffineCache.make
       { G1.Circuit.x = kzg.proof.neg_b_x; y = kzg.proof.neg_b_y }
   in
+  (* Collect g values for use by zkp17-23 *)
+  let g_values = Queue.create () in
   let line_cnt = ref 0 in
   for i = from_ to to_ - 1 do
     let idx = i - 1 in
@@ -405,9 +410,10 @@ let zkp_lines ~circuit_index input_hash :
         Fp12.sparse_mul g (Lines.psi tau_line2 b_cache) )
       else g
     in
+    Queue.enqueue g_values g ;
     lines_hashes.(idx) <- Accumulator_hash.hash_fp12 g
   done ;
-  ( if circuit_index = 16 then
+  if circuit_index = 16 then (
     let frob_g2_1, frob_g2_2 = Plonk_lines.frobenius_lines all_g2 in
     let frob_tau_1, frob_tau_2 = Plonk_lines.frobenius_lines all_tau in
     let g2_1 = Lines.G2Line.of_constant frob_g2_1 in
@@ -418,9 +424,10 @@ let zkp_lines ~circuit_index input_hash :
     let g = Fp12.sparse_mul g (Lines.psi tau_1 b_cache) in
     let g = Fp12.sparse_mul g (Lines.psi g2_2 a_cache) in
     let g = Fp12.sparse_mul g (Lines.psi tau_2 b_cache) in
+    Queue.enqueue g_values g ;
     lines_hashes.(ate_len - 1) <- Accumulator_hash.hash_fp12 g ) ;
   kzg.state.lines_hashes_digest <- Accumulator_hash.poseidon_hash lines_hashes ;
-  (Kzg_accumulator.hash_packed kzg, kzg, lines_hashes)
+  (Kzg_accumulator.hash_packed kzg, kzg, lines_hashes, Queue.to_array g_values)
 
 (** zkp17-22: Miller loop f-accumulation chunks.
     Returns (output_hash, kzg_acc) for chaining. *)
@@ -577,7 +584,7 @@ let circuit_body (n : int) : Step.Field.t -> Step.Field.t =
       fun h -> fst (zkp12 h)
   | 13 | 14 | 15 | 16 ->
       fun h ->
-        let hash, _kzg, _lh = zkp_lines ~circuit_index:n h in
+        let hash, _kzg, _lh, _gv = zkp_lines ~circuit_index:n h in
         hash
   | 17 | 18 | 19 | 20 | 21 | 22 ->
       fun h -> fst (zkp_f_accum ~circuit_index:n h)
