@@ -136,3 +136,34 @@ let load_fixture (path : string) : Plonk_accumulator.t_const =
     }
   in
   { proof; fs; state }
+
+(** Auxiliary witness data for zkp12: shift_power and c (Fp12). *)
+type aux_witness =
+  { shift_power : Step.Field.Constant.t; c_fp12 : Fp12.Constant.t }
+
+(** Parse the auxWtns section of the fixture JSON. *)
+let parse_aux_witness (json : Yojson.Safe.t) : aux_witness =
+  let open Yojson.Safe.Util in
+  let aux = member "auxWtns" json in
+  let shift_power =
+    Step.Field.Constant.of_string (member "shift_power" aux |> to_string)
+  in
+  let c = member "c" aux in
+  let bi key = Bignum_bigint.of_string (member key c |> to_string) in
+  let fp2 a b : Fp2.Constant.t = (bi a, bi b) in
+  let c0 : Fp6.Constant.t =
+    (fp2 "g00" "g01", fp2 "g10" "g11", fp2 "g20" "g21")
+  in
+  let c1 : Fp6.Constant.t =
+    (fp2 "h00" "h01", fp2 "h10" "h11", fp2 "h20" "h21")
+  in
+  let c_fp12 : Fp12.Constant.t = (c0, c1) in
+  { shift_power; c_fp12 }
+
+(** Load fixture and return both the accumulator and aux witness. *)
+let load_fixture_with_aux (path : string) :
+    Plonk_accumulator.t_const * aux_witness =
+  let json = Yojson.Safe.from_file path in
+  let acc = load_fixture path in
+  let aux = parse_aux_witness json in
+  (acc, aux)

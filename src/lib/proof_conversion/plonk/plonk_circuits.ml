@@ -308,8 +308,9 @@ let zkp11 input_hash =
     input_hash
 
 (** zkp12: Prepare pairing (split 1) + KZG accumulator initialization.
-    Transitions from Plonk_accumulator to Kzg_accumulator. *)
-let zkp12 input_hash : Step.Field.t =
+    Transitions from Plonk_accumulator to Kzg_accumulator.
+    Returns (output_hash, kzg_acc) for chaining to zkp13+. *)
+let zkp12 input_hash : Step.Field.t * Kzg_accumulator.t =
   let acc = witness_accumulator () in
   let shift_power =
     Step.exists Step.Field.typ ~request:(fun () -> Plonk_requests.Shift_power)
@@ -341,12 +342,13 @@ let zkp12 input_hash : Step.Field.t =
         }
     }
   in
-  Kzg_accumulator.hash_packed kzg_acc
+  (Kzg_accumulator.hash_packed kzg_acc, kzg_acc)
 
 (** zkp13-16: Miller loop line computation.
     Each circuit computes g values from precomputed lines for a chunk of
     the ATE loop, then hashes them into lines_hashes. *)
-let zkp_lines ~circuit_index input_hash : Step.Field.t =
+let zkp_lines ~circuit_index input_hash :
+    Step.Field.t * Kzg_accumulator.t * Step.Field.t array =
   let ate = Kzg_accumulator.ate_loop_count in
   let ate_len = Array.length ate in
   let from_, to_ =
@@ -418,10 +420,11 @@ let zkp_lines ~circuit_index input_hash : Step.Field.t =
     let g = Fp12.sparse_mul g (Lines.psi tau_2 b_cache) in
     lines_hashes.(ate_len - 1) <- Accumulator_hash.hash_fp12 g ) ;
   kzg.state.lines_hashes_digest <- Accumulator_hash.poseidon_hash lines_hashes ;
-  Kzg_accumulator.hash_packed kzg
+  (Kzg_accumulator.hash_packed kzg, kzg, lines_hashes)
 
-(** zkp17-22: Miller loop f-accumulation chunks. *)
-let zkp_f_accum ~circuit_index input_hash : Step.Field.t =
+(** zkp17-22: Miller loop f-accumulation chunks.
+    Returns (output_hash, kzg_acc) for chaining. *)
+let zkp_f_accum ~circuit_index input_hash : Step.Field.t * Kzg_accumulator.t =
   let ate = Kzg_accumulator.ate_loop_count in
   let ate_len = Array.length ate in
   let from_i, to_i, chunk_size, lhs_size =
@@ -468,7 +471,7 @@ let zkp_f_accum ~circuit_index input_hash : Step.Field.t =
     else if ate.(i) = -1 then f := Fp12.mul !f kzg.proof.c
   done ;
   kzg.state.f <- !f ;
-  Kzg_accumulator.hash_packed kzg
+  (Kzg_accumulator.hash_packed kzg, kzg)
 
 (** zkp23: Final pairing check — Frobenius, shift power, verify f=1. *)
 let zkp23 input_hash : Step.Field.t =
@@ -571,11 +574,13 @@ let circuit_body (n : int) : Step.Field.t -> Step.Field.t =
   | 11 ->
       fun h -> fst (zkp11 h)
   | 12 ->
-      zkp12
+      fun h -> fst (zkp12 h)
   | 13 | 14 | 15 | 16 ->
-      zkp_lines ~circuit_index:n
+      fun h ->
+        let hash, _kzg, _lh = zkp_lines ~circuit_index:n h in
+        hash
   | 17 | 18 | 19 | 20 | 21 | 22 ->
-      zkp_f_accum ~circuit_index:n
+      fun h -> fst (zkp_f_accum ~circuit_index:n h)
   | 23 ->
       zkp23
   | n ->

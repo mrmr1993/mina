@@ -119,6 +119,114 @@ let compile_and_prove_one_with_plonk_acc ~(n : int)
         (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, acc_after, proof)
 
+(** Compile and prove zkp12, returning the KZG accumulator for chaining. *)
+let compile_and_prove_zkp12 ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Plonk_requests.witness) :
+    Step.Field.Constant.t
+    * Kzg_accumulator.t_const
+    * Pickles_types.Nat.N0.n Pickles.Proof.t =
+  let rule : _ Pickles.Inductive_rule.Promise.t =
+    { identifier = "plonk-zkp12"
+    ; prevs = []
+    ; main =
+        (fun { public_input = input_hash } ->
+          Circuit_utils.dummy_constraints () ;
+          let output_hash, kzg_acc = Plonk_circuits.zkp12 input_hash in
+          Promise.return
+            { Pickles.Inductive_rule.previous_proof_statements = []
+            ; public_output = output_hash
+            ; auxiliary_output = kzg_acc
+            } )
+    ; feature_flags = feature_flags ~n:12
+    }
+  in
+  let _tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:Kzg_accumulator.typ
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:"plonk-zkp12" ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Plonk_requests.handler witness in
+  let output_hash, kzg_after, proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith (sprintf "plonk-zkp12 verify failed: %s" (Error.to_string_hum e))
+  ) ;
+  (output_hash, kzg_after, proof)
+
+(** Compile and prove zkp13-16 (line hashing), returning the updated
+    KZG accumulator and lines_hashes for chaining. *)
+let compile_and_prove_zkp_lines ~(circuit_index : int)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
+    Step.Field.Constant.t
+    * Kzg_accumulator.t_const
+    * Step.Field.Constant.t array
+    * Pickles_types.Nat.N0.n Pickles.Proof.t =
+  assert (circuit_index >= 13 && circuit_index <= 16) ;
+  let ate_loop_len = Kzg_accumulator.ate_loop_len in
+  let rule : _ Pickles.Inductive_rule.Promise.t =
+    { identifier = sprintf "plonk-zkp%d" circuit_index
+    ; prevs = []
+    ; main =
+        (fun { public_input = input_hash } ->
+          Circuit_utils.dummy_constraints () ;
+          let output_hash, kzg, lh =
+            Plonk_circuits.zkp_lines ~circuit_index input_hash
+          in
+          Promise.return
+            { Pickles.Inductive_rule.previous_proof_statements = []
+            ; public_output = output_hash
+            ; auxiliary_output = (kzg, lh)
+            } )
+    ; feature_flags = feature_flags ~n:circuit_index
+    }
+  in
+  let _tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:
+        Step.Typ.(
+          Kzg_accumulator.typ * array ~length:ate_loop_len Step.Field.typ)
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "plonk-zkp%d" circuit_index)
+      ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Plonk_requests.handler witness in
+  let output_hash, (kzg_after, lh_after), proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith
+        (sprintf "plonk-zkp%d verify failed: %s" circuit_index
+           (Error.to_string_hum e) ) ) ;
+  (output_hash, kzg_after, lh_after, proof)
+
 (** Compile and prove a single circuit (unit auxiliary output). *)
 let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
     ~(witness : Plonk_requests.witness) :

@@ -21,6 +21,7 @@ module Groth16_requests = Groth16_requests
 module Pickles_rules = Pickles_rules
 module Circuit_utils = Circuit_utils
 module Circuits = Circuits
+module Kzg_accumulator = Kzg_accumulator
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
