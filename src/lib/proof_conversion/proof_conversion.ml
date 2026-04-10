@@ -13,6 +13,7 @@ module Proof_json = Proof_json
 module Vk_constants = Vk_constants
 module Circuit_info = Circuit_info
 module Plonk_circuits = Plonk_circuits
+module Plonk_requests = Plonk_requests
 module Plonk_pickles_rules = Plonk_pickles_rules
 module Pickles_rules = Pickles_rules
 module Circuit_utils = Circuit_utils
@@ -76,7 +77,12 @@ module Plonk : PROOF_SYSTEM = struct
   let name = "plonk"
 
   let convert ~input_path:_ ~output_path =
-    let proofs = Plonk_pickles_rules.compile_and_prove_all () in
+    let witnesses =
+      Array.init Plonk_circuits.num_circuits ~f:(fun _n ->
+          (* TODO: populate witnesses from actual proof data *)
+          Plonk_requests.empty_witness )
+    in
+    let proofs = Plonk_pickles_rules.compile_and_prove_all ~witnesses in
     (* TODO: hash_pairs should use actual proof output hashes. The compression
        tree below duplicates Compressor.compress logic — generalize compress
        to handle arbitrary power-of-2 sizes. *)

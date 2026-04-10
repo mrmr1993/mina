@@ -26,7 +26,8 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
       }
   }
 
-let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
+let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Plonk_requests.witness) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~n in
   let _tag, _cache, (module Proof), provers =
@@ -41,8 +42,9 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
+  let handler = Plonk_requests.handler witness in
   let output_hash, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prove input_hash)
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
   let verified =
     Promise.block_on_async_exn (fun () ->
@@ -56,12 +58,15 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t) :
         (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof)
 
-let compile_and_prove_all () : Pickles_types.Nat.N0.n Pickles.Proof.t array =
+let compile_and_prove_all ~(witnesses : Plonk_requests.witness array) :
+    Pickles_types.Nat.N0.n Pickles.Proof.t array =
+  assert (Array.length witnesses = Plonk_circuits.num_circuits) ;
   let current_hash = ref Step.Field.Constant.zero in
   let proofs =
     Array.init Plonk_circuits.num_circuits ~f:(fun n ->
         let output_hash, proof =
           compile_and_prove_one ~n ~input_hash:!current_hash
+            ~witness:witnesses.(n)
         in
         current_hash := output_hash ;
         proof )

@@ -99,11 +99,15 @@ let plonk_vk : Plonk_proof.vk =
         "16425161602643719872686085382713730563148030929298303959135645596481976986620"
   }
 
-(** Witness a full PLONK Accumulator as private input.
-    All fields are witnessed as fresh variables. *)
+(** Witness a full PLONK Accumulator as private input via request. *)
 let witness_accumulator () : Plonk_accumulator.t =
-  Step.exists Plonk_accumulator.typ ~compute:(fun () ->
-      Plonk_accumulator.default_const )
+  Step.exists Plonk_accumulator.typ
+    ~request:(fun () -> Plonk_requests.Plonk_accumulator)
+
+(** Witness a full KZG Accumulator as private input via request. *)
+let witness_kzg_accumulator () : Kzg_accumulator.t =
+  Step.exists Kzg_accumulator.typ
+    ~request:(fun () -> Plonk_requests.Kzg_accumulator)
 
 let build_circuit_body ~(circuit_index : int) : circuit_body =
   match circuit_index with
@@ -341,10 +345,13 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
        (* Nori witnesses all private inputs [Accumulator, Field, Fp12] at start *)
        let acc = witness_accumulator () in
        let shift_power =
-         Step.exists Step.Field.typ ~compute:(fun () ->
-             Step.Field.Constant.zero )
+         Step.exists Step.Field.typ
+           ~request:(fun () -> Plonk_requests.Shift_power)
        in
-       let c = Fp12.witness () in
+       let c =
+         Step.exists Fp12.typ
+           ~request:(fun () -> Plonk_requests.C_fp12)
+       in
        let in_digest = Plonk_accumulator.hash_packed acc in
        Step.assert_ (Equal (in_digest, input_hash)) ;
        let kzg_cm_x, kzg_cm_y =
@@ -404,14 +411,14 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
       let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
       fun input_hash ->
-        let kzg = Kzg_accumulator.witness () in
+        let kzg = witness_kzg_accumulator () in
         let in_digest = Kzg_accumulator.hash_packed kzg in
         Step.assert_ (Equal (in_digest, input_hash)) ;
         (* Witness lines_hashes array *)
         let lines_hashes =
-          Array.init Kzg_accumulator.ate_loop_len ~f:(fun _ ->
-              Step.exists Step.Field.typ ~compute:(fun () ->
-                  Step.Field.Constant.zero ) )
+          Step.exists
+            (Step.Typ.array ~length:Kzg_accumulator.ate_loop_len Step.Field.typ)
+            ~request:(fun () -> Plonk_requests.Lines_hashes)
         in
         let lines_digest = Accumulator_hash.poseidon_hash lines_hashes in
         Step.assert_ (Equal (kzg.state.lines_hashes_digest, lines_digest)) ;
@@ -489,13 +496,15 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       fun input_hash ->
         (* Nori witnesses all private inputs at start:
            [KzgAccumulator, Array(Fp12, chunk_size), Array(Field, ate_len-chunk_size)] *)
-        let kzg = Kzg_accumulator.witness () in
-        let g_chunk = Array.init chunk_size ~f:(fun _ -> Fp12.witness ()) in
+        let kzg = witness_kzg_accumulator () in
+        let g_chunk =
+          Step.exists (Step.Typ.array ~length:chunk_size Fp12.typ)
+            ~request:(fun () -> Plonk_requests.G_chunk)
+        in
         let remaining = ate_len - chunk_size in
         let flat_hashes =
-          Array.init remaining ~f:(fun _ ->
-              Step.exists Step.Field.typ ~compute:(fun () ->
-                  Step.Field.Constant.zero ) )
+          Step.exists (Step.Typ.array ~length:remaining Step.Field.typ)
+            ~request:(fun () -> Plonk_requests.Flat_hashes)
         in
         let lhs_hashes = Array.sub flat_hashes ~pos:0 ~len:lhs_size in
         let rhs_hashes = Array.sub flat_hashes ~pos:lhs_size ~len:rhs_size in
@@ -525,13 +534,15 @@ let build_circuit_body ~(circuit_index : int) : circuit_body =
       fun input_hash ->
         (* Nori witnesses all private inputs at start:
            [KzgAccumulator, Array(Field, 64), Array(Fp12, 1)] *)
-        let kzg = Kzg_accumulator.witness () in
+        let kzg = witness_kzg_accumulator () in
         let lhs_hashes =
-          Array.init (ate_len - 1) ~f:(fun _ ->
-              Step.exists Step.Field.typ ~compute:(fun () ->
-                  Step.Field.Constant.zero ) )
+          Step.exists (Step.Typ.array ~length:(ate_len - 1) Step.Field.typ)
+            ~request:(fun () -> Plonk_requests.Lhs_hashes)
         in
-        let g_chunk = Array.init 1 ~f:(fun _ -> Fp12.witness ()) in
+        let g_chunk =
+          Step.exists (Step.Typ.array ~length:1 Fp12.typ)
+            ~request:(fun () -> Plonk_requests.G_chunk)
+        in
         let in_digest = Kzg_accumulator.hash_packed kzg in
         Step.assert_ (Equal (in_digest, input_hash)) ;
         let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
