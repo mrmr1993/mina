@@ -84,6 +84,12 @@ module Groth16 : PROOF_SYSTEM = struct
           }
       }
     in
+    (* Evolving line_hashes: starts as zeros, filled by each ate circuit.
+       After each circuit proves, update the entries it computed. *)
+    let n_total = Array.length Bn254_params.ate_loop_count in
+    let evolving_line_hashes =
+      ref (Array.create ~len:n_total Step.Field.Constant.zero)
+    in
     (* Compute initial hash *)
     let initial_hash =
       Step.run_and_check_exn (fun () ->
@@ -107,15 +113,17 @@ module Groth16 : PROOF_SYSTEM = struct
     let fp_to_field h =
       Step.Field.Constant.of_string (Kimchi_pasta.Pasta.Fp.to_string h)
     in
-    let line_hashes_field = Array.map line_hashes ~f:fp_to_field in
+    let _line_hashes_field = Array.map line_hashes ~f:fp_to_field in
     (* Chain circuits 0-12 via auxiliary_output *)
     for n = 0 to 12 do
       let witness : Groth16_requests.witness =
         if n <= 6 then
-          (* Ate loop circuits: need accumulator, line_hashes, b_lines *)
+          (* Ate loop circuits: need accumulator, line_hashes, b_lines.
+             line_hashes evolves: circuit N has entries for ranges 0..N-1
+             filled, and zeros for the rest. Build from tracker data. *)
           { Groth16_requests.empty_witness with
             accumulator = Some !current_acc
-          ; line_hashes = Some line_hashes_field
+          ; line_hashes = Some !evolving_line_hashes
           ; b_lines =
               Some
                 (Array.map b_lines ~f:(fun (l : Witness_tracker.Line.t) ->
@@ -146,7 +154,23 @@ module Groth16 : PROOF_SYSTEM = struct
       hash_pairs.(n) <- (input_hash, output_hash) ;
       proofs.(n) <- proof ;
       current_hash := output_hash ;
-      current_acc := acc_after
+      current_acc := acc_after ;
+      (* Update evolving_line_hashes with entries computed by this circuit *)
+      if n <= 6 then (
+        let ranges = Ate_circuit.circuit_ranges in
+        let begin_idx, end_idx = ranges.(n) in
+        let g_values = Witness_tracker.get_g_values tracker in
+        for i = begin_idx to end_idx - 1 do
+          !evolving_line_hashes.(i - 1) <-
+            fp_to_field
+              (Witness_tracker.hash_fp12_out_of_circuit g_values.(i - 1))
+        done ;
+        (* For circuit 6, also add the Frobenius hash *)
+        if n = 6 then
+          !evolving_line_hashes.(n_total - 1) <-
+            fp_to_field
+              (Witness_tracker.hash_fp12_out_of_circuit
+                 (Witness_tracker.get_g tracker (n_total - 1)) ) )
     done ;
     (* Circuits 13-15: use regular proving with specific witnesses *)
     for n = 13 to Circuits.num_circuits - 1 do
