@@ -64,17 +64,36 @@ module Groth16 : PROOF_SYSTEM = struct
       Array.create ~len:Circuits.num_circuits
         (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
     in
-    for n = 0 to 5 do
+    let fp_to_field h =
+      Step.Field.Constant.of_string (Kimchi_pasta.Pasta.Fp.to_string h)
+    in
+    let line_hashes_field = Array.map line_hashes ~f:fp_to_field in
+    (* Chain circuits 0-12 via auxiliary_output *)
+    for n = 0 to 12 do
       let witness : Groth16_requests.witness =
-        { Groth16_requests.empty_witness with
-          accumulator = Some !current_acc
-        ; line_hashes =
-            Some
-              (Array.map line_hashes ~f:(fun h ->
-                   Step.Field.Constant.of_string
-                     (Kimchi_pasta.Pasta.Fp.to_string h) ) )
-        ; b_lines = Some b_lines
-        }
+        if n <= 6 then
+          (* Ate loop circuits: need accumulator, line_hashes, b_lines *)
+          { Groth16_requests.empty_witness with
+            accumulator = Some !current_acc
+          ; line_hashes = Some line_hashes_field
+          ; b_lines = Some b_lines
+          }
+        else
+          (* f-update circuits: need accumulator, g_chunk, lhs/rhs hashes *)
+          let idx = n - 7 in
+          let n_iters = Fupdate_circuit.iterations_per_circuit.(idx) in
+          let g_start = Fupdate_circuit.g_start_per_circuit.(idx) in
+          let g_values = Witness_tracker.get_g_values tracker in
+          let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
+          let lhs, _g, rhs =
+            Witness_tracker.get_g_digest_opening tracker ~g_start ~n_iters
+          in
+          { Groth16_requests.empty_witness with
+            accumulator = Some !current_acc
+          ; g_chunk = Some g_chunk
+          ; lhs_hashes = Some (Array.map lhs ~f:fp_to_field)
+          ; rhs_hashes = Some (Array.map rhs ~f:fp_to_field)
+          }
       in
       let input_hash = !current_hash in
       let output_hash, acc_after, proof =
@@ -86,10 +105,47 @@ module Groth16 : PROOF_SYSTEM = struct
       current_hash := output_hash ;
       current_acc := acc_after
     done ;
-    (* Circuits 6-15: use regular proving with pre-populated witnesses.
-       TODO: extend chaining for circuits 6-12 *)
-    for n = 6 to Circuits.num_circuits - 1 do
-      let witness = Groth16_requests.empty_witness in
+    (* Circuits 13-15: use regular proving with specific witnesses *)
+    for n = 13 to Circuits.num_circuits - 1 do
+      let witness =
+        match n with
+        | 13 ->
+            (* Final exponentiation: needs accumulator + lhs_hashes + final_g *)
+            let n_total = Array.length Bn254_params.ate_loop_count in
+            let lhs = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
+            { Groth16_requests.empty_witness with
+              accumulator = Some !current_acc
+            ; lhs_hashes = Some (Array.map lhs ~f:fp_to_field)
+            ; final_g = Some (Witness_tracker.get_g tracker (n_total - 1))
+            }
+        | 14 ->
+            (* Partial IC: needs public inputs *)
+            let n_pi = Witness_tracker.num_public_inputs tracker in
+            let pis =
+              Array.init n_pi ~f:(fun i ->
+                  Witness_tracker.get_public_input tracker i )
+            in
+            { Groth16_requests.empty_witness with public_inputs = Some pis }
+        | 15 ->
+            (* Full IC: needs pi_point, partial_ic_acc, public inputs *)
+            let n_pi = Witness_tracker.num_public_inputs tracker in
+            let pis =
+              Array.init n_pi ~f:(fun i ->
+                  Witness_tracker.get_public_input tracker i )
+            in
+            let pi = Witness_tracker.get_pi tracker in
+            let partial_acc = Witness_tracker.get_partial_ic_acc tracker in
+            let g1_to_const (p : Witness_tracker.G1.t) : G1.Constant.t =
+              { x = p.x; y = p.y }
+            in
+            { Groth16_requests.empty_witness with
+              public_inputs = Some pis
+            ; pi_point = Some (g1_to_const pi)
+            ; partial_ic_acc = Some (g1_to_const partial_acc)
+            }
+        | _ ->
+            Groth16_requests.empty_witness
+      in
       let input_hash = !current_hash in
       let output_hash, proof =
         Pickles_rules.compile_and_prove_one ~vk:vk_const ~n ~input_hash ~witness

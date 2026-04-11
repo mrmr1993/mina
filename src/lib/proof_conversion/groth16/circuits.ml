@@ -461,6 +461,68 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
           }
         in
         (Accumulator.hash updated, updated)
+  | 6 ->
+      (* Ate loop + Frobenius: same as circuit body but returns acc. *)
+      let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
+      let gamma_lines_const = vk_lines_to_circuit vk.gamma_lines in
+      fun input_hash ->
+        let acc, lines_hashes, all_b_lines = witness_ate_common input_hash in
+        let digest = Array_list_hasher.hash lines_hashes in
+        Step.Field.Assert.equal acc.state.g_digest digest ;
+        let a_cache = Lines.AffineCache.make acc.proof.neg_a in
+        let c_cache = Lines.AffineCache.make acc.proof.c in
+        let pi_cache = Lines.AffineCache.make acc.proof.pi in
+        let caches : Ate_circuit.three_cache = { a_cache; c_cache; pi_cache } in
+        let begin_idx, end_idx = Ate_circuit.circuit_ranges.(6) in
+        let neg_b = G2.negate acc.proof.b in
+        let offset = Ate_circuit.b_line_offset ~begin_idx in
+        let count = Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx in
+        let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
+        let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
+        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
+        let t_after_ate =
+          Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
+            ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
+            ~gamma_lines:gamma_slice ~lines_hashes ~caches
+        in
+        let n_b = Array.length all_b_lines in
+        let frob_b_lines = [| all_b_lines.(n_b - 2); all_b_lines.(n_b - 1) |] in
+        let n_d = Array.length delta_lines_const in
+        let frob_delta_lines =
+          [| delta_lines_const.(n_d - 2); delta_lines_const.(n_d - 1) |]
+        in
+        let n_g = Array.length gamma_lines_const in
+        let frob_gamma_lines =
+          [| gamma_lines_const.(n_g - 2); gamma_lines_const.(n_g - 1) |]
+        in
+        let g = Lines.psi frob_b_lines.(0) a_cache in
+        let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(0) c_cache) in
+        let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(0) pi_cache) in
+        let piB = G2.frobenius acc.proof.b in
+        let t_point = t_after_ate in
+        Lines.assert_is_line frob_b_lines.(0) t_point piB ;
+        let t_point =
+          G2.add_from_line t_point ~lambda:frob_b_lines.(0).lambda piB
+        in
+        let pi2B = piB |> G2.negative_frobenius in
+        Lines.assert_is_line frob_b_lines.(1) t_point pi2B ;
+        let g = Fp12.sparse_mul g (Lines.psi frob_b_lines.(1) a_cache) in
+        let g = Fp12.sparse_mul g (Lines.psi frob_delta_lines.(1) c_cache) in
+        let g = Fp12.sparse_mul g (Lines.psi frob_gamma_lines.(1) pi_cache) in
+        let n_total = Array.length Bn254_params.ate_loop_count in
+        lines_hashes.(n_total - 1) <- Accumulator_hash.hash_fp12 g ;
+        let product = Fp12.mul acc.proof.c_inv acc.proof.c_fp12 in
+        Fp12.assert_one product ;
+        let final_g_digest = Array_list_hasher.hash lines_hashes in
+        let updated : Accumulator.Circuit.t =
+          { proof = acc.proof
+          ; state = { acc.state with g_digest = final_g_digest; t_point }
+          }
+        in
+        (Accumulator.hash updated, updated)
+  | 7 | 8 | 9 | 10 | 11 | 12 ->
+      (* f-update circuits: delegate to Fupdate_circuit.build_with_acc *)
+      Fupdate_circuit.build_with_acc ~circuit_index
   | _ ->
       failwith
         (sprintf "build_circuit_body_with_acc: not implemented for circuit %d"
