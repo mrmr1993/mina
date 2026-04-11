@@ -112,6 +112,17 @@
   (pps ppx_version ppx_jane)))
 
 (executable
+ (name test_pairing_utils)
+ (modules test_pairing_utils)
+ (libraries
+  core_kernel
+  proof_conversion)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
+
+(executable
  (name test_gate_comparison)
  (modules test_gate_comparison gate_comparison)
  (libraries

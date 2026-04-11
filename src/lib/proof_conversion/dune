@@ -23,7 +23,7 @@
   digestif.ocaml)
  (foreign_archives pairing_utils)
  (no_dynlink)
- (c_library_flags :standard -lpthread)
+ (c_library_flags :standard -lpthread -Wl,--allow-multiple-definition)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

@@ -654,6 +654,31 @@ let get_g_at_iteration (t : t) (i : int) : Fp12.t =
 (** Get per-iteration witness data. *)
 let get_iteration (t : t) (i : int) : iteration_data = t.iterations.(i)
 
+(** Compute the Miller loop output (Fp12) from proof and VK without needing
+    aux witness data. Used to feed into Rust pairing-utils for native aux
+    witness computation. *)
+let compute_mlo ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : Fp12.t =
+  let dummy_fp12 = (Fp6.zero, Fp6.zero) in
+  let t =
+    { proof
+    ; vk
+    ; c = dummy_fp12
+    ; c_inv = dummy_fp12
+    ; shift_power = 0
+    ; t_point = { G2.x = Fp2.zero; y = Fp2.zero }
+    ; f = Fp12.one
+    ; g_digest = BI.zero
+    ; g_values = [||]
+    ; iterations = [||]
+    ; frobenius_b_lines = [||]
+    ; frobenius_delta_lines = [||]
+    ; frobenius_gamma_lines = [||]
+    ; line_hashes = [||]
+    ; frobenius_lines = [||]
+    }
+  in
+  compute_miller_loop t ; t.f
+
 (** Create a witness tracker from parsed proof, VK, and auxiliary witness.
     Immediately computes the full Miller loop. *)
 let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)

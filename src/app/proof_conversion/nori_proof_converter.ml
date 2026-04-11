@@ -292,14 +292,24 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   let module WT = Proof_conversion.Witness_tracker in
   let proof = Proof_conversion.Proof_json.load_proof proof_path in
   let vk = Proof_conversion.Proof_json.load_vk vk_path in
-  let aux_path =
+  let aux =
     match Sys.getenv_opt "GROTH16_AUX_PATH" with
     | Some p ->
-        p
+        Printf.eprintf "Loading aux witness from %s\n%!" p ;
+        Proof_conversion.Proof_json.load_aux_witness p
     | None ->
-        Filename.concat (Filename.dirname proof_path) "aux_witness.json"
+        (* Try default path, fall back to native computation *)
+        let default_path =
+          Filename.concat (Filename.dirname proof_path) "aux_witness.json"
+        in
+        if Stdlib.Sys.file_exists default_path then (
+          Printf.eprintf "Loading aux witness from %s\n%!" default_path ;
+          Proof_conversion.Proof_json.load_aux_witness default_path )
+        else (
+          Printf.eprintf "Computing aux witness natively via Rust FFI...\n%!" ;
+          let mlo = WT.compute_mlo ~proof ~vk in
+          Proof_conversion.Pairing_utils_stubs.compute_aux_witness mlo )
   in
-  let aux = Proof_conversion.Proof_json.load_aux_witness aux_path in
   let tracker = WT.create ~proof ~vk ~aux in
   Proof_conversion.Circuit_config.set_tracker tracker ;
   let vk_const = Proof_conversion.Vk_constants.create vk in
