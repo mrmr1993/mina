@@ -359,6 +359,18 @@ let get_full_ic_acc (t : t) : G1.t =
     must be asserted equal to this value. *)
 let get_pi (t : t) : G1.t = get_full_ic_acc t
 
+(** Compute PI (IC accumulation) from proof + VK without creating a full
+    tracker. Avoids Fp12 inverse of zero when aux is unavailable. *)
+let compute_pi ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : G1.t =
+  let ic i = G1.of_proof_json vk.ic.(i) in
+  let pi i = proof.public_inputs.(i) in
+  let n_pi = Array.length proof.public_inputs in
+  let acc = ref (ic 0) in
+  for i = 1 to Array.length vk.ic - 1 do
+    if i - 1 < n_pi then acc := G1.add !acc (G1.scale (ic i) (pi (i - 1)))
+  done ;
+  !acc
+
 (** Construct the full Accumulator.Constant from the current tracker state.
     This provides all the data needed to witness the accumulator in-circuit. *)
 let get_accumulator_constant (t : t) : Accumulator.Constant.t =

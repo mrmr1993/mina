@@ -52,6 +52,56 @@ let compute_aux_witness (mlo : Fp12.Constant.t) : Proof_json.aux_witness =
   | [] ->
       failwith "compute_aux_witness: empty result"
 
+(** Raw FFI: groth16_aux_witness.
+    Input: 30 pipe-delimited fields (proof points + alpha_beta Fp12).
+    Output: "shift_power|c..." (13 fields). *)
+external groth16_aux_witness_raw : string -> string
+  = "caml_pairing_utils_groth16_aux_witness"
+
+(** Compute Groth16 aux witness from proof/VK points.
+    Computes MLO via arkworks multi_miller_loop, then compute_aux_witness.
+    Returns { c; shift_power }. *)
+let groth16_aux_witness ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) :
+    Proof_json.aux_witness =
+  let module WT = Witness_tracker in
+  let s = BI.to_string in
+  let neg_a = proof.neg_a in
+  let b_g2 = proof.b in
+  let c_g1 = proof.c in
+  (* Compute PI = IC[0] + sum(IC[i] * pi[i]) directly *)
+  let pi_wt = WT.compute_pi ~proof ~vk in
+  let pi_g1 : G1.Constant.t = { x = pi_wt.x; y = pi_wt.y } in
+  let gamma = vk.gamma in
+  let delta = vk.delta in
+  let alpha_beta = vk.alpha_beta in
+  let s2 (a, b) = s a ^ "|" ^ s b in
+  let input =
+    String.concat ~sep:"|"
+      [ s neg_a.x
+      ; s neg_a.y
+      ; s2 b_g2.x
+      ; s2 b_g2.y
+      ; s c_g1.x
+      ; s c_g1.y
+      ; s pi_g1.x
+      ; s pi_g1.y
+      ; s2 gamma.x
+      ; s2 gamma.y
+      ; s2 delta.x
+      ; s2 delta.y
+      ; fp12_to_pipe alpha_beta
+      ]
+  in
+  let result = groth16_aux_witness_raw input in
+  let parts = String.split result ~on:'|' in
+  match parts with
+  | shift_str :: rest ->
+      let shift_power = Int.of_string shift_str in
+      let c_val = pipe_to_fp12 (String.concat ~sep:"|" rest) in
+      { Proof_json.c = c_val; shift_power }
+  | [] ->
+      failwith "groth16_aux_witness: empty result"
+
 (** Compute alpha*beta pairing from VK G1/G2 points.
     Returns Fp12 element = multi_miller_loop([alpha], [beta]). *)
 let make_alpha_beta ~(alpha_x : BI.t) ~(alpha_y : BI.t) ~(beta_x_c0 : BI.t)

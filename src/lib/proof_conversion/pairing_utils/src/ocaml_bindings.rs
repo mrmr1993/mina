@@ -65,6 +65,47 @@ pub unsafe extern "C" fn caml_pairing_utils_compute_aux_witness(
     alloc_ocaml_string(&result)
 }
 
+/// Compute Groth16 aux witness from proof/VK points.
+/// Computes MLO = multi_miller_loop([-A, PI, C], [B, gamma, delta]) * alpha_beta,
+/// then compute_aux_witness(MLO).
+///
+/// Input: pipe-delimited string of 18 fields:
+///   negA_x|negA_y|B_x_c0|B_x_c1|B_y_c0|B_y_c1|C_x|C_y|PI_x|PI_y|
+///   gamma_x_c0|gamma_x_c1|gamma_y_c0|gamma_y_c1|
+///   delta_x_c0|delta_x_c1|delta_y_c0|delta_y_c1
+/// Plus alpha_beta as 12 Fp12 fields (total 30 fields).
+///
+/// Returns: "shift_power|c_g00|c_g01|...|c_h21" (13 fields).
+#[no_mangle]
+pub unsafe extern "C" fn caml_pairing_utils_groth16_aux_witness(
+    v_input: ocaml::sys::Value,
+) -> ocaml::sys::Value {
+    let input_str = read_ocaml_string(v_input);
+    let parts: Vec<&str> = input_str.split('|').collect();
+    assert_eq!(parts.len(), 30, "Expected 30 pipe-delimited fields, got {}", parts.len());
+    let fq = |i: usize| -> Fq { Fq::from_str(parts[i]).unwrap() };
+
+    // Parse proof points
+    let neg_a = G1Affine::new(fq(0), fq(1));
+    let b = G2Affine::new(Fq2::new(fq(2), fq(3)), Fq2::new(fq(4), fq(5)));
+    let c = G1Affine::new(fq(6), fq(7));
+    let pi = G1Affine::new(fq(8), fq(9));
+    let gamma = G2Affine::new(Fq2::new(fq(10), fq(11)), Fq2::new(fq(12), fq(13)));
+    let delta = G2Affine::new(Fq2::new(fq(14), fq(15)), Fq2::new(fq(16), fq(17)));
+
+    // Parse alpha_beta Fp12
+    let alpha_beta = parse_fq12(&parts[18..30].join("|"));
+
+    // Compute MLO: multi_miller_loop([-A, PI, C], [B, gamma, delta]) * alpha_beta
+    // negA is already -A, so pass directly as first G1 element.
+    let mlo_raw = Bn254::multi_miller_loop(&[neg_a, pi, c], &[b, gamma, delta]);
+    let mlo = mlo_raw.0 * alpha_beta;
+
+    let (shift_power, c_root) = rust_compute_aux_witness(mlo);
+    let result = format!("{}|{}", shift_power, format_fq12(c_root));
+    alloc_ocaml_string(&result)
+}
+
 /// Compute alpha*beta pairing from VK points.
 /// OCaml: external make_alpha_beta_raw : string -> string
 #[no_mangle]
