@@ -185,7 +185,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
        let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
-       let t_updated =
+       let t_updated, _g_vals =
          Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
            ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
            ~gamma_lines:gamma_slice ~lines_hashes ~caches
@@ -222,7 +222,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
        (* Run ate loop iterations [59,65) *)
-       let t_after_ate =
+       let t_after_ate, _g_vals_6_orig =
          Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
            ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
            ~gamma_lines:gamma_slice ~lines_hashes ~caches
@@ -417,14 +417,37 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       failwith (sprintf "Invalid circuit index: %d" n)
 
 (** Auxiliary output type for ate loop circuits (0-6):
-    accumulator + line_hashes for chaining. *)
+    accumulator + line_hashes for chaining.
+    g_values are collected separately via the g_vals return. *)
 let ate_aux_typ =
   let n = Array.length Bn254_params.ate_loop_count in
   Step.Typ.(Accumulator.typ * array ~length:n Step.Field.typ)
 
+(** Number of g values produced by each ate circuit (0-6).
+    Circuit 6 produces ate range + 1 Frobenius g value. *)
+let ate_g_count circuit_index =
+  assert (circuit_index >= 0 && circuit_index <= 6) ;
+  let ranges = Ate_circuit.circuit_ranges in
+  let begin_idx, end_idx = ranges.(circuit_index) in
+  let count = end_idx - begin_idx in
+  if circuit_index = 6 then count + 1 (* +1 for Frobenius g *) else count
+
+(** Build auxiliary typ for a specific circuit (0-12): acc + line_hashes + g_values. *)
+let ate_aux_typ_with_g ~circuit_index =
+  let n = Array.length Bn254_params.ate_loop_count in
+  let g_count =
+    if circuit_index <= 6 then ate_g_count circuit_index else 0
+    (* f-update circuits don't produce g values *)
+  in
+  Step.Typ.(
+    Accumulator.typ
+    * array ~length:n Step.Field.typ
+    * array ~length:g_count Fp12.typ)
+
 let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
-    Step.Field.t -> Step.Field.t * (Accumulator.Circuit.t * Step.Field.t array)
-    =
+       Step.Field.t
+    -> Step.Field.t
+       * (Accumulator.Circuit.t * Step.Field.t array * Fp12.Circuit.t array) =
   let _body = build_circuit_body ~vk ~circuit_index in
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
@@ -450,7 +473,7 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
         let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
         let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
         let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
-        let t_updated =
+        let t_updated, g_vals =
           Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
             ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
             ~gamma_lines:gamma_slice ~lines_hashes ~caches
@@ -462,7 +485,7 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
               { acc.state with g_digest = new_g_digest; t_point = t_updated }
           }
         in
-        (Accumulator.hash updated, (updated, lines_hashes))
+        (Accumulator.hash updated, (updated, lines_hashes, g_vals))
   | 6 ->
       (* Ate loop + Frobenius: same as circuit body but returns acc. *)
       let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
@@ -482,7 +505,7 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
         let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
         let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
         let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
-        let t_after_ate =
+        let t_after_ate, ate_g_vals =
           Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
             ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
             ~gamma_lines:gamma_slice ~lines_hashes ~caches
@@ -521,10 +544,12 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
           ; state = { acc.state with g_digest = final_g_digest; t_point }
           }
         in
-        (Accumulator.hash updated, (updated, lines_hashes))
+        (* g_vals = ate g_vals + Frobenius g *)
+        let all_g_vals = Array.append ate_g_vals [| g |] in
+        (Accumulator.hash updated, (updated, lines_hashes, all_g_vals))
   | 7 | 8 | 9 | 10 | 11 | 12 ->
-      (* f-update circuits: return (hash, (acc, dummy_lh)).
-         line_hashes don't change in f-update circuits. *)
+      (* f-update circuits: return (hash, (acc, dummy_lh, empty_g)).
+         line_hashes and g_values don't change in f-update circuits. *)
       let n = Array.length Bn254_params.ate_loop_count in
       fun input_hash ->
         let hash, acc =
@@ -534,7 +559,8 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
           Step.exists (Step.Typ.array ~length:n Step.Field.typ)
             ~compute:(fun () -> Array.create ~len:n Step.Field.Constant.zero)
         in
-        (hash, (acc, dummy_lh))
+        let empty_g = [||] in
+        (hash, (acc, dummy_lh, empty_g))
   | _ ->
       failwith
         (sprintf "build_circuit_body_with_acc: not implemented for circuit %d"

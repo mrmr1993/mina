@@ -24,6 +24,9 @@ module Circuits = Circuits
 module Kzg_accumulator = Kzg_accumulator
 module Tree_compressor = Tree_compressor
 module Fp12 = Fp12
+module Circuit_config = Circuit_config
+module Accumulator = Accumulator
+module Ate_circuit = Ate_circuit
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
@@ -91,6 +94,7 @@ module Groth16 : PROOF_SYSTEM = struct
     let evolving_line_hashes =
       ref (Array.create ~len:n_total Step.Field.Constant.zero)
     in
+    let all_g_values = ref [||] in
     (* Compute initial hash *)
     let initial_hash =
       Step.run_and_check_exn (fun () ->
@@ -135,12 +139,10 @@ module Groth16 : PROOF_SYSTEM = struct
           let idx = n - 7 in
           let n_iters = Fupdate_circuit.iterations_per_circuit.(idx) in
           let g_start = Fupdate_circuit.g_start_per_circuit.(idx) in
-          (* Use evolving_line_hashes from previous circuits' aux output,
-             not the tracker's pre-computed values *)
+          (* Use circuit-computed g_values and line_hashes from aux output *)
           let all_lh = !evolving_line_hashes in
           let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
-          let g_values = Witness_tracker.get_g_values tracker in
-          let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
+          let g_chunk = Array.sub !all_g_values ~pos:g_start ~len:n_iters in
           let rhs_start = g_start + n_iters in
           let rhs =
             Array.sub all_lh ~pos:rhs_start
@@ -154,7 +156,7 @@ module Groth16 : PROOF_SYSTEM = struct
           }
       in
       let input_hash = !current_hash in
-      let output_hash, acc_after, lh_after, proof =
+      let output_hash, acc_after, lh_after, gv_after, proof =
         Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const ~n ~input_hash
           ~witness
       in
@@ -162,8 +164,10 @@ module Groth16 : PROOF_SYSTEM = struct
       proofs.(n) <- proof ;
       current_hash := output_hash ;
       current_acc := acc_after ;
-      (* Use line_hashes from auxiliary output for next circuit *)
-      if n <= 6 then evolving_line_hashes := lh_after
+      (* Use line_hashes and g_values from auxiliary output *)
+      if n <= 6 then (
+        evolving_line_hashes := lh_after ;
+        all_g_values := Array.append !all_g_values gv_after )
     done ;
     (* Circuits 13-15: use regular proving with specific witnesses *)
     for n = 13 to Circuits.num_circuits - 1 do
@@ -177,7 +181,7 @@ module Groth16 : PROOF_SYSTEM = struct
             { Groth16_requests.empty_witness with
               accumulator = Some !current_acc
             ; lhs_hashes = Some lhs
-            ; final_g = Some (Witness_tracker.get_g tracker (n_total - 1))
+            ; final_g = Some !all_g_values.(Array.length !all_g_values - 1)
             }
         | 14 ->
             (* Partial IC: needs public inputs *)

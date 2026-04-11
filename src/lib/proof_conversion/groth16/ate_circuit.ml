@@ -100,10 +100,11 @@ let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
     ~(neg_b : G2.Circuit.t) ~(begin_idx : int) ~(end_idx : int)
     ~(b_lines : Lines.G2Line.t array) ~(delta_lines : Lines.G2Line.t array)
     ~(gamma_lines : Lines.G2Line.t array) ~(lines_hashes : Step.Field.t array)
-    ~(caches : three_cache) : G2.Circuit.t =
+    ~(caches : three_cache) : G2.Circuit.t * Fp12.Circuit.t array =
   let ate = Bn254_params.ate_loop_count in
   let t_ref = ref t_point in
   let line_cnt = ref 0 in
+  let g_values = Queue.create () in
   for i = begin_idx to end_idx - 1 do
     let bit = ate.(i) in
     let iter_idx = i - 1 in
@@ -125,9 +126,10 @@ let run_chunk (t_point : G2.Circuit.t) ~(b_point : G2.Circuit.t)
         ~gamma_double ~caches ~add_line ~delta_add ~gamma_add
     in
     t_ref := new_t ;
+    Queue.enqueue g_values g ;
     lines_hashes.(iter_idx) <- Accumulator_hash.hash_fp12 g
   done ;
-  !t_ref
+  (!t_ref, Queue.to_array g_values)
 
 (** Ate loop iteration ranges per circuit.
     zkp0: [1,10), zkp1: [10,20), ..., zkp5: [50,59), zkp6: [59,65) *)

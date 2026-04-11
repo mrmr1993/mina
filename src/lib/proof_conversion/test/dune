@@ -47,6 +47,23 @@
   (pps ppx_version ppx_jane)))
 
 (executable
+ (name test_groth16_ghash)
+ (modules test_groth16_ghash)
+ (libraries
+  core_kernel
+  pickles
+  pickles_types
+  kimchi_pasta
+  mina_base
+  promise
+  proof_conversion
+  random_oracle)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
+
+(executable
  (name test_groth16_cinv)
  (modules test_groth16_cinv)
  (libraries

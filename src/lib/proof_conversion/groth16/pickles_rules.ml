@@ -82,11 +82,11 @@ let make_rule_with_acc ~(vk : Vk_constants.t) ~(n : int) :
   ; main =
       (fun { public_input = input_hash } ->
         Circuit_utils.dummy_constraints () ;
-        let output_hash, aux = body input_hash in
+        let output_hash, (acc, lh, gv) = body input_hash in
         Promise.return
           { Pickles.Inductive_rule.previous_proof_statements = []
           ; public_output = output_hash
-          ; auxiliary_output = aux
+          ; auxiliary_output = ((acc, lh), gv)
           } )
   ; feature_flags =
       ( ignore (n : int) ;
@@ -106,6 +106,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
     Step.Field.Constant.t
     * Accumulator.Constant.t
     * Step.Field.Constant.t array
+    * Fp12.Constant.t array
     * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule_with_acc ~vk ~n in
   let _tag, _cache, (module Proof), provers =
@@ -113,7 +114,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
-      ~auxiliary_typ:Circuits.ate_aux_typ
+      ~auxiliary_typ:(Circuits.ate_aux_typ_with_g ~circuit_index:n)
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-zkp%d" n)
       ~o1js_compatible_mode:false
@@ -122,7 +123,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
   in
   let Pickles.Provers.[ prove ] = provers in
   let handler = Groth16_requests.handler witness in
-  let output_hash, (acc_after, lh_after), proof =
+  let output_hash, ((acc_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
   let verified =
@@ -134,7 +135,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
       ()
   | Error e ->
       failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
-  (output_hash, acc_after, lh_after, proof)
+  (output_hash, acc_after, lh_after, gv_after, proof)
 
 (** Compile and prove all 16 circuits, chaining input/output hashes. *)
 let compile_and_prove_all ~(vk : Vk_constants.t)
