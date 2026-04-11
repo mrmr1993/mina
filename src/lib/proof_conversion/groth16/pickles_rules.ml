@@ -153,3 +153,90 @@ let compile_and_prove_all ~(vk : Vk_constants.t)
         proof )
   in
   proofs
+
+(** Compile and prove a single circuit, returning proof + VK for tree
+    compression.  Used for circuits that don't need accumulator chaining
+    (13-15). *)
+let compile_prove_and_export ~(vk : Vk_constants.t) ~(n : int)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    :
+    Step.Field.Constant.t
+    * Pickles_types.Nat.N0.n Pickles.Proof.t
+    * Pickles.Side_loaded.Verification_key.t =
+  let rule = make_rule ~vk ~n in
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:Step.Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "groth16-zkp%d" n)
+      ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let side_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Groth16_requests.handler witness in
+  let output_hash, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  (output_hash, proof, side_vk)
+
+(** Compile and prove a single circuit (0-12), returning the accumulator,
+    line_hashes, g_values, and VK via auxiliary_output for chaining +
+    tree compression. *)
+let compile_prove_and_export_with_acc ~(vk : Vk_constants.t) ~(n : int)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    :
+    Step.Field.Constant.t
+    * Accumulator.Constant.t
+    * Step.Field.Constant.t array
+    * Fp12.Constant.t array
+    * Pickles_types.Nat.N0.n Pickles.Proof.t
+    * Pickles.Side_loaded.Verification_key.t =
+  let rule = make_rule_with_acc ~vk ~n in
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:(Circuits.ate_aux_typ_with_g ~circuit_index:n)
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "groth16-zkp%d" n)
+      ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let side_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Groth16_requests.handler witness in
+  let output_hash, ((acc_after, lh_after), gv_after), proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  (output_hash, acc_after, lh_after, gv_after, proof, side_vk)

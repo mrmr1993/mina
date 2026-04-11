@@ -1,12 +1,18 @@
 (** Test: compare tracker g_value hashes with circuit-computed line_hashes. *)
 open Core_kernel
+
 module Step = Pickles.Impls.Step
 module WT = Proof_conversion.Witness_tracker
 
 let () =
-  let proof = Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json" in
+  let proof =
+    Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+  in
   let vk = Proof_conversion.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
-  let aux = Proof_conversion.Proof_json.load_aux_witness "/tmp/groth16_test/aux_witness.json" in
+  let aux =
+    Proof_conversion.Proof_json.load_aux_witness
+      "/tmp/groth16_test/aux_witness.json"
+  in
   let tracker = WT.create ~proof ~vk ~aux in
   Proof_conversion.Circuit_config.set_tracker tracker ;
   let vk_const = Proof_conversion.Vk_constants.create vk in
@@ -64,7 +70,9 @@ let () =
   for i = begin_idx to end_idx - 1 do
     let idx = i - 1 in
     let circuit_hash = lh_from_circuit.(idx) in
-    let tracker_hash = fp_to_field (WT.hash_fp12_out_of_circuit g_values.(idx)) in
+    let tracker_hash =
+      fp_to_field (WT.hash_fp12_out_of_circuit g_values.(idx))
+    in
     if not (Step.Field.Constant.equal circuit_hash tracker_hash) then (
       Printf.eprintf "  MISMATCH at idx %d: circuit=%s tracker=%s\n%!" idx
         (Step.Field.Constant.to_string circuit_hash)
