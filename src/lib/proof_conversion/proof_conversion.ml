@@ -39,10 +39,24 @@ module Groth16 : PROOF_SYSTEM = struct
   let name = "groth16"
 
   let convert ~input_path ~output_path =
+    let dir = Filename.dirname input_path in
     let proof = Proof_json.load_proof input_path in
-    let vk_path = Filename.dirname input_path ^ "/vk.json" in
+    (* Look for VK and aux witness: check explicit env vars, then conventions *)
+    let vk_path =
+      match Sys.getenv_opt "GROTH16_VK_PATH" with
+      | Some p ->
+          p
+      | None ->
+          dir ^ "/vk.json"
+    in
     let vk = Proof_json.load_vk vk_path in
-    let aux_path = Filename.dirname input_path ^ "/aux_witness.json" in
+    let aux_path =
+      match Sys.getenv_opt "GROTH16_AUX_PATH" with
+      | Some p ->
+          p
+      | None ->
+          dir ^ "/aux_witness.json"
+    in
     let aux = Proof_json.load_aux_witness aux_path in
     let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
@@ -76,7 +90,10 @@ module Groth16 : PROOF_SYSTEM = struct
           { Groth16_requests.empty_witness with
             accumulator = Some !current_acc
           ; line_hashes = Some line_hashes_field
-          ; b_lines = Some b_lines
+          ; b_lines =
+              Some
+                (Array.map b_lines ~f:(fun (l : Witness_tracker.Line.t) ->
+                     (l.lambda, l.neg_mu) ) )
           }
         else
           (* f-update circuits: need accumulator, g_chunk, lhs/rhs hashes *)

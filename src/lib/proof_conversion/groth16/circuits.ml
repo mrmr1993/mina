@@ -421,7 +421,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
     For circuits 13-15, returns a dummy accumulator (they don't chain). *)
 let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
     Step.Field.t -> Step.Field.t * Accumulator.Circuit.t =
-  let body = build_circuit_body ~vk ~circuit_index in
+  let _body = build_circuit_body ~vk ~circuit_index in
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
       (* Ate loop circuits: the body internally witnesses acc and builds

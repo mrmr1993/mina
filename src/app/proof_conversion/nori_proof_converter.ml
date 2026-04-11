@@ -285,16 +285,41 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   Yojson.Safe.to_file output_path output ;
   Printf.eprintf "Output written to %s\n%!" output_path
 
+let run_risc0_to_groth16 ~proof_path ~vk_path =
+  Printf.eprintf "=== RISC Zero to Groth16 Proof Conversion ===\n%!" ;
+  Printf.eprintf "Proof: %s\n%!" proof_path ;
+  Printf.eprintf "VK: %s\n%!" vk_path ;
+  (* Set VK path via env var for Groth16.convert to find *)
+  Core_unix.putenv ~key:"GROTH16_VK_PATH" ~data:vk_path ;
+  (* Output matching nori convention *)
+  let dir = Filename.dirname proof_path in
+  let base = Filename.basename proof_path in
+  let base_no_ext =
+    if String.is_suffix ~suffix:".json" (String.lowercase base) then
+      String.sub base ~pos:0 ~len:(String.length base - 5)
+    else base
+  in
+  let output_path =
+    Filename.concat dir (base_no_ext ^ ".risc0ToGroth16.json")
+  in
+  Proof_conversion.Groth16.convert ~input_path:proof_path ~output_path ;
+  Printf.eprintf "Output written to %s\n%!" output_path
+
 let () =
   match Sys.argv with
   | [| _; "sp1ToPlonk"; input_path |] ->
       run_sp1_to_plonk ~input_path ~aux_path:""
   | [| _; "sp1ToPlonk"; input_path; aux_path |] ->
       run_sp1_to_plonk ~input_path ~aux_path
+  | [| _; "risc0ToGroth16"; proof_path; vk_path |] ->
+      run_risc0_to_groth16 ~proof_path ~vk_path
   | _ ->
+      Printf.eprintf "Usage: nori-proof-converter <command> <arg1> [arg2]\n\n" ;
+      Printf.eprintf "Commands:\n" ;
+      Printf.eprintf "  sp1ToPlonk <input.json> [aux_witness.json]\n" ;
+      Printf.eprintf "    Convert SP1 PLONK proof to Mina-compatible proof\n\n" ;
+      Printf.eprintf "  risc0ToGroth16 <proof.json> <vk.json>\n" ;
       Printf.eprintf
-        "Usage: nori-proof-converter sp1ToPlonk <input.json> [aux_witness.json]\n" ;
-      Printf.eprintf "\nSupported commands:\n" ;
-      Printf.eprintf
-        "  sp1ToPlonk    Convert SP1 PLONK proof to Mina-compatible proof\n" ;
+        "    Convert RISC Zero Groth16 proof to Mina-compatible proof\n" ;
+      Printf.eprintf "    (VK must be enriched with alpha_beta and w27)\n" ;
       exit 1
