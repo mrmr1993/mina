@@ -520,7 +520,7 @@ let evaluate_line (line : Line.t) ~(x_over_y : BI.t) ~(y_inv : BI.t) : Fp12.t =
 let compute_miller_loop (t : t) : unit =
   let neg_a = get_neg_a t in
   let x_over_y, y_inv = compute_affine_cache neg_a in
-  let b = G2.of_proof_json t.vk.beta in
+  let b = G2.of_proof_json t.proof.b in
   let ate = Bn254_params.ate_loop_count in
   let n = Array.length ate in
   (* Initialize: T = B, f = 1 *)
