@@ -1181,22 +1181,6 @@ end = struct
           (* Important note: we do not check if the value has been set before.
              Therefore, it will always use the latest value *)
           rt.data.(i) <- vv ) ;
-    (* Optionally dump witness to file for debugging. *)
-    ( try
-        let path = Option.value_exn (Sys.getenv_opt "DUMP_WITNESS") in
-        let oc = Out_channel.create path in
-        let num_cols = Array.length res in
-        let num_rows = if num_cols > 0 then Array.length res.(0) else 0 in
-        Out_channel.fprintf oc "%d %d\n" num_rows num_cols ;
-        for row = 0 to num_rows - 1 do
-          for col = 0 to num_cols - 1 do
-            if col > 0 then Out_channel.fprintf oc " " ;
-            Out_channel.fprintf oc "%s" (Fp.to_string res.(col).(row))
-          done ;
-          Out_channel.fprintf oc "\n"
-        done ;
-        Out_channel.close oc
-      with _ -> () ) ;
     (* Return the witness. *)
     (res, runtime_tables)
 
