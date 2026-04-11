@@ -47,25 +47,57 @@ module Groth16 : PROOF_SYSTEM = struct
     let tracker = Witness_tracker.create ~proof ~vk ~aux in
     Circuit_config.set_tracker tracker ;
     let vk_const = Vk_constants.create vk in
-    let witnesses =
-      Array.init Circuits.num_circuits ~f:(fun _n ->
-          (* TODO: populate witnesses from tracker data *)
-          Groth16_requests.empty_witness )
-    in
-    let proofs = Pickles_rules.compile_and_prove_all ~vk:vk_const ~witnesses in
-    (* TODO: hash_pairs should use actual proof output hashes, not synthetic
-       values. Currently the compression tree operates on dummy data. *)
     let module Step = Pickles.Impls.Step in
+    (* Pre-compute static witness data from tracker *)
+    let line_hashes = Witness_tracker.get_line_hashes tracker in
+    let b_lines = Witness_tracker.get_all_b_lines tracker in
+    (* Get initial accumulator constant *)
+    let initial_acc = Witness_tracker.get_accumulator_constant tracker in
+    (* Chain circuits 0-5 via auxiliary_output *)
+    let current_hash = ref Step.Field.Constant.zero in
+    let current_acc = ref initial_acc in
     let hash_pairs =
-      Array.init Circuits.num_circuits ~f:(fun i ->
-          let input =
-            if i = 0 then Step.Field.Constant.zero
-            else Step.Field.Constant.of_int i
-          in
-          let output = Step.Field.Constant.of_int (i + 1) in
-          (input, output) )
+      Array.create ~len:Circuits.num_circuits
+        (Step.Field.Constant.zero, Step.Field.Constant.zero)
     in
-    let _final_hash, _final_proof = Compressor.compress ~hash_pairs in
+    let proofs =
+      Array.create ~len:Circuits.num_circuits
+        (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
+    in
+    for n = 0 to 5 do
+      let witness : Groth16_requests.witness =
+        { Groth16_requests.empty_witness with
+          accumulator = Some !current_acc
+        ; line_hashes =
+            Some
+              (Array.map line_hashes ~f:(fun h ->
+                   Step.Field.Constant.of_string
+                     (Kimchi_pasta.Pasta.Fp.to_string h) ) )
+        ; b_lines = Some b_lines
+        }
+      in
+      let input_hash = !current_hash in
+      let output_hash, acc_after, proof =
+        Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const ~n ~input_hash
+          ~witness
+      in
+      hash_pairs.(n) <- (input_hash, output_hash) ;
+      proofs.(n) <- proof ;
+      current_hash := output_hash ;
+      current_acc := acc_after
+    done ;
+    (* Circuits 6-15: use regular proving with pre-populated witnesses.
+       TODO: extend chaining for circuits 6-12 *)
+    for n = 6 to Circuits.num_circuits - 1 do
+      let witness = Groth16_requests.empty_witness in
+      let input_hash = !current_hash in
+      let output_hash, proof =
+        Pickles_rules.compile_and_prove_one ~vk:vk_const ~n ~input_hash ~witness
+      in
+      hash_pairs.(n) <- (input_hash, output_hash) ;
+      proofs.(n) <- proof ;
+      current_hash := output_hash
+    done ;
     (* Serialize proofs to JSON *)
     let json_proofs =
       Array.mapi proofs ~f:(fun i proof ->

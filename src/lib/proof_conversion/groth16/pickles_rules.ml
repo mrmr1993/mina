@@ -70,6 +70,71 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
       failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof)
 
+(** Build a rule that returns the Groth16 Accumulator as auxiliary output.
+    Used for circuits 0-12 to chain accumulator state.
+    Uses [build_circuit_body_with_acc] which returns (hash, acc). *)
+let make_rule_with_acc ~(vk : Vk_constants.t) ~(n : int) :
+    _ Pickles.Inductive_rule.Promise.t =
+  assert (n >= 0 && n <= 12) ;
+  let body = Circuits.build_circuit_body_with_acc ~vk ~circuit_index:n in
+  { identifier = sprintf "zkp%d" n
+  ; prevs = []
+  ; main =
+      (fun { public_input = input_hash } ->
+        Circuit_utils.dummy_constraints () ;
+        let output_hash, acc = body input_hash in
+        Promise.return
+          { Pickles.Inductive_rule.previous_proof_statements = []
+          ; public_output = output_hash
+          ; auxiliary_output = acc
+          } )
+  ; feature_flags =
+      ( ignore (n : int) ;
+        { Pickles_types.Plonk_types.Features.none_bool with
+          range_check0 = true
+        ; range_check1 = true
+        ; foreign_field_add = true
+        ; foreign_field_mul = true
+        } )
+  }
+
+(** Compile and prove a single circuit (0-12), returning the accumulator
+    via auxiliary_output for chaining. *)
+let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    :
+    Step.Field.Constant.t
+    * Accumulator.Constant.t
+    * Pickles_types.Nat.N0.n Pickles.Proof.t =
+  let rule = make_rule_with_acc ~vk ~n in
+  let _tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:Accumulator.typ
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "groth16-zkp%d" n)
+      ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  let handler = Groth16_requests.handler witness in
+  let output_hash, acc_after, proof =
+    Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  (output_hash, acc_after, proof)
+
 (** Compile and prove all 16 circuits, chaining input/output hashes. *)
 let compile_and_prove_all ~(vk : Vk_constants.t)
     ~(witnesses : Groth16_requests.witness array) :

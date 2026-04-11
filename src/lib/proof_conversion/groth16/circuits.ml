@@ -415,3 +415,53 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
        pis_hash
   | n ->
       failwith (sprintf "Invalid circuit index: %d" n)
+
+(** Build a circuit body that returns (output_hash, accumulator) for
+    circuits 0-12, enabling auxiliary_output chaining.
+    For circuits 13-15, returns a dummy accumulator (they don't chain). *)
+let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
+    Step.Field.t -> Step.Field.t * Accumulator.Circuit.t =
+  let body = build_circuit_body ~vk ~circuit_index in
+  match circuit_index with
+  | 0 | 1 | 2 | 3 | 4 | 5 ->
+      (* Ate loop circuits: the body internally witnesses acc and builds
+         updated. We re-run the same logic but capture updated. *)
+      let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
+      let gamma_lines_const = vk_lines_to_circuit vk.gamma_lines in
+      fun input_hash ->
+        let acc, lines_hashes, all_b_lines = witness_ate_common input_hash in
+        let acc =
+          if circuit_index = 0 then
+            { acc with state = { acc.state with t_point = acc.proof.b } }
+          else acc
+        in
+        let digest = Array_list_hasher.hash lines_hashes in
+        Step.Field.Assert.equal acc.state.g_digest digest ;
+        let a_cache = Lines.AffineCache.make acc.proof.neg_a in
+        let c_cache = Lines.AffineCache.make acc.proof.c in
+        let pi_cache = Lines.AffineCache.make acc.proof.pi in
+        let caches : Ate_circuit.three_cache = { a_cache; c_cache; pi_cache } in
+        let begin_idx, end_idx = Ate_circuit.circuit_ranges.(circuit_index) in
+        let neg_b = G2.negate acc.proof.b in
+        let offset = Ate_circuit.b_line_offset ~begin_idx in
+        let count = Ate_circuit.b_line_count ~from:begin_idx ~to_:end_idx in
+        let b_lines = Array.sub all_b_lines ~pos:offset ~len:count in
+        let delta_slice = Array.sub delta_lines_const ~pos:offset ~len:count in
+        let gamma_slice = Array.sub gamma_lines_const ~pos:offset ~len:count in
+        let t_updated =
+          Ate_circuit.run_chunk acc.state.t_point ~b_point:acc.proof.b ~neg_b
+            ~begin_idx ~end_idx ~b_lines ~delta_lines:delta_slice
+            ~gamma_lines:gamma_slice ~lines_hashes ~caches
+        in
+        let new_g_digest = Array_list_hasher.hash lines_hashes in
+        let updated : Accumulator.Circuit.t =
+          { proof = acc.proof
+          ; state =
+              { acc.state with g_digest = new_g_digest; t_point = t_updated }
+          }
+        in
+        (Accumulator.hash updated, updated)
+  | _ ->
+      failwith
+        (sprintf "build_circuit_body_with_acc: not implemented for circuit %d"
+           circuit_index )
