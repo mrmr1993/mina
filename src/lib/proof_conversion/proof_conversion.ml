@@ -135,16 +135,22 @@ module Groth16 : PROOF_SYSTEM = struct
           let idx = n - 7 in
           let n_iters = Fupdate_circuit.iterations_per_circuit.(idx) in
           let g_start = Fupdate_circuit.g_start_per_circuit.(idx) in
+          (* Use evolving_line_hashes from previous circuits' aux output,
+             not the tracker's pre-computed values *)
+          let all_lh = !evolving_line_hashes in
+          let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
           let g_values = Witness_tracker.get_g_values tracker in
           let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
-          let lhs, _g, rhs =
-            Witness_tracker.get_g_digest_opening tracker ~g_start ~n_iters
+          let rhs_start = g_start + n_iters in
+          let rhs =
+            Array.sub all_lh ~pos:rhs_start
+              ~len:(Array.length all_lh - rhs_start)
           in
           { Groth16_requests.empty_witness with
             accumulator = Some !current_acc
           ; g_chunk = Some g_chunk
-          ; lhs_hashes = Some (Array.map lhs ~f:fp_to_field)
-          ; rhs_hashes = Some (Array.map rhs ~f:fp_to_field)
+          ; lhs_hashes = Some lhs
+          ; rhs_hashes = Some rhs
           }
       in
       let input_hash = !current_hash in
@@ -165,11 +171,12 @@ module Groth16 : PROOF_SYSTEM = struct
         match n with
         | 13 ->
             (* Final exponentiation: needs accumulator + lhs_hashes + final_g *)
+            let all_lh = !evolving_line_hashes in
             let n_total = Array.length Bn254_params.ate_loop_count in
-            let lhs = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
+            let lhs = Array.sub all_lh ~pos:0 ~len:(n_total - 1) in
             { Groth16_requests.empty_witness with
               accumulator = Some !current_acc
-            ; lhs_hashes = Some (Array.map lhs ~f:fp_to_field)
+            ; lhs_hashes = Some lhs
             ; final_g = Some (Witness_tracker.get_g tracker (n_total - 1))
             }
         | 14 ->
