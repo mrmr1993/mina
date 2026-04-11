@@ -15,15 +15,52 @@ module TC = Proof_conversion.Tree_compressor
 
 let run_sp1_to_plonk ~input_path ~aux_path =
   Printf.eprintf "=== SP1 to PLONK Proof Conversion ===\n%!" ;
-  (* Load input *)
+  (* Detect input format: SP1 (has proof.Plonk) vs fixture (has hexProof) *)
+  let json = Yojson.Safe.from_file input_path in
+  let is_sp1_format =
+    match Yojson.Safe.Util.member "proof" json with
+    | `Null ->
+        false
+    | proof_json -> (
+        match Yojson.Safe.Util.member "Plonk" proof_json with
+        | `Null ->
+            false
+        | _ ->
+            true )
+  in
   let acc_const, aux =
-    (* Try fixture format first, fall back to SP1 format *)
-    try Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
-    with _ ->
+    if is_sp1_format then (
+      Printf.eprintf "Detected SP1 format.\n%!" ;
       let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
-      let aux_json = Yojson.Safe.from_file aux_path in
-      let aux = Proof_conversion.Plonk_proof_json.parse_aux_witness aux_json in
-      (acc, aux)
+      let aux =
+        let try_path p =
+          if String.length p > 0 && Stdlib.Sys.file_exists p then Some p
+          else None
+        in
+        let aux_file =
+          match try_path aux_path with
+          | Some p ->
+              Some p
+          | None ->
+              (* Try default location next to input *)
+              let dir = Filename.dirname input_path in
+              try_path (Filename.concat dir "aux_witness.json")
+        in
+        match aux_file with
+        | Some p ->
+            Printf.eprintf "Loading aux witness from %s\n%!" p ;
+            let aux_json = Yojson.Safe.from_file p in
+            Proof_conversion.Plonk_proof_json.parse_aux_witness aux_json
+        | None ->
+            failwith
+              "PLONK aux witness file not found. For SP1 format, provide \
+               aux_witness.json next to the input file or as a second \
+               argument."
+      in
+      (acc, aux) )
+    else (
+      Printf.eprintf "Detected fixture format.\n%!" ;
+      Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path )
   in
   let input_hash =
     Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
