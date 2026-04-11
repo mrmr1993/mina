@@ -85,7 +85,9 @@ module Groth16 : PROOF_SYSTEM = struct
         state =
           { g_digest = initial_g_digest
           ; t_point = acc.proof.b (* Initial t_point = B *)
-          ; f = Fp12.Constant.one (* f starts as 1 *)
+          ; f =
+              (Fp6.Constant.zero, Fp6.Constant.zero)
+              (* f starts as zero, matching nori *)
           }
       }
     in
