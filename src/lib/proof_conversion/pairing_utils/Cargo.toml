@@ -1,0 +1,20 @@
+[package]
+name = "pairing-utils"
+version = "0.1.0"
+edition = "2021"
+license = "MIT/Apache-2.0"
+description = "BN254 pairing utilities for proof conversion (aux witness computation)"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+ark-bn254 = "0.5"
+ark-ff = { version = "0.5", features = ["asm"] }
+ark-ec = "0.5"
+ark-std = "0.5"
+ark-serialize = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+num-bigint = "0.4"
+ocaml = { version = "0.22.2", features = ["no-caml-startup"] }
