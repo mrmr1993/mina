@@ -101,6 +101,10 @@ pub unsafe extern "C" fn caml_pairing_utils_groth16_aux_witness(
     let mlo_raw = Bn254::multi_miller_loop(&[neg_a, pi, c], &[b, gamma, delta]);
     let mlo = mlo_raw.0 * alpha_beta;
 
+    // Debug: print MLO first fields
+    eprintln!("Rust MLO.g00 = {}", mlo.c0.c0.c0);
+    eprintln!("Rust MLO.g01 = {}", mlo.c0.c0.c1);
+
     let (shift_power, c_root) = rust_compute_aux_witness(mlo);
     let result = format!("{}|{}", shift_power, format_fq12(c_root));
     alloc_ocaml_string(&result)

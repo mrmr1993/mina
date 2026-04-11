@@ -307,7 +307,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
           Proof_conversion.Proof_json.load_aux_witness default_path )
         else (
           Printf.eprintf "Computing aux witness natively via Rust FFI...\n%!" ;
-          Proof_conversion.Pairing_utils_stubs.groth16_aux_witness ~proof ~vk )
+          Proof_conversion.Pairing_utils_bridge.groth16_aux_witness ~proof ~vk )
   in
   let tracker = WT.create ~proof ~vk ~aux in
   Proof_conversion.Circuit_config.set_tracker tracker ;

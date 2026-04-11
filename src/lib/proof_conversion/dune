@@ -1,10 +1,7 @@
 (include_subdirs unqualified)
 
-(dirs :standard \ pairing_utils)
-
 (library
  (name proof_conversion)
- (public_name proof_conversion)
  (libraries
   core_kernel
   pickles
@@ -20,24 +17,9 @@
   bignum.bigint
   snarky_foreign_field
   random_oracle
-  digestif.ocaml)
- (foreign_archives pairing_utils)
- (no_dynlink)
- (c_library_flags :standard -lpthread -Wl,--allow-multiple-definition)
+  digestif.ocaml
+  proof_conversion_pairing_utils)
  (instrumentation
   (backend bisect_ppx))
  (preprocess
   (pps ppx_version ppx_jane)))
-
-; Build the Rust pairing-utils static library.
-; Uses an absolute source path since dune sandboxing makes relative paths unreliable.
-(rule
- (targets libpairing_utils.a)
- (deps
-  (source_tree pairing_utils)
-  (env_var PAIRING_UTILS_STATIC_LIB))
- (locks /cargo-lock)
- (action
-  (no-infer
-   (bash
-    "SRCDIR=\"$(git -C %{workspace_root} rev-parse --show-toplevel)/src/lib/proof_conversion/pairing_utils\"; TGTDIR=\"$(git -C %{workspace_root} rev-parse --show-toplevel)/_build/cargo_pairing_utils\"; if [ -n \"${PAIRING_UTILS_STATIC_LIB:-}\" ]; then cp \"$PAIRING_UTILS_STATIC_LIB\" %{targets}; else cargo build -p pairing-utils --release --manifest-path \"$SRCDIR/Cargo.toml\" --target-dir \"$TGTDIR\" && cp \"$TGTDIR/release/libpairing_utils.a\" %{targets}; fi"))))

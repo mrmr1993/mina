@@ -277,7 +277,7 @@ end
 (** Compute the affine cache for a G1 point. *)
 let compute_affine_cache (p : G1.t) : BI.t * BI.t =
   let y_inv = Fp.inv p.y in
-  let x_over_y = Fp.mul p.x y_inv in
+  let x_over_y = Fp.mul (Fp.neg p.x) y_inv in
   (x_over_y, y_inv)
 
 (** Per-iteration witness data for ate loop circuits. *)
