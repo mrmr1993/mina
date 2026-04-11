@@ -363,7 +363,7 @@ let get_pi (t : t) : G1.t = get_full_ic_acc t
     This provides all the data needed to witness the accumulator in-circuit. *)
 let get_accumulator_constant (t : t) : Accumulator.Constant.t =
   let neg_a = get_neg_a t in
-  let b_g2 = G2.of_proof_json t.vk.beta in
+  let b_g2 = G2.of_proof_json t.proof.b in
   let c_g1 = get_c t in
   let pi = get_pi t in
   (* The Accumulator module references the bn254 G1/G2 Constant types,
