@@ -416,16 +416,18 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
   | n ->
       failwith (sprintf "Invalid circuit index: %d" n)
 
-(** Build a circuit body that returns (output_hash, accumulator) for
-    circuits 0-12, enabling auxiliary_output chaining.
-    For circuits 13-15, returns a dummy accumulator (they don't chain). *)
+(** Auxiliary output type for ate loop circuits (0-6):
+    accumulator + line_hashes for chaining. *)
+let ate_aux_typ =
+  let n = Array.length Bn254_params.ate_loop_count in
+  Step.Typ.(Accumulator.typ * array ~length:n Step.Field.typ)
+
 let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
-    Step.Field.t -> Step.Field.t * Accumulator.Circuit.t =
+    Step.Field.t -> Step.Field.t * (Accumulator.Circuit.t * Step.Field.t array)
+    =
   let _body = build_circuit_body ~vk ~circuit_index in
   match circuit_index with
   | 0 | 1 | 2 | 3 | 4 | 5 ->
-      (* Ate loop circuits: the body internally witnesses acc and builds
-         updated. We re-run the same logic but capture updated. *)
       let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
       let gamma_lines_const = vk_lines_to_circuit vk.gamma_lines in
       fun input_hash ->
@@ -460,7 +462,7 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
               { acc.state with g_digest = new_g_digest; t_point = t_updated }
           }
         in
-        (Accumulator.hash updated, updated)
+        (Accumulator.hash updated, (updated, lines_hashes))
   | 6 ->
       (* Ate loop + Frobenius: same as circuit body but returns acc. *)
       let delta_lines_const = vk_lines_to_circuit vk.delta_lines in
@@ -519,10 +521,20 @@ let build_circuit_body_with_acc ~(vk : Vk_constants.t) ~(circuit_index : int) :
           ; state = { acc.state with g_digest = final_g_digest; t_point }
           }
         in
-        (Accumulator.hash updated, updated)
+        (Accumulator.hash updated, (updated, lines_hashes))
   | 7 | 8 | 9 | 10 | 11 | 12 ->
-      (* f-update circuits: delegate to Fupdate_circuit.build_with_acc *)
-      Fupdate_circuit.build_with_acc ~circuit_index
+      (* f-update circuits: return (hash, (acc, dummy_lh)).
+         line_hashes don't change in f-update circuits. *)
+      let n = Array.length Bn254_params.ate_loop_count in
+      fun input_hash ->
+        let hash, acc =
+          Fupdate_circuit.build_with_acc ~circuit_index input_hash
+        in
+        let dummy_lh =
+          Step.exists (Step.Typ.array ~length:n Step.Field.typ)
+            ~compute:(fun () -> Array.create ~len:n Step.Field.Constant.zero)
+        in
+        (hash, (acc, dummy_lh))
   | _ ->
       failwith
         (sprintf "build_circuit_body_with_acc: not implemented for circuit %d"

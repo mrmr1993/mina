@@ -147,7 +147,7 @@ module Groth16 : PROOF_SYSTEM = struct
           }
       in
       let input_hash = !current_hash in
-      let output_hash, acc_after, proof =
+      let output_hash, acc_after, lh_after, proof =
         Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const ~n ~input_hash
           ~witness
       in
@@ -155,22 +155,8 @@ module Groth16 : PROOF_SYSTEM = struct
       proofs.(n) <- proof ;
       current_hash := output_hash ;
       current_acc := acc_after ;
-      (* Update evolving_line_hashes with entries computed by this circuit *)
-      if n <= 6 then (
-        let ranges = Ate_circuit.circuit_ranges in
-        let begin_idx, end_idx = ranges.(n) in
-        let g_values = Witness_tracker.get_g_values tracker in
-        for i = begin_idx to end_idx - 1 do
-          !evolving_line_hashes.(i - 1) <-
-            fp_to_field
-              (Witness_tracker.hash_fp12_out_of_circuit g_values.(i - 1))
-        done ;
-        (* For circuit 6, also add the Frobenius hash *)
-        if n = 6 then
-          !evolving_line_hashes.(n_total - 1) <-
-            fp_to_field
-              (Witness_tracker.hash_fp12_out_of_circuit
-                 (Witness_tracker.get_g tracker (n_total - 1)) ) )
+      (* Use line_hashes from auxiliary output for next circuit *)
+      if n <= 6 then evolving_line_hashes := lh_after
     done ;
     (* Circuits 13-15: use regular proving with specific witnesses *)
     for n = 13 to Circuits.num_circuits - 1 do
