@@ -27,6 +27,7 @@ module Fp12 = Fp12
 module Circuit_config = Circuit_config
 module Accumulator = Accumulator
 module Ate_circuit = Ate_circuit
+module Fupdate_circuit = Fupdate_circuit
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
