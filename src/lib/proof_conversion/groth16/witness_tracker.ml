@@ -655,8 +655,8 @@ let get_g_at_iteration (t : t) (i : int) : Fp12.t =
 let get_iteration (t : t) (i : int) : iteration_data = t.iterations.(i)
 
 (** Compute the Miller loop output (Fp12) from proof and VK without needing
-    aux witness data. Used to feed into Rust pairing-utils for native aux
-    witness computation. *)
+    aux witness data. Matches nori's multiMillerLoop:
+      mlo = product(g_i with squaring) * frobenius_g * alpha_beta *)
 let compute_mlo ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : Fp12.t =
   let dummy_fp12 = (Fp6.zero, Fp6.zero) in
   let t =
@@ -677,7 +677,57 @@ let compute_mlo ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : Fp12.t =
     ; frobenius_lines = [||]
     }
   in
-  compute_miller_loop t ; t.f
+  compute_miller_loop t ;
+  (* Build MLO from g_values: mlo = 1; for each g: mlo = mlo^2 * g *)
+  let g = t.g_values in
+  let n = Array.length g in
+  let mlo = ref Fp12.one in
+  for i = 0 to n - 1 do
+    mlo := Fp12.square !mlo ;
+    mlo := Fp12.mul !mlo g.(i)
+  done ;
+  (* Compute Frobenius g product: product of all 6 Frobenius line evals *)
+  let neg_a = get_neg_a t in
+  let x_over_y, y_inv = compute_affine_cache neg_a in
+  let c_g1 = get_c t in
+  let pi_g1 = get_pi t in
+  let c_xoy, c_yinv = compute_affine_cache c_g1 in
+  let pi_xoy, pi_yinv = compute_affine_cache pi_g1 in
+  (* piB and pi2B line evals at negA *)
+  let eval_frob_line (line : Line.t) ~x_over_y ~y_inv =
+    evaluate_line line ~x_over_y ~y_inv
+  in
+  let frob_g_val =
+    (* pi(B): b_line[0] evaluated at all 3 caches *)
+    let g_pi =
+      Fp12.mul
+        (Fp12.mul
+           (eval_frob_line t.frobenius_b_lines.(0) ~x_over_y ~y_inv)
+           (eval_frob_line
+              t.frobenius_delta_lines.(0)
+              ~x_over_y:c_xoy ~y_inv:c_yinv ) )
+        (eval_frob_line
+           t.frobenius_gamma_lines.(0)
+           ~x_over_y:pi_xoy ~y_inv:pi_yinv )
+    in
+    (* pi^2(B): b_line[1] evaluated at all 3 caches *)
+    let g_pi2 =
+      Fp12.mul
+        (Fp12.mul
+           (eval_frob_line t.frobenius_b_lines.(1) ~x_over_y ~y_inv)
+           (eval_frob_line
+              t.frobenius_delta_lines.(1)
+              ~x_over_y:c_xoy ~y_inv:c_yinv ) )
+        (eval_frob_line
+           t.frobenius_gamma_lines.(1)
+           ~x_over_y:pi_xoy ~y_inv:pi_yinv )
+    in
+    Fp12.mul g_pi g_pi2
+  in
+  mlo := Fp12.mul !mlo frob_g_val ;
+  (* Multiply by alpha_beta from VK *)
+  mlo := Fp12.mul !mlo vk.alpha_beta ;
+  !mlo
 
 (** Create a witness tracker from parsed proof, VK, and auxiliary witness.
     Immediately computes the full Miller loop. *)

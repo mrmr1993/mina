@@ -1,16 +1,27 @@
-(** Minimal test for pairing-utils FFI. *)
+(** Test pairing-utils FFI with real Groth16 proof data. *)
 open Core_kernel
 
+module BI = Bignum_bigint
+
 let () =
-  Printf.eprintf "Testing pairing-utils FFI...\n%!" ;
-  (* Test with a known Fp12 value from the Rust test suite *)
-  let test_input =
-    "7132501230381864267188409488606173516635842146803349097563305179025064669065|16365919602559810549726669100967320393143548174841331179289652685753593493650|3532095959317750303964796360428780559597205257991016775312050753348379506721|18634158873596615205287518873401860019057794615246596548091176453228829533646|5581090697418127075806485318594150677879841066635013512096731176744342492127|1354975069351217677760809604335762049397632419417110654497819354750851356054|15665151486746981962219262278742126187753639050101108188325922459179333115049|2482671709059119726943774312645729129273477576245631706425041190756079176733|20324490397940400734909154464690181469291619326777848983577166161876280041452|963088239415532675560461442673174771458628954456447330308929714589995123602|15738819323212231225616795239021111381572087156520794499435496905779083242808|18558041820785676386999019237679130182912471677672005556863825989565934244312"
+  Printf.eprintf "Testing pairing-utils FFI with real proof data...\n%!" ;
+  let proof =
+    Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json"
   in
-  Printf.eprintf "Input length: %d\n%!" (String.length test_input) ;
-  Printf.eprintf "Calling Rust FFI...\n%!" ;
-  let result =
-    Proof_conversion.Pairing_utils_stubs.compute_aux_witness_raw test_input
-  in
-  Printf.eprintf "Result: %s\n%!" (String.prefix result 80) ;
+  let vk = Proof_conversion.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  Printf.eprintf "Computing MLO from proof + VK...\n%!" ;
+  let mlo = Proof_conversion.Witness_tracker.compute_mlo ~proof ~vk in
+  Printf.eprintf "MLO computed.\n%!" ;
+  (* Dump first few fields of the MLO *)
+  let (g0, g1, _g2), (_h0, _h1, _h2) = mlo in
+  let g00, g01 = g0 in
+  let g10, g11 = g1 in
+  Printf.eprintf "MLO.g00 = %s\n%!" (BI.to_string g00) ;
+  Printf.eprintf "MLO.g01 = %s\n%!" (BI.to_string g01) ;
+  Printf.eprintf "MLO.g10 = %s\n%!" (BI.to_string g10) ;
+  Printf.eprintf "MLO.g11 = %s\n%!" (BI.to_string g11) ;
+  (* Also dump the pipe-delimited string *)
+  let pipe = Proof_conversion.Pairing_utils_stubs.fp12_to_pipe mlo in
+  Printf.eprintf "Pipe length: %d\n%!" (String.length pipe) ;
+  Printf.eprintf "First 200 chars: %s\n%!" (String.prefix pipe 200) ;
   Printf.eprintf "Done.\n%!"
