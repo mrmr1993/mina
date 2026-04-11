@@ -110,5 +110,41 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
         handler ) ;
   let a_x, a_y, neg_b_x, neg_b_y = !kzg_result in
   Snarky_backendless.Snark0.set_eval_constraints true ;
-  (* FpA reads as Field3.Constant.t = Bignum_bigint.t directly *)
-  Pairing_utils_bridge.compute_kzg_mlo ~a_x ~a_y ~neg_b_x ~neg_b_y
+  (* Compute the KZG MLO using the same out-of-circuit arithmetic
+     as the Groth16 tracker (matching circuit convention). *)
+  let module WT = Witness_tracker in
+  let module BI = Bignum_bigint in
+  (* SRS G2 points *)
+  let g2 : WT.G2.t =
+    { x =
+        ( BI.of_string
+            "10857046999023057135944570762232829481370756359578518086990519993285655852781"
+        , BI.of_string
+            "11559732032986387107991004021392285783925812861821192530917403151452391805634"
+        )
+    ; y =
+        ( BI.of_string
+            "8495653923123431417604973247489272438418190587263600148770280649306958101930"
+        , BI.of_string
+            "4082367875863433681332203403145435568316851327593401208105741076214120093531"
+        )
+    }
+  in
+  let tau : WT.G2.t =
+    { x =
+        ( BI.of_string
+            "19089565590083334368588890253123139704298730990782503769911324779715431555531"
+        , BI.of_string
+            "15805639136721018565402881920352193254830339253282065586954346329754995870280"
+        )
+    ; y =
+        ( BI.of_string
+            "6779728121489434657638426458390319301070371227460768374343986326751507916979"
+        , BI.of_string
+            "9779648407879205346559610309258181044130619080926897934572699915909528404984"
+        )
+    }
+  in
+  let a_g1 : WT.G1.t = { x = a_x; y = a_y } in
+  let neg_b_g1 : WT.G1.t = { x = neg_b_x; y = neg_b_y } in
+  WT.compute_kzg_pairing_mlo ~a:a_g1 ~neg_b:neg_b_g1 ~g2 ~tau

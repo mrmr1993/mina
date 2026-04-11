@@ -59,8 +59,10 @@ let run_sp1_to_plonk ~input_path ~aux_path =
             let mlo =
               Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
             in
+            let w27 = Proof_conversion.Bn254_params.w27 () in
             let groth16_aux =
-              Proof_conversion.Pairing_utils_bridge.compute_aux_witness mlo
+              Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27
+                mlo w27
             in
             { Proof_conversion.Plonk_proof_json.shift_power =
                 Step.Field.Constant.of_int groth16_aux.shift_power

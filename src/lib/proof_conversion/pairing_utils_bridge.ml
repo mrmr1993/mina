@@ -45,6 +45,13 @@ let groth16_aux_witness ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) :
   let input = fp12_to_pipe mlo ^ "|" ^ fp12_to_pipe vk.w27 in
   parse_result (Raw.groth16_aux_witness_with_w27_raw input)
 
+(** Compute aux witness with a provided w27 (for use when MLO comes from
+    OCaml rather than arkworks, to ensure consistent w27). *)
+let compute_aux_witness_with_w27 (mlo : Fp12.Constant.t) (w27 : Fp12.Constant.t)
+    : Proof_json.aux_witness =
+  let input = fp12_to_pipe mlo ^ "|" ^ fp12_to_pipe w27 in
+  parse_result (Raw.groth16_aux_witness_with_w27_raw input)
+
 (** Compute alpha*beta pairing from VK G1/G2 points. *)
 let make_alpha_beta ~(alpha_x : BI.t) ~(alpha_y : BI.t) ~(beta_x_c0 : BI.t)
     ~(beta_x_c1 : BI.t) ~(beta_y_c0 : BI.t) ~(beta_y_c1 : BI.t) :

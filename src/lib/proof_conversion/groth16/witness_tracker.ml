@@ -741,6 +741,81 @@ let compute_mlo ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) : Fp12.t =
   mlo := Fp12.mul !mlo vk.alpha_beta ;
   !mlo
 
+(** Compute the KZG pairing MLO for two G1/G2 point pairs:
+    e(A, g2) * e(-B, tau).
+    Uses the same out-of-circuit line computation as the circuits. *)
+let compute_kzg_pairing_mlo ~(a : G1.t) ~(neg_b : G1.t) ~(g2 : G2.t)
+    ~(tau : G2.t) : Fp12.t =
+  let ate = Bn254_params.ate_loop_count in
+  let n = Array.length ate in
+  let a_xoy, a_yinv = compute_affine_cache a in
+  let nb_xoy, nb_yinv = compute_affine_cache neg_b in
+  (* Run ATE loop for both pairings in parallel *)
+  let current_g2 = ref g2 in
+  let current_tau = ref tau in
+  let neg_g2 = { G2.x = g2.x; y = Fp2.neg g2.y } in
+  let neg_tau = { G2.x = tau.x; y = Fp2.neg tau.y } in
+  let mlo = ref Fp12.one in
+  for i = 1 to n - 1 do
+    let dl_g2, new_g2 = compute_double_line !current_g2 in
+    current_g2 := new_g2 ;
+    let dl_tau, new_tau = compute_double_line !current_tau in
+    current_tau := new_tau ;
+    mlo := Fp12.square !mlo ;
+    (* g = line_g2(A) * line_tau(-B) *)
+    let g =
+      Fp12.mul
+        (evaluate_line dl_g2 ~x_over_y:a_xoy ~y_inv:a_yinv)
+        (evaluate_line dl_tau ~x_over_y:nb_xoy ~y_inv:nb_yinv)
+    in
+    mlo := Fp12.mul !mlo g ;
+    let bit = ate.(i) in
+    if bit = 1 then (
+      let al_g2, ng = compute_add_line !current_g2 g2 in
+      current_g2 := ng ;
+      let al_tau, nt = compute_add_line !current_tau tau in
+      current_tau := nt ;
+      let g_add =
+        Fp12.mul
+          (evaluate_line al_g2 ~x_over_y:a_xoy ~y_inv:a_yinv)
+          (evaluate_line al_tau ~x_over_y:nb_xoy ~y_inv:nb_yinv)
+      in
+      mlo := Fp12.mul !mlo g_add )
+    else if bit = -1 then (
+      let al_g2, ng = compute_add_line !current_g2 neg_g2 in
+      current_g2 := ng ;
+      let al_tau, nt = compute_add_line !current_tau neg_tau in
+      current_tau := nt ;
+      let g_add =
+        Fp12.mul
+          (evaluate_line al_g2 ~x_over_y:a_xoy ~y_inv:a_yinv)
+          (evaluate_line al_tau ~x_over_y:nb_xoy ~y_inv:nb_yinv)
+      in
+      mlo := Fp12.mul !mlo g_add )
+  done ;
+  (* Frobenius corrections *)
+  let pi_g2 = G2.frobenius g2 in
+  let pi2_g2 = G2.negative_frobenius pi_g2 in
+  let pi_tau = G2.frobenius tau in
+  let pi2_tau = G2.negative_frobenius pi_tau in
+  let fl_g2, tg = compute_add_line !current_g2 pi_g2 in
+  let fl_tau, tt = compute_add_line !current_tau pi_tau in
+  let frob1 =
+    Fp12.mul
+      (evaluate_line fl_g2 ~x_over_y:a_xoy ~y_inv:a_yinv)
+      (evaluate_line fl_tau ~x_over_y:nb_xoy ~y_inv:nb_yinv)
+  in
+  mlo := Fp12.mul !mlo frob1 ;
+  let fl2_g2, _ = compute_add_line tg pi2_g2 in
+  let fl2_tau, _ = compute_add_line tt pi2_tau in
+  let frob2 =
+    Fp12.mul
+      (evaluate_line fl2_g2 ~x_over_y:a_xoy ~y_inv:a_yinv)
+      (evaluate_line fl2_tau ~x_over_y:nb_xoy ~y_inv:nb_yinv)
+  in
+  mlo := Fp12.mul !mlo frob2 ;
+  !mlo
+
 (** Create a witness tracker from parsed proof, VK, and auxiliary witness.
     Immediately computes the full Miller loop. *)
 let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)
