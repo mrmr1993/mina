@@ -36,31 +36,14 @@ let parse_result result =
 let compute_aux_witness (mlo : Fp12.Constant.t) : Proof_json.aux_witness =
   parse_result (Raw.compute_aux_witness_raw (fp12_to_pipe mlo))
 
-(** Compute Groth16 aux witness from proof/VK points.
-    Uses arkworks multi_miller_loop internally. *)
+(** Compute Groth16 aux witness from proof/VK data.
+    Runs the OCaml Miller loop to get the MLO (matching the circuit's
+    convention), then calls Rust compute_aux_witness with the VK's w27. *)
 let groth16_aux_witness ~(proof : Proof_json.proof) ~(vk : Proof_json.vk) :
     Proof_json.aux_witness =
-  let s = BI.to_string in
-  let pi = Witness_tracker.compute_pi ~proof ~vk in
-  let s2 (a, b) = s a ^ "|" ^ s b in
-  let input =
-    String.concat ~sep:"|"
-      [ s proof.neg_a.x
-      ; s proof.neg_a.y
-      ; s2 proof.b.x
-      ; s2 proof.b.y
-      ; s proof.c.x
-      ; s proof.c.y
-      ; s pi.x
-      ; s pi.y
-      ; s2 vk.gamma.x
-      ; s2 vk.gamma.y
-      ; s2 vk.delta.x
-      ; s2 vk.delta.y
-      ; fp12_to_pipe vk.alpha_beta
-      ]
-  in
-  parse_result (Raw.groth16_aux_witness_raw input)
+  let mlo = Witness_tracker.compute_mlo ~proof ~vk in
+  let input = fp12_to_pipe mlo ^ "|" ^ fp12_to_pipe vk.w27 in
+  parse_result (Raw.groth16_aux_witness_with_w27_raw input)
 
 (** Compute alpha*beta pairing from VK G1/G2 points. *)
 let make_alpha_beta ~(alpha_x : BI.t) ~(alpha_y : BI.t) ~(beta_x_c0 : BI.t)
