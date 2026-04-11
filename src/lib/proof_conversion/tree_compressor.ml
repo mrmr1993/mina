@@ -377,6 +377,7 @@ let node_handler (w : node_witness) :
 let compile_layer1 () =
   let tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
            (Step.Typ.unit, subtree_carry_typ) )
@@ -399,6 +400,7 @@ let compile_layer1 () =
 let compile_node () =
   let tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output
            (Step.Typ.unit, subtree_carry_typ) )

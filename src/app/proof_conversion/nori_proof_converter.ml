@@ -643,7 +643,29 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Printf.eprintf "Output written to %s\n%!" output_path
 
 let () =
-  match Sys.argv with
+  (* Extract --cache-dir option before command dispatch *)
+  let argv = Array.to_list Sys.argv in
+  let cache_dir, argv =
+    let rec extract acc = function
+      | "--cache-dir" :: dir :: rest ->
+          (Some dir, List.rev_append acc rest)
+      | x :: rest ->
+          extract (x :: acc) rest
+      | [] ->
+          (None, List.rev acc)
+    in
+    extract [] argv
+  in
+  ( match cache_dir with
+  | Some dir ->
+      Printf.eprintf "Using cache directory: %s\n%!" dir ;
+      let () = Key_cache_native.linkme in
+      Core_unix.mkdir_p dir ;
+      Proof_conversion.Cache_config.set_cache_dir dir
+  | None ->
+      () ) ;
+  let argv = Array.of_list argv in
+  match argv with
   | [| _; "sp1ToPlonk"; input_path |] ->
       run_sp1_to_plonk ~input_path ~aux_path:""
   | [| _; "sp1ToPlonk"; input_path; aux_path |] ->
@@ -651,8 +673,13 @@ let () =
   | [| _; "risc0ToGroth16"; proof_path; vk_path |] ->
       run_risc0_to_groth16 ~proof_path ~vk_path
   | _ ->
-      Printf.eprintf "Usage: nori-proof-converter <command> <arg1> [arg2]\n\n" ;
+      Printf.eprintf
+        "Usage: nori-proof-converter [--cache-dir <dir>] <command> <arg1> \
+         [arg2]\n\n" ;
       Printf.eprintf "Available commands: sp1ToPlonk, risc0ToGroth16\n\n" ;
+      Printf.eprintf "Options:\n" ;
+      Printf.eprintf
+        "  --cache-dir <dir>  Cache proving keys to disk for reuse\n\n" ;
       Printf.eprintf "  sp1ToPlonk <input.json>\n" ;
       Printf.eprintf "    Convert SP1 PLONK proof to Mina-compatible proof\n\n" ;
       Printf.eprintf "  risc0ToGroth16 <proof.json> <vk.json>\n" ;

@@ -3,8 +3,8 @@
  (names main nori_proof_converter)
  (public_names mina-proof-conversion nori-proof-converter)
  (modes native)
- (libraries core core_unix proof_conversion pickles pickles_types kimchi_pasta
-  mina_base promise yojson)
+ (libraries core core_unix proof_conversion pickles pickles_types key_cache.native
+  kimchi_pasta mina_base promise yojson)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

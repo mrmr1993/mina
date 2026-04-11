@@ -93,6 +93,7 @@ let compile_and_prove_one_with_plonk_acc ~(n : int)
   let rule = make_rule_with_plonk_acc ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
@@ -142,6 +143,7 @@ let compile_and_prove_zkp12 ~(input_hash : Step.Field.Constant.t)
   in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
@@ -213,6 +215,7 @@ let compile_and_prove_zkp_lines ~(circuit_index : int)
   in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
@@ -272,6 +275,7 @@ let compile_and_prove_zkp_f_accum ~(circuit_index : int)
   in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
@@ -307,6 +311,7 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
   let rule = make_rule ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
@@ -343,6 +348,7 @@ let compile_prove_and_export ~(n : int) ~(input_hash : Step.Field.Constant.t)
   let rule = make_rule ~n in
   let tag, _cache, (module Proof), provers =
     Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
