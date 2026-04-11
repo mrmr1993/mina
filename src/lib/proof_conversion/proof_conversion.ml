@@ -65,8 +65,25 @@ module Groth16 : PROOF_SYSTEM = struct
     (* Pre-compute static witness data from tracker *)
     let line_hashes = Witness_tracker.get_line_hashes tracker in
     let b_lines = Witness_tracker.get_all_b_lines tracker in
-    (* Get initial accumulator constant *)
-    let initial_acc = Witness_tracker.get_accumulator_constant tracker in
+    (* Get initial accumulator constant.
+       The tracker's g_digest is the FINAL value after compute_miller_loop.
+       For circuit 0, we need the INITIAL g_digest = hash(zeros). *)
+    let initial_acc =
+      let acc = Witness_tracker.get_accumulator_constant tracker in
+      (* Overwrite g_digest with hash(zeros) for the initial state *)
+      let initial_g_digest =
+        let n = Array.length Bn254_params.ate_loop_count in
+        let zeros = Array.create ~len:n Step.Field.Constant.zero in
+        Random_oracle.hash zeros
+      in
+      { acc with
+        state =
+          { g_digest = initial_g_digest
+          ; t_point = acc.proof.b (* Initial t_point = B *)
+          ; f = Fp12.Constant.one (* f starts as 1 *)
+          }
+      }
+    in
     (* Compute initial hash *)
     let initial_hash =
       Step.run_and_check_exn (fun () ->
