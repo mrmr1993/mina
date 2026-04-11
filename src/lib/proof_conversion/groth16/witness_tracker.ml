@@ -630,8 +630,7 @@ let get_iteration (t : t) (i : int) : iteration_data = t.iterations.(i)
 let create ~(proof : Proof_json.proof) ~(vk : Proof_json.vk)
     ~(aux : Proof_json.aux_witness) : t =
   let c = aux.c in
-  let c_inv = Fp12.conjugate c in
-  (* c is unitary, so inv = conjugate *)
+  let c_inv = Fp12.inverse c in
   let t =
     { proof
     ; vk
