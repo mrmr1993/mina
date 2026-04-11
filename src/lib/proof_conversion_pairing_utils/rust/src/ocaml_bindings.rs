@@ -151,6 +151,53 @@ pub unsafe extern "C" fn caml_pairing_utils_aux_witness_with_w27(
     alloc_ocaml_string(&result)
 }
 
+/// Compute KZG pairing MLO from A and -B G1 points.
+/// MLO = multi_miller_loop([A, -B], [g2, tau]) where g2/tau are the BN254
+/// SRS points used by SP1's PLONK verifier.
+///
+/// Input: 4 pipe-delimited fields: a_x|a_y|neg_b_x|neg_b_y
+/// Returns: 12 pipe-delimited fields (Fp12 MLO).
+#[no_mangle]
+pub unsafe extern "C" fn caml_pairing_utils_compute_kzg_mlo(
+    v_input: ocaml::sys::Value,
+) -> ocaml::sys::Value {
+    let input_str = read_ocaml_string(v_input);
+    let parts: Vec<&str> = input_str.split('|').collect();
+    assert_eq!(parts.len(), 4, "Expected 4 pipe-delimited fields for KZG MLO");
+    let fq = |i: usize| -> Fq { Fq::from_str(parts[i]).unwrap() };
+
+    let a = G1Affine::new(fq(0), fq(1));
+    let neg_b = G1Affine::new(fq(2), fq(3));
+
+    // SRS G2 points (fixed for SP1 PLONK verifier)
+    use ark_ff::MontFp;
+    let g2 = G2Affine::new(
+        Fq2::new(
+            MontFp!("10857046999023057135944570762232829481370756359578518086990519993285655852781"),
+            MontFp!("11559732032986387107991004021392285783925812861821192530917403151452391805634"),
+        ),
+        Fq2::new(
+            MontFp!("8495653923123431417604973247489272438418190587263600148770280649306958101930"),
+            MontFp!("4082367875863433681332203403145435568316851327593401208105741076214120093531"),
+        ),
+    );
+    let tau = G2Affine::new(
+        Fq2::new(
+            MontFp!("19089565590083334368588890253123139704298730990782503769911324779715431555531"),
+            MontFp!("15805639136721018565402881920352193254830339253282065586954346329754995870280"),
+        ),
+        Fq2::new(
+            MontFp!("6779728121489434657638426458390319301070371227460768374343986326751507916979"),
+            MontFp!("9779648407879205346559610309258181044130619080926897934572699915909528404984"),
+        ),
+    );
+
+    // MLO = multi_miller_loop([A, -B], [g2, tau])
+    let mlo = Bn254::multi_miller_loop(&[a, neg_b], &[g2, tau]).0;
+    let result = format_fq12(mlo);
+    alloc_ocaml_string(&result)
+}
+
 /// Compute alpha*beta pairing from VK points.
 /// OCaml: external make_alpha_beta_raw : string -> string
 #[no_mangle]

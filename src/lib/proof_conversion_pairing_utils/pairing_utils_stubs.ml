@@ -27,3 +27,9 @@ external groth16_aux_witness_with_w27_raw : string -> string
     Output: 12 pipe-delimited fields (Fp12). *)
 external make_alpha_beta_raw : string -> string
   = "caml_pairing_utils_make_alpha_beta"
+
+(** Compute KZG pairing MLO from A and -B G1 points.
+    Input: 4 pipe-delimited fields (a_x, a_y, neg_b_x, neg_b_y).
+    Output: 12 pipe-delimited fields (Fp12). *)
+external compute_kzg_mlo_raw : string -> string
+  = "caml_pairing_utils_compute_kzg_mlo"

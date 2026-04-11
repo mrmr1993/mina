@@ -52,10 +52,20 @@ let run_sp1_to_plonk ~input_path ~aux_path =
             let aux_json = Yojson.Safe.from_file p in
             Proof_conversion.Plonk_proof_json.parse_aux_witness aux_json
         | None ->
-            failwith
-              "PLONK aux witness file not found. For SP1 format, provide \
-               aux_witness.json next to the input file or as a second \
-               argument."
+            Printf.eprintf
+              "Computing PLONK aux witness natively (circuits 0-12 unchecked + \
+               Rust FFI)...\n\
+               %!" ;
+            let mlo =
+              Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
+            in
+            let groth16_aux =
+              Proof_conversion.Pairing_utils_bridge.compute_aux_witness mlo
+            in
+            { Proof_conversion.Plonk_proof_json.shift_power =
+                Step.Field.Constant.of_int groth16_aux.shift_power
+            ; c_fp12 = groth16_aux.c
+            }
       in
       (acc, aux) )
     else (

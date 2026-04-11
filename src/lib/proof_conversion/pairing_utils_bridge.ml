@@ -60,3 +60,17 @@ let make_alpha_beta ~(alpha_x : BI.t) ~(alpha_y : BI.t) ~(beta_x_c0 : BI.t)
       ]
   in
   pipe_to_fp12 (Raw.make_alpha_beta_raw input)
+
+(** Compute KZG pairing MLO from A and -B G1 points.
+    MLO = multi_miller_loop([A, -B], [g2, tau]) where g2/tau are fixed SRS. *)
+let compute_kzg_mlo ~(a_x : BI.t) ~(a_y : BI.t) ~(neg_b_x : BI.t)
+    ~(neg_b_y : BI.t) : Fp12.Constant.t =
+  let input =
+    String.concat ~sep:"|"
+      [ BI.to_string a_x
+      ; BI.to_string a_y
+      ; BI.to_string neg_b_x
+      ; BI.to_string neg_b_y
+      ]
+  in
+  pipe_to_fp12 (Raw.compute_kzg_mlo_raw input)
