@@ -23,6 +23,7 @@ module Circuit_utils = Circuit_utils
 module Circuits = Circuits
 module Kzg_accumulator = Kzg_accumulator
 module Tree_compressor = Tree_compressor
+module Fp12 = Fp12
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig

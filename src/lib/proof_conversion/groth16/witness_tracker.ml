@@ -94,6 +94,20 @@ module Fp6 = struct
   let zero : t = (Fp2.zero, Fp2.zero, Fp2.zero)
 
   let one : t = (Fp2.one, Fp2.zero, Fp2.zero)
+
+  let square a = mul a a
+
+  let inverse (a0, a1, a2) : t =
+    let c0 = Fp2.sub (Fp2.square a0) (mul_by_nr (Fp2.mul a1 a2)) in
+    let c1 = Fp2.sub (mul_by_nr (Fp2.square a2)) (Fp2.mul a0 a1) in
+    let c2 = Fp2.sub (Fp2.square a1) (Fp2.mul a0 a2) in
+    let t =
+      Fp2.inverse
+        (Fp2.add
+           (Fp2.add (Fp2.mul a0 c0) (mul_by_nr (Fp2.mul a2 c1)))
+           (mul_by_nr (Fp2.mul a1 c2)) )
+    in
+    (Fp2.mul c0 t, Fp2.mul c1 t, Fp2.mul c2 t)
 end
 
 (** Out-of-circuit Fp12 arithmetic. *)
@@ -118,10 +132,25 @@ module Fp12 = struct
 
   let conjugate (a0, a1) : t = (a0, Fp6.neg a1)
 
-  let inverse (a0, a1) : t =
+  let cyclotomic_inverse (a0, a1) : t =
     (* Only valid for unitary elements in the cyclotomic subgroup,
        where inverse = conjugate. *)
     conjugate (a0, a1)
+
+  let inverse (a0, a1) : t =
+    (* General Fp12 inverse: 1/(a0 + a1*w) = (a0 - a1*w) / (a0² - v*a1²)
+       where v is the Fp6 non-residue. *)
+    let t0 = Fp6.square a0 in
+    let t1 = Fp6.square a1 in
+    let t1_shifted =
+      let c0, c1, c2 = t1 in
+      (Fp6.mul_by_nr c2, c0, c1)
+    in
+    let denom = Fp6.sub t0 t1_shifted in
+    let denom_inv = Fp6.inverse denom in
+    let c0 = Fp6.mul a0 denom_inv in
+    let c1 = Fp6.mul (Fp6.neg a1) denom_inv in
+    (c0, c1)
 
   (** Frobenius: f^p. Conjugate Fp2 components, multiply by gamma_1s. *)
   let frobenius_pow_p ((c0, c1) : t) : t =
