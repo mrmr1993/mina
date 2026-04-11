@@ -244,13 +244,21 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   (* === Output === *)
   let module P = Pickles.Proof.Make (Pickles_types.Nat.N2) in
   let proof_base64 = P.to_base64 final_proof in
-  let node_vk_base64 =
-    Pickles.Side_loaded.Verification_key.to_base64 !current_vk
+  let node_vk = !current_vk in
+  let node_vk_base64 = Pickles.Side_loaded.Verification_key.to_base64 node_vk in
+  (* Compute VK hash matching o1js: Poseidon.hash(pack_input(to_input(vk))) *)
+  let vk_hash =
+    let input = Pickles.Side_loaded.Verification_key.to_input node_vk in
+    let packed = Random_oracle.pack_input input in
+    Random_oracle.hash packed
   in
+  let vk_hash_str = Kimchi_pasta.Pasta.Fp.to_string vk_hash in
   let output =
     `Assoc
       [ ( "vkData"
-        , `Assoc [ ("data", `String node_vk_base64); ("hash", `String "") ] )
+        , `Assoc
+            [ ("data", `String node_vk_base64); ("hash", `String vk_hash_str) ]
+        )
       ; ( "proofData"
         , `Assoc
             [ ("maxProofsVerified", `Int 2)
@@ -265,9 +273,15 @@ let run_sp1_to_plonk ~input_path ~aux_path =
             ] )
       ]
   in
-  (* Write output *)
-  let base = Filename.chop_extension input_path in
-  let output_path = base ^ ".sp1ToPlonk.json" in
+  (* Write output — match nori's file naming: strip .json, append .commandName.json *)
+  let dir = Filename.dirname input_path in
+  let base = Filename.basename input_path in
+  let base_no_ext =
+    if String.is_suffix ~suffix:".json" (String.lowercase base) then
+      String.sub base ~pos:0 ~len:(String.length base - 5)
+    else base
+  in
+  let output_path = Filename.concat dir (base_no_ext ^ ".sp1ToPlonk.json") in
   Yojson.Safe.to_file output_path output ;
   Printf.eprintf "Output written to %s\n%!" output_path
 
