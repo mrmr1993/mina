@@ -18,9 +18,8 @@ let compile_circuit ~(vk : Proof_conversion.Vk_constants.t) ~(n : int) : string
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
-        (Pickles.Inductive_rule.Input_and_output
-           ( Proof_conversion.Circuit_utils.public_input_typ 1
-           , Proof_conversion.Circuit_utils.public_input_typ 1 ) )
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-zkp%d" n)

@@ -56,7 +56,7 @@ let () =
         fun () -> Step.As_prover.read_var h )
   in
   Printf.eprintf "Proving circuit 0 to get line_hashes...\n%!" ;
-  let _, _, lh_from_circuit, _ =
+  let _, _, lh_from_circuit, _, _ =
     Proof_conversion.Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const
       ~n:0 ~input_hash:initial_hash ~witness
   in
