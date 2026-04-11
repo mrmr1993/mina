@@ -1,10 +1,11 @@
-(executable
+(executables
  (package proof_conversion)
- (name main)
- (public_name mina-proof-conversion)
+ (names main nori_proof_converter)
+ (public_names mina-proof-conversion nori-proof-converter)
  (modes native)
- (libraries core core_unix proof_conversion)
+ (libraries core core_unix proof_conversion pickles pickles_types kimchi_pasta
+  mina_base promise yojson)
  (instrumentation
   (backend bisect_ppx))
  (preprocess
-  (pps ppx_version)))
+  (pps ppx_version ppx_jane)))

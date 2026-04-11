@@ -167,3 +167,101 @@ let load_fixture_with_aux (path : string) :
   let acc = load_fixture path in
   let aux = parse_aux_witness json in
   (acc, aux)
+
+(** Parse the SP1 JSON format (as used by nori CLI).
+    Extracts hexProof, programVk, piHex from the SP1 structure. *)
+let parse_sp1_json (json : Yojson.Safe.t) : string * string * string =
+  let open Yojson.Safe.Util in
+  let plonk = member "proof" json |> member "Plonk" in
+  let encoded_proof = member "encoded_proof" plonk |> to_string in
+  let program_vk =
+    member "public_inputs" plonk |> to_list |> List.hd_exn |> to_string
+  in
+  let data =
+    member "public_values" json |> member "buffer" |> member "data" |> to_list
+  in
+  let bytes = List.map data ~f:to_int in
+  let hex_pi =
+    "0x" ^ String.concat (List.map bytes ~f:(fun b -> sprintf "%02x" b))
+  in
+  let hex_proof = "0x00000000" ^ encoded_proof in
+  (hex_proof, program_vk, hex_pi)
+
+(** Load from SP1 JSON format (nori CLI input).
+    Returns the initial accumulator constant. *)
+let load_sp1 (path : string) : Plonk_accumulator.t_const =
+  let json = Yojson.Safe.from_file path in
+  let hex_proof, program_vk, pi_hex = parse_sp1_json json in
+  let vals = abi_decode_proof hex_proof in
+  let f3 i = bigint_to_field3 vals.(i) in
+  let proof : Plonk_accumulator.proof_const =
+    { l_com_x = f3 0
+    ; l_com_y = f3 1
+    ; r_com_x = f3 2
+    ; r_com_y = f3 3
+    ; o_com_x = f3 4
+    ; o_com_y = f3 5
+    ; h0_x = f3 6
+    ; h0_y = f3 7
+    ; h1_x = f3 8
+    ; h1_y = f3 9
+    ; h2_x = f3 10
+    ; h2_y = f3 11
+    ; l_at_zeta = f3 12
+    ; r_at_zeta = f3 13
+    ; o_at_zeta = f3 14
+    ; s1_at_zeta = f3 15
+    ; s2_at_zeta = f3 16
+    ; grand_product_x = f3 17
+    ; grand_product_y = f3 18
+    ; grand_product_at_omega_zeta = f3 19
+    ; batch_opening_at_zeta_x = f3 20
+    ; batch_opening_at_zeta_y = f3 21
+    ; batch_opening_at_zeta_omega_x = f3 22
+    ; batch_opening_at_zeta_omega_y = f3 23
+    ; qcp_0_at_zeta = f3 24
+    ; qcp_0_wire_x = f3 25
+    ; qcp_0_wire_y = f3 26
+    }
+  in
+  let pi0, pi1 = parse_public_inputs ~program_vk ~pi_hex in
+  let z3 = FF.Field3.Constant.zero in
+  let z32 = Array.create ~len:32 Step.Field.Constant.zero in
+  let z8 = Array.create ~len:8 Step.Field.Constant.zero in
+  let fs : Plonk_accumulator.fs_const =
+    { gamma_digest = z32
+    ; gamma = z3
+    ; beta_digest = z32
+    ; beta = z3
+    ; alpha_digest = z32
+    ; alpha = z3
+    ; zeta_digest = z32
+    ; zeta = z3
+    ; gamma_kzg_digest = z32
+    ; gamma_kzg = z3
+    }
+  in
+  let state : Plonk_accumulator.state_const =
+    { pi0
+    ; pi1
+    ; zeta_pow_n = z3
+    ; zh_eval = z3
+    ; alpha_2_l0 = z3
+    ; hx = z3
+    ; hy = z3
+    ; pi = z3
+    ; linearized_opening = z3
+    ; lcm_x = z3
+    ; lcm_y = z3
+    ; cm_x = z3
+    ; cm_y = z3
+    ; cm_opening = z3
+    ; kzg_random = z3
+    ; kzg_cm_x = z3
+    ; kzg_cm_y = z3
+    ; neg_fq_x = z3
+    ; neg_fq_y = z3
+    ; h_state = z8
+    }
+  in
+  { proof; fs; state }
