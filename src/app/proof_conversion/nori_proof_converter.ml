@@ -282,7 +282,9 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     else base
   in
   let output_path = Filename.concat dir (base_no_ext ^ ".sp1ToPlonk.json") in
-  Yojson.Safe.to_file output_path output ;
+  let oc = Out_channel.create output_path in
+  Yojson.Safe.pretty_to_channel ~std:true oc output ;
+  Out_channel.close oc ;
   Printf.eprintf "Output written to %s\n%!" output_path
 
 let run_risc0_to_groth16 ~proof_path ~vk_path =
@@ -291,7 +293,21 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Printf.eprintf "VK: %s\n%!" vk_path ;
   let module WT = Proof_conversion.Witness_tracker in
   let proof = Proof_conversion.Proof_json.load_proof proof_path in
-  let vk = Proof_conversion.Proof_json.load_vk vk_path in
+  let vk_raw = Proof_conversion.Proof_json.load_vk vk_path in
+  (* Enrich VK: compute alpha_beta if missing (raw VK) *)
+  let vk =
+    let ((g00, _), _, _), _ = vk_raw.alpha_beta in
+    if Bignum_bigint.(g00 = zero) then (
+      Printf.eprintf "Computing alpha_beta via Rust FFI...\n%!" ;
+      let alpha_beta =
+        Proof_conversion.Pairing_utils_bridge.make_alpha_beta
+          ~alpha_x:vk_raw.alpha.x ~alpha_y:vk_raw.alpha.y
+          ~beta_x_c0:(fst vk_raw.beta.x) ~beta_x_c1:(snd vk_raw.beta.x)
+          ~beta_y_c0:(fst vk_raw.beta.y) ~beta_y_c1:(snd vk_raw.beta.y)
+      in
+      { vk_raw with alpha_beta } )
+    else vk_raw
+  in
   let aux =
     match Sys.getenv_opt "GROTH16_AUX_PATH" with
     | Some p ->
@@ -572,7 +588,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   let output_path =
     Filename.concat dir (base_no_ext ^ ".risc0ToGroth16.json")
   in
-  Yojson.Safe.to_file output_path output ;
+  let oc = Out_channel.create output_path in
+  Yojson.Safe.pretty_to_channel ~std:true oc output ;
+  Out_channel.close oc ;
   Printf.eprintf "Output written to %s\n%!" output_path
 
 let () =
@@ -585,11 +603,10 @@ let () =
       run_risc0_to_groth16 ~proof_path ~vk_path
   | _ ->
       Printf.eprintf "Usage: nori-proof-converter <command> <arg1> [arg2]\n\n" ;
-      Printf.eprintf "Commands:\n" ;
-      Printf.eprintf "  sp1ToPlonk <input.json> [aux_witness.json]\n" ;
+      Printf.eprintf "Available commands: sp1ToPlonk, risc0ToGroth16\n\n" ;
+      Printf.eprintf "  sp1ToPlonk <input.json>\n" ;
       Printf.eprintf "    Convert SP1 PLONK proof to Mina-compatible proof\n\n" ;
       Printf.eprintf "  risc0ToGroth16 <proof.json> <vk.json>\n" ;
       Printf.eprintf
         "    Convert RISC Zero Groth16 proof to Mina-compatible proof\n" ;
-      Printf.eprintf "    (VK must be enriched with alpha_beta and w27)\n" ;
       exit 1

@@ -85,7 +85,14 @@ let vk_of_json (j : Yojson.Safe.t) : vk =
     in
     collect 0 []
   in
-  let alpha_beta = fp12_of_json (member "alpha_beta" j) in
+  let alpha_beta =
+    match member "alpha_beta" j with
+    | `Null ->
+        (* Raw VK: alpha_beta must be computed externally *)
+        (Fp6.Constant.zero, Fp6.Constant.zero)
+    | ab_json ->
+        fp12_of_json ab_json
+  in
   let w27 = fp12_of_json (member "w27" j) in
   { alpha; beta; gamma; delta; ic; alpha_beta; w27 }
 
