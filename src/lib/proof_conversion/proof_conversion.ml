@@ -67,8 +67,17 @@ module Groth16 : PROOF_SYSTEM = struct
     let b_lines = Witness_tracker.get_all_b_lines tracker in
     (* Get initial accumulator constant *)
     let initial_acc = Witness_tracker.get_accumulator_constant tracker in
-    (* Chain circuits 0-5 via auxiliary_output *)
-    let current_hash = ref Step.Field.Constant.zero in
+    (* Compute initial hash *)
+    let initial_hash =
+      Step.run_and_check_exn (fun () ->
+          let acc =
+            Step.exists Accumulator.typ ~compute:(fun () -> initial_acc)
+          in
+          let h = Accumulator.hash acc in
+          fun () -> Step.As_prover.read_var h )
+    in
+    (* Chain circuits 0-12 via auxiliary_output *)
+    let current_hash = ref initial_hash in
     let current_acc = ref initial_acc in
     let hash_pairs =
       Array.create ~len:Circuits.num_circuits
