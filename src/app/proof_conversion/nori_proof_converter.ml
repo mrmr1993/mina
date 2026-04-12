@@ -668,7 +668,11 @@ let run_internal_init_workdir ~workdir ~system ~input_path ~vk_path =
       failwith (sprintf "Unknown system: %s" s) ) ;
   Printf.eprintf "Workdir initialized.\n%!"
 
-(** Generate witness: compute aux witness and write initial state. *)
+(** Parse input and write the initial state (hash_-1, plonk_state_-1 or
+    groth16_state_-1).  For PLONK this is fast because it only needs the
+    parsed accumulator — the expensive aux witness computation is deferred
+    to [compute-aux-witness].  For Groth16 the aux witness is needed for the
+    initial accumulator, so both are computed here. *)
 let run_internal_generate_witness ~workdir =
   Printf.eprintf "Generating witness in %s\n%!" workdir ;
   let system = W.detect_system ~workdir in
@@ -687,41 +691,14 @@ let run_internal_generate_witness ~workdir =
             | _ ->
                 true )
       in
-      let acc_const, aux =
-        if is_sp1 then
-          let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
-          let aux_file = Filename.concat workdir "aux_witness.json" in
-          let aux =
-            if Stdlib.Sys.file_exists aux_file then
-              let aj = Yojson.Safe.from_file aux_file in
-              Proof_conversion.Plonk_proof_json.parse_aux_witness aj
-            else
-              let mlo =
-                Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
-              in
-              let w27 = Proof_conversion.Bn254_params.w27 () in
-              let g_aux =
-                Proof_conversion.Pairing_utils_bridge
-                .compute_aux_witness_with_w27 mlo w27
-              in
-              { Proof_conversion.Plonk_proof_json.shift_power =
-                  Step.Field.Constant.of_int g_aux.shift_power
-              ; c_fp12 = g_aux.c
-              }
+      let acc_const =
+        if is_sp1 then Proof_conversion.Plonk_proof_json.load_sp1 input_path
+        else
+          let acc, _aux =
+            Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
           in
-          (acc, aux)
-        else Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
+          acc
       in
-      (* Write aux witness *)
-      let aux_json =
-        `Assoc
-          [ ( "shift_power"
-            , `String (Step.Field.Constant.to_string aux.shift_power) )
-          ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
-          ]
-      in
-      Yojson.Safe.to_file (Filename.concat workdir "aux_witness.json") aux_json ;
-      (* Write initial state *)
       let initial_hash =
         Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
       in
@@ -735,11 +712,9 @@ let run_internal_generate_witness ~workdir =
       let aux =
         Proof_conversion.Pairing_utils_bridge.groth16_aux_witness ~proof ~vk
       in
-      (* Write aux witness in nori-compatible format *)
       Proof_conversion.Proof_json.save_aux_witness
         (Filename.concat workdir "aux_witness.json")
         aux ;
-      (* Set up tracker and initial accumulator *)
       let module WT = Proof_conversion.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
       Proof_conversion.Circuit_config.set_tracker tracker ;
@@ -774,6 +749,67 @@ let run_internal_generate_witness ~workdir =
       W.write_groth16_state ~workdir ~n:(-1) ~acc:initial_acc ~line_hashes
         ~g_values:[||] ) ;
   Printf.eprintf "Witness generated.\n%!"
+
+(** Compute the PLONK aux witness (shift_power, c from Miller loop).
+    This is the expensive part (~30s) that was previously bundled into
+    generate-witness.  Split out so it can run in parallel with early
+    compute-state / prove-zkp tasks; only compute-state 12 needs it. *)
+let run_internal_compute_aux_witness ~workdir =
+  Printf.eprintf "Computing aux witness in %s\n%!" workdir ;
+  let system = W.detect_system ~workdir in
+  ( match system with
+  | W.Plonk _ ->
+      let input_path = Filename.concat workdir "input.json" in
+      let json = Yojson.Safe.from_file input_path in
+      let is_sp1 =
+        match Yojson.Safe.Util.member "proof" json with
+        | `Null ->
+            false
+        | pj -> (
+            match Yojson.Safe.Util.member "Plonk" pj with
+            | `Null ->
+                false
+            | _ ->
+                true )
+      in
+      let aux =
+        if is_sp1 then
+          let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
+          let aux_file = Filename.concat workdir "aux_witness.json" in
+          if Stdlib.Sys.file_exists aux_file then
+            let aj = Yojson.Safe.from_file aux_file in
+            Proof_conversion.Plonk_proof_json.parse_aux_witness aj
+          else
+            let mlo =
+              Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
+            in
+            let w27 = Proof_conversion.Bn254_params.w27 () in
+            let g_aux =
+              Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27
+                mlo w27
+            in
+            { Proof_conversion.Plonk_proof_json.shift_power =
+                Step.Field.Constant.of_int g_aux.shift_power
+            ; c_fp12 = g_aux.c
+            }
+        else
+          let _acc, aux =
+            Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
+          in
+          aux
+      in
+      let aux_json =
+        `Assoc
+          [ ( "shift_power"
+            , `String (Step.Field.Constant.to_string aux.shift_power) )
+          ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
+          ]
+      in
+      Yojson.Safe.to_file (Filename.concat workdir "aux_witness.json") aux_json
+  | W.Groth16 _ ->
+      (* For Groth16, aux was already computed by generate-witness *)
+      () ) ;
+  Printf.eprintf "Aux witness computed.\n%!"
 
 (** Compute the intermediate state for a single circuit via run_unchecked.
     Reads state n-1 from disk, runs the circuit body without constraint
@@ -875,7 +911,8 @@ let run_internal_compute_state ~workdir ~n =
         let oh12, kzg12 = !result12 in
         W.write_hash ~workdir ~n:12 ~hash:oh12 ;
         W.write_plonk_kzg_state ~workdir ~n:12 ~kzg:kzg12
-          ~lines_hashes:(Array.create ~len:ate_loop_len Step.Field.Constant.zero)
+          ~lines_hashes:
+            (Array.create ~len:ate_loop_len Step.Field.Constant.zero)
           ~g_values:[||] )
       else if n <= 16 then (
         (* Circuits 13-16: KZG line circuits *)
@@ -1030,9 +1067,7 @@ let run_internal_compute_state ~workdir ~n =
       let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
       let b_lines = WT.get_all_b_lines tracker in
       let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
-      let cur_acc, cur_lh, cur_gv =
-        W.read_groth16_state ~workdir ~n:(n - 1)
-      in
+      let cur_acc, cur_lh, cur_gv = W.read_groth16_state ~workdir ~n:(n - 1) in
       let witness : Proof_conversion.Groth16_requests.witness =
         if n <= 6 then
           { Proof_conversion.Groth16_requests.empty_witness with
@@ -1074,8 +1109,7 @@ let run_internal_compute_state ~workdir ~n =
           let n_pi = WT.num_public_inputs tracker in
           { Proof_conversion.Groth16_requests.empty_witness with
             public_inputs =
-              Some
-                (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+              Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
           }
         else
           let n_pi = WT.num_public_inputs tracker in
@@ -1086,8 +1120,7 @@ let run_internal_compute_state ~workdir ~n =
           in
           { Proof_conversion.Groth16_requests.empty_witness with
             public_inputs =
-              Some
-                (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+              Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
           ; pi_point = Some (g1c pi)
           ; partial_ic_acc = Some (g1c pa)
           }
@@ -1139,8 +1172,8 @@ let run_internal_compute_state ~workdir ~n =
                     result_hash := Step.As_prover.read_var output_hash ) )
               handler ) ) ;
       W.write_hash ~workdir ~n ~hash:!result_hash ;
-      W.write_groth16_state ~workdir ~n ~acc:!result_acc
-        ~line_hashes:!result_lh ~g_values:!result_gv ) ;
+      W.write_groth16_state ~workdir ~n ~acc:!result_acc ~line_hashes:!result_lh
+        ~g_values:!result_gv ) ;
   Snarky_backendless.Snark0.set_eval_constraints true ;
   Printf.eprintf "State for circuit %d computed.\n%!" n
 
@@ -1623,9 +1656,7 @@ let run_internal_compress_daemon ~socket_path =
     Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
   in
   ( try Core_unix.bind socket ~addr:(ADDR_UNIX socket_path)
-    with exn ->
-      Core_unix.close socket ;
-      raise exn ) ;
+    with exn -> Core_unix.close socket ; raise exn ) ;
   Core_unix.listen socket ~backlog:16 ;
   let running = ref true in
   while !running do
@@ -1635,7 +1666,7 @@ let run_internal_compress_daemon ~socket_path =
     ( try
         let line = In_channel.input_line_exn ic in
         let parts = String.split line ~on:' ' in
-        ( match parts with
+        match parts with
         | [ "shutdown" ] ->
             Out_channel.output_string oc "OK\n" ;
             Out_channel.flush oc ;
@@ -1651,13 +1682,13 @@ let run_internal_compress_daemon ~socket_path =
         | _ ->
             Out_channel.output_string oc
               (sprintf "ERROR bad command: %s\n" line) ;
-            Out_channel.flush oc )
-      with exn ->
-        ( try
-            Out_channel.output_string oc
-              (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
             Out_channel.flush oc
-          with _ -> () ) ) ;
+      with exn -> (
+        try
+          Out_channel.output_string oc
+            (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
+          Out_channel.flush oc
+        with _ -> () ) ) ;
     Core_unix.close client_fd
   done ;
   Core_unix.close socket ;
@@ -1668,9 +1699,7 @@ let run_internal_compress_daemon ~socket_path =
 let run_internal_compress_via_daemon ~socket_path ~workdir ~base_count ~layer
     ~index =
   Printf.eprintf "compress-via-daemon: layer=%d index=%d\n%!" layer index ;
-  let cmd_line =
-    sprintf "%s %d %d %d" workdir base_count layer index
-  in
+  let cmd_line = sprintf "%s %d %d %d" workdir base_count layer index in
   let socket =
     Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
   in
@@ -1702,18 +1731,18 @@ let shutdown_compress_daemon ~socket_path =
   let socket =
     Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
   in
-  ( try
-      Core_unix.connect socket ~addr:(ADDR_UNIX socket_path) ;
-      let oc = Core_unix.out_channel_of_descr socket in
-      let ic = Core_unix.in_channel_of_descr socket in
-      Out_channel.output_string oc "shutdown\n" ;
-      Out_channel.flush oc ;
-      let _response = In_channel.input_line_exn ic in
-      Core_unix.close socket
-    with exn ->
-      Printf.eprintf "Warning: shutdown_compress_daemon: %s\n%!"
-        (Exn.to_string exn) ;
-      Core_unix.close socket )
+  try
+    Core_unix.connect socket ~addr:(ADDR_UNIX socket_path) ;
+    let oc = Core_unix.out_channel_of_descr socket in
+    let ic = Core_unix.in_channel_of_descr socket in
+    Out_channel.output_string oc "shutdown\n" ;
+    Out_channel.flush oc ;
+    let _response = In_channel.input_line_exn ic in
+    Core_unix.close socket
+  with exn ->
+    Printf.eprintf "Warning: shutdown_compress_daemon: %s\n%!"
+      (Exn.to_string exn) ;
+    Core_unix.close socket
 
 (** Collect final output from workdir. *)
 let run_internal_collect_output ~workdir =
@@ -1805,7 +1834,7 @@ let run_dag ~parallelism (tasks : dag_task array) =
     in
     let start_task i =
       let cmd = tasks.(i).cmd in
-      Printf.eprintf "  [%d/%d] $ %s\n%!" (i + 1) n cmd ;
+      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
           let exit_code = Stdlib.Sys.command cmd in
@@ -1835,7 +1864,7 @@ let run_dag ~parallelism (tasks : dag_task array) =
     while !running > 0 do
       (* Wait for any child *)
       let pid, status = Core_unix.wait `Any in
-      ( match Hashtbl.find pid_to_task pid with
+      match Hashtbl.find pid_to_task pid with
       | Some task_idx ->
           Hashtbl.remove pid_to_task pid ;
           decr running ;
@@ -1843,8 +1872,8 @@ let run_dag ~parallelism (tasks : dag_task array) =
           | Ok () ->
               tasks.(task_idx).status <- Done ;
               incr completed ;
-              Printf.eprintf "  %d completed [%d/%d]\n%!"
-                (task_idx + 1) !completed n
+              Printf.eprintf "  #%d completed [%d/%d]\n%!" (task_idx + 1)
+                !completed n
           | Error (`Exit_non_zero code) ->
               tasks.(task_idx).status <- Failed code ;
               failures := (task_idx, code) :: !failures
@@ -1857,9 +1886,9 @@ let run_dag ~parallelism (tasks : dag_task array) =
           if List.is_empty !failures then fill_slots ()
       | None ->
           (* Unknown child — ignore (shouldn't happen) *)
-          () )
+          ()
     done ;
-    if not (List.is_empty !failures) then (
+    ( if not (List.is_empty !failures) then
       let msgs =
         List.map !failures ~f:(fun (i, code) ->
             sprintf "task %d (exit %d): %s" i code tasks.(i).cmd )
@@ -1890,8 +1919,8 @@ let self_cmd ~cache_dir =
     [max_layer]: 5 or 4
     [input_path]: path to the input proof JSON
     [vk_path]: optional VK path (Groth16 only) *)
-let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
-    ~input_path ~vk_path =
+let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
+    ~base_count ~max_layer ~input_path ~vk_path =
   let self = self_cmd ~cache_dir in
   (* Create temp working directory *)
   let workdir =
@@ -1916,43 +1945,53 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
           (Filename.quote input_path)
   in
   run_cmd init_cmd ;
-  (* Fork compression daemon early so circuit compilation overlaps with
-     witness generation.  The daemon only needs the workdir to exist
-     (for its socket path); it doesn't read any witness/state files. *)
-  let socket_path = Filename.concat workdir "compress.sock" in
-  let daemon_pid =
-    match Core_unix.fork () with
-    | `In_the_child ->
-        run_internal_compress_daemon ~socket_path ;
-        Stdlib.exit 0
-    | `In_the_parent pid ->
-        pid
+  (* Fork compression daemons early so circuit compilation overlaps with
+     witness generation.  Each daemon compiles both circuits independently
+     and listens on its own Unix socket. *)
+  let n_daemons = compress_parallelism in
+  let socket_paths =
+    Array.init n_daemons ~f:(fun i ->
+        Filename.concat workdir (sprintf "compress.%d.sock" i) )
   in
-  Printf.eprintf "Compress daemon started (pid %d), compiling in background\n%!"
-    (Pid.to_int daemon_pid) ;
-  (* Build the DAG.  generate-witness is task 0 so it runs in parallel
-     with daemon compilation rather than blocking the DAG start.
+  let daemon_pids =
+    Array.map socket_paths ~f:(fun socket_path ->
+        match Core_unix.fork () with
+        | `In_the_child ->
+            run_internal_compress_daemon ~socket_path ;
+            Stdlib.exit 0
+        | `In_the_parent pid ->
+            pid )
+  in
+  Printf.eprintf "Started %d compress daemon(s), compiling in background\n%!"
+    n_daemons ;
+  (* Build the DAG.  generate-witness (fast: parse input, write initial
+     state) and compute-aux-witness (slow: Miller loop for PLONK aux)
+     are separate tasks so that compute-state 0..11 can start as soon as
+     generate-witness finishes, while the expensive aux computation runs
+     in parallel.  Only compute-state 12 needs the aux witness.
 
      Task layout (indices):
        0                                    : generate-witness
-       1 .. base_count                      : compute-state 0..N-1
-       base_count+1 .. 2*base_count         : prove-zkp 0..N-1
-       2*base_count+1 ..                    : compression tasks
+       1                                    : compute-aux-witness
+       2 .. base_count+1                    : compute-state 0..N-1
+       base_count+2 .. 2*base_count+1       : prove-zkp 0..N-1
+       2*base_count+2 ..                    : compression tasks
 
      Dependencies:
-       generate-witness    : (none)
-       compute-state 0     : generate-witness
-       compute-state n>0   : compute-state n-1
-       prove-zkp n         : compute-state n
-       compress layer=1, i : prove-zkp 2i, prove-zkp 2i+1
-       compress layer>1, i : compress prev_layer 2i, compress prev_layer 2i+1 *)
+       generate-witness      : (none)
+       compute-aux-witness   : (none — reads from input files)
+       compute-state 0       : generate-witness
+       compute-state n>0     : compute-state n-1
+       compute-state 12      : compute-state 11, compute-aux-witness  (PLONK)
+       prove-zkp n           : compute-state n
+       compress layer=1, i   : prove-zkp 2i, prove-zkp 2i+1
+       compress layer>1, i   : compress prev_layer 2i, compress prev_layer 2i+1 *)
   let padded_count =
     let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
     next_pow2 1
   in
   if padded_count > base_count then
-    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count
-      padded_count ;
+    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count padded_count ;
   let compression_counts =
     Array.init max_layer ~f:(fun i ->
         let layer = i + 1 in
@@ -1962,25 +2001,34 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
         in
         prev_count / 2 )
   in
-  let total_compression =
-    Array.fold compression_counts ~init:0 ~f:( + )
-  in
-  (* generate-witness + compute-state + prove-zkp + compression *)
-  let total_tasks = 1 + base_count + base_count + total_compression in
-  let gw_idx = 0 in                           (* generate-witness *)
-  let cs_start = 1 in                         (* compute-state tasks *)
-  let prove_start = 1 + base_count in          (* prove-zkp tasks *)
-  let compress_start = 1 + 2 * base_count in   (* compression tasks *)
+  let total_compression = Array.fold compression_counts ~init:0 ~f:( + ) in
+  (* gw + aux + compute-state + prove-zkp + compression *)
+  let total_tasks = 2 + base_count + base_count + total_compression in
+  let gw_idx = 0 in
+  (* generate-witness *)
+  let aux_idx = 1 in
+  (* compute-aux-witness *)
+  let cs_start = 2 in
+  (* compute-state tasks *)
+  let prove_start = 2 + base_count in
+  (* prove-zkp tasks *)
+  let compress_start = 2 + (2 * base_count) in
+  (* compression tasks *)
+  (* For PLONK, compute-state 12 is the transition circuit that needs
+     aux_witness.json.  For Groth16, aux is computed inside generate-witness
+     so no extra dependency is needed. *)
+  let aux_needed_at = match system with "plonk" -> Some 12 | _ -> None in
   Printf.eprintf
-    "Building DAG: 1 generate-witness + %d compute-state + %d prove-zkp + %d \
-     compression = %d tasks (parallelism=%d)\n\
+    "Building DAG: 1 generate-witness + 1 compute-aux-witness + %d \
+     compute-state + %d prove-zkp + %d compression = %d tasks (parallelism=%d)\n\
      %!"
     base_count base_count total_compression total_tasks parallelism ;
-  let tasks = Array.create ~len:total_tasks
+  let tasks =
+    Array.create ~len:total_tasks
       { cmd = ""; deps = [||]; priority = 0; status = Pending }
   in
-  (* generate-witness: high priority, no deps — runs in parallel with
-     daemon compilation *)
+  (* generate-witness: high priority, no deps — fast for PLONK (just
+     parse + write initial state), runs in parallel with daemon compile *)
   tasks.(gw_idx) <-
     { cmd =
         sprintf "%s internal generate-witness %s" self (Filename.quote workdir)
@@ -1988,15 +2036,35 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
     ; priority = 1
     ; status = Pending
     } ;
+  (* compute-aux-witness: high priority, no deps — the expensive Miller
+     loop runs in parallel with early compute-state + prove-zkp *)
+  tasks.(aux_idx) <-
+    { cmd =
+        sprintf "%s internal compute-aux-witness %s" self
+          (Filename.quote workdir)
+    ; deps = [||]
+    ; priority = 1
+    ; status = Pending
+    } ;
   (* compute-state tasks: sequential chain, high priority — gates all
-     proving so must not be starved by leaf proofs. *)
+     proving so must not be starved by leaf proofs.
+     compute-state 0 depends on generate-witness.
+     compute-state at aux_needed_at also depends on compute-aux-witness. *)
   for n = 0 to base_count - 1 do
+    let deps =
+      if n = 0 then [| gw_idx |]
+      else
+        match aux_needed_at with
+        | Some k when n = k ->
+            [| cs_start + n - 1; aux_idx |]
+        | _ ->
+            [| cs_start + n - 1 |]
+    in
     tasks.(cs_start + n) <-
       { cmd =
           sprintf "%s internal compute-state %s %d" self
             (Filename.quote workdir) n
-      ; deps =
-          (if n = 0 then [| gw_idx |] else [| cs_start + n - 1 |])
+      ; deps
       ; priority = 1
       ; status = Pending
       }
@@ -2015,7 +2083,8 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
      reduction tree.  Starting these as soon as their children are done
      overlaps compression with remaining base proving. *)
   let layer_start = Array.create ~len:(max_layer + 1) 0 in
-  layer_start.(0) <- prove_start ;  (* layer 0 = prove-zkp tasks *)
+  layer_start.(0) <- prove_start ;
+  (* layer 0 = prove-zkp tasks *)
   let task_idx = ref compress_start in
   for li = 0 to max_layer - 1 do
     let layer = li + 1 in
@@ -2033,10 +2102,12 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
           let prev_start = layer_start.(layer - 1) in
           [| prev_start + left_child; prev_start + right_child |]
       in
+      let compress_task_num = !task_idx - compress_start in
+      let daemon_idx = compress_task_num % n_daemons in
       tasks.(!task_idx) <-
         { cmd =
             sprintf "%s internal compress-via-daemon %s %s %d %d %d" self
-              (Filename.quote socket_path)
+              (Filename.quote socket_paths.(daemon_idx))
               (Filename.quote workdir) base_count layer index
         ; deps
         ; priority = 2
@@ -2048,17 +2119,21 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
   assert (!task_idx = total_tasks) ;
   (* Execute the DAG *)
   run_dag ~parallelism tasks ;
-  (* Shut down compression daemon *)
-  shutdown_compress_daemon ~socket_path ;
-  ( try
-      match Core_unix.waitpid daemon_pid with
-      | Ok () ->
-          Printf.eprintf "Compress daemon exited normally.\n%!"
-      | Error _ ->
-          Printf.eprintf "Warning: compress daemon exited abnormally.\n%!"
-    with Core_unix.Unix_error (ECHILD, _, _) ->
-      (* Already reaped by the DAG scheduler's wait(`Any) *)
-      Printf.eprintf "Compress daemon already exited.\n%!" ) ;
+  (* Shut down all compression daemons *)
+  Array.iter socket_paths ~f:(fun sp ->
+      shutdown_compress_daemon ~socket_path:sp ) ;
+  Array.iter daemon_pids ~f:(fun pid ->
+      try
+        match Core_unix.waitpid pid with
+        | Ok () ->
+            ()
+        | Error _ ->
+            Printf.eprintf "Warning: compress daemon %d exited abnormally.\n%!"
+              (Pid.to_int pid)
+      with Core_unix.Unix_error (ECHILD, _, _) ->
+        (* Already reaped by the DAG scheduler's wait(`Any) *)
+        () ) ;
+  Printf.eprintf "All compress daemons shut down.\n%!" ;
   (* Collect output (serial) *)
   run_cmd
     (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
@@ -2082,22 +2157,25 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
   Printf.eprintf "Output written to %s\n%!" output_dst
 
 let () =
-  (* Extract --cache-dir and --parallelism options before command dispatch *)
+  (* Extract options before command dispatch *)
   let argv = Array.to_list Sys.argv in
-  let cache_dir, parallelism, argv =
-    let rec extract ~cd ~par acc = function
+  let cache_dir, parallelism, compress_parallelism, argv =
+    let rec extract ~cd ~par ~cpar acc = function
       | "--cache-dir" :: dir :: rest ->
-          extract ~cd:(Some dir) ~par acc rest
+          extract ~cd:(Some dir) ~par ~cpar acc rest
       | "--parallelism" :: n :: rest ->
-          extract ~cd ~par:(Some (Int.of_string n)) acc rest
+          extract ~cd ~par:(Some (Int.of_string n)) ~cpar acc rest
+      | "--compression-parallelism" :: n :: rest ->
+          extract ~cd ~par ~cpar:(Some (Int.of_string n)) acc rest
       | x :: rest ->
-          extract ~cd ~par (x :: acc) rest
+          extract ~cd ~par ~cpar (x :: acc) rest
       | [] ->
-          (cd, par, List.rev acc)
+          (cd, par, cpar, List.rev acc)
     in
-    extract ~cd:None ~par:None [] argv
+    extract ~cd:None ~par:None ~cpar:None [] argv
   in
   let parallelism = Option.value parallelism ~default:1 in
+  let compress_parallelism = Option.value compress_parallelism ~default:1 in
   ( match cache_dir with
   | Some dir ->
       Printf.eprintf "Using cache directory: %s\n%!" dir ;
@@ -2115,11 +2193,11 @@ let () =
   | [| _; "risc0ToGroth16"; proof_path; vk_path |] ->
       run_risc0_to_groth16 ~proof_path ~vk_path
   | [| _; "sp1ToPlonkParallel"; input_path |] ->
-      run_parallel_pipeline ~cache_dir ~parallelism ~system:"plonk"
-        ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
+      run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism
+        ~system:"plonk" ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
   | [| _; "risc0ToGroth16Parallel"; proof_path; vk_path |] ->
-      run_parallel_pipeline ~cache_dir ~parallelism ~system:"groth16"
-        ~base_count:16 ~max_layer:4 ~input_path:proof_path
+      run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism
+        ~system:"groth16" ~base_count:16 ~max_layer:4 ~input_path:proof_path
         ~vk_path:(Some vk_path)
   (* ---- Internal stage commands ---- *)
   | [| _; "internal"; "init-workdir"; workdir; "plonk"; input_path |] ->
@@ -2131,6 +2209,8 @@ let () =
         ~input_path:proof_path ~vk_path:(Some vk_path)
   | [| _; "internal"; "generate-witness"; workdir |] ->
       run_internal_generate_witness ~workdir
+  | [| _; "internal"; "compute-aux-witness"; workdir |] ->
+      run_internal_compute_aux_witness ~workdir
   | [| _; "internal"; "compute-state"; workdir; n_str |] ->
       run_internal_compute_state ~workdir ~n:(Int.of_string n_str)
   | [| _; "internal"; "prove-zkp"; workdir; n_str |] ->
@@ -2140,8 +2220,15 @@ let () =
         ~layer:(Int.of_string layer) ~index:(Int.of_string index)
   | [| _; "internal"; "compress-daemon"; socket_path |] ->
       run_internal_compress_daemon ~socket_path
-  | [| _; "internal"; "compress-via-daemon"
-     ; socket_path; workdir; base_count; layer; index |] ->
+  | [| _
+     ; "internal"
+     ; "compress-via-daemon"
+     ; socket_path
+     ; workdir
+     ; base_count
+     ; layer
+     ; index
+    |] ->
       run_internal_compress_via_daemon ~socket_path ~workdir
         ~base_count:(Int.of_string base_count) ~layer:(Int.of_string layer)
         ~index:(Int.of_string index)
@@ -2171,6 +2258,8 @@ let () =
       Printf.eprintf
         "  --cache-dir <dir>     Cache proving keys to disk for reuse\n" ;
       Printf.eprintf
-        "  --parallelism <n>     Max parallel processes for compression \
-         (default: 1)\n" ;
+        "  --parallelism <n>     Max parallel processes (default: 1)\n" ;
+      Printf.eprintf
+        "  --compression-parallelism <n>\n\
+        \                        Number of compression daemons (default: 1)\n" ;
       exit 1
