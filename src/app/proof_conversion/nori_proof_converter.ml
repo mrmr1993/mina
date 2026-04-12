@@ -783,8 +783,167 @@ let run_internal_prove_zkp ~workdir ~n =
   let input_hash = W.read_hash ~workdir ~n:prev in
   ( match system with
   | W.Plonk _ ->
-      (* TODO: full PLONK prove-zkp with accumulator chaining *)
-      failwith "internal prove-zkp for PLONK: not yet implemented"
+      let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+      let write_base_proof ~proof_out ~side_vk =
+        W.write_proof_file
+          ~path:(W.proof_path workdir ~layer:0 ~index:n)
+          ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+        let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+        let vk_hash =
+          let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+          let packed = Random_oracle.pack_input input in
+          Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+        in
+        W.write_vk_file
+          ~path:(W.vk_path workdir ~layer:0 ~index:n)
+          ~vk_base64:vk_b64 ~vk_hash
+      in
+      let aux_path = Filename.concat workdir "aux_witness.json" in
+      let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+      if n <= 11 then (
+        (* PLONK verification circuits 0-11: Plonk_accumulator *)
+        let acc = W.read_plonk_state ~workdir ~n:prev in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            plonk_acc = Some acc
+          }
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+            ~input_hash ~witness:w
+        in
+        let _, acc_after, _ =
+          Proof_conversion.Plonk_pickles_rules
+          .compile_and_prove_one_with_plonk_acc ~n ~input_hash ~witness:w
+        in
+        write_base_proof ~proof_out ~side_vk ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        W.write_plonk_state ~workdir ~n ~acc:acc_after )
+      else if n = 12 then (
+        (* Circuit 12: transition Plonk_accumulator → Kzg_accumulator *)
+        let acc = W.read_plonk_state ~workdir ~n:prev in
+        let aux_json = Yojson.Safe.from_file aux_path in
+        let shift_power =
+          Step.Field.Constant.of_string
+            Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
+        in
+        let c_fp12 =
+          Proof_conversion.Proof_json.fp12_of_json
+            (Yojson.Safe.Util.member "c" aux_json)
+        in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            plonk_acc = Some acc
+          ; shift_power = Some shift_power
+          ; c_fp12 = Some c_fp12
+          }
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:12
+            ~input_hash ~witness:w
+        in
+        let _, kzg_const, _ =
+          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
+            ~input_hash ~witness:w
+        in
+        write_base_proof ~proof_out ~side_vk ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        let lines_hashes =
+          Array.create ~len:ate_loop_len Step.Field.Constant.zero
+        in
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_const ~lines_hashes
+          ~g_values:[||] )
+      else if n <= 16 then (
+        (* Circuits 13-16: KZG line circuits *)
+        let kzg, lines_hashes, g_values_prev =
+          W.read_plonk_kzg_state ~workdir ~n:prev
+        in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some kzg
+          ; lines_hashes = Some lines_hashes
+          }
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+            ~input_hash ~witness:w
+        in
+        let _, kzg_after, lh_after, gv, _ =
+          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
+            ~circuit_index:n ~input_hash ~witness:w
+        in
+        write_base_proof ~proof_out ~side_vk ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        let new_g_values = Array.append g_values_prev gv in
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after
+          ~lines_hashes:lh_after ~g_values:new_g_values )
+      else if n <= 22 then (
+        (* Circuits 17-22: f-accumulation *)
+        let kzg, lines_hashes, g_values =
+          W.read_plonk_kzg_state ~workdir ~n:prev
+        in
+        let f_accum_params =
+          [| (1, 10, 9, 0)
+           ; (10, 21, 11, 9)
+           ; (21, 32, 11, 20)
+           ; (32, 43, 11, 31)
+           ; (43, 54, 11, 42)
+           ; (54, 65, 11, 53)
+          |]
+        in
+        let idx = n - 17 in
+        let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
+        let g_chunk = Array.sub g_values ~pos:lhs_size ~len:chunk_size in
+        let lhs_h = Array.sub lines_hashes ~pos:0 ~len:lhs_size in
+        let rhs_start = lhs_size + chunk_size in
+        let rhs_h =
+          Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
+        in
+        let flat_hashes = Array.append lhs_h rhs_h in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some kzg
+          ; g_chunk = Some g_chunk
+          ; flat_hashes = Some flat_hashes
+          }
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+            ~input_hash ~witness:w
+        in
+        let _, kzg_after, _ =
+          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
+            ~circuit_index:n ~input_hash ~witness:w
+        in
+        write_base_proof ~proof_out ~side_vk ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after ~lines_hashes
+          ~g_values )
+      else (
+        (* Circuit 23: final exponentiation *)
+        assert (n = 23) ;
+        let kzg, lines_hashes, g_values =
+          W.read_plonk_kzg_state ~workdir ~n:prev
+        in
+        let lhs_hashes =
+          Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1)
+        in
+        let g_chunk = [| g_values.(ate_loop_len - 1) |] in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some kzg
+          ; lhs_hashes = Some lhs_hashes
+          ; g_chunk = Some g_chunk
+          }
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:23
+            ~input_hash ~witness:w
+        in
+        write_base_proof ~proof_out ~side_vk ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        (* Write final KZG state unchanged for collect-output *)
+        W.write_plonk_kzg_state ~workdir ~n ~kzg ~lines_hashes ~g_values )
   | W.Groth16 _ ->
       let vk_path = Filename.concat workdir "vk.json" in
       let vk = Proof_conversion.Proof_json.load_vk vk_path in
@@ -942,24 +1101,179 @@ let run_internal_prove_zkp ~workdir ~n =
 let run_internal_compress ~workdir ~base_count ~layer ~index =
   Printf.eprintf "Compressing: base=%d layer=%d index=%d in %s\n%!" base_count
     layer index workdir ;
-  let _system = W.detect_system ~workdir in
-  ignore (base_count : int) ;
-  ignore (layer : int) ;
-  ignore (index : int) ;
-  (* TODO: implement tree compression stage *)
-  failwith "internal compress: not yet implemented"
+  let system = W.detect_system ~workdir in
+  let left_idx = index * 2 in
+  let right_idx = (index * 2) + 1 in
+  let prev_layer = layer - 1 in
+  if layer = 1 then (
+    (* Layer 1: merge two base proofs *)
+    let layer1_tag, (module Layer1Proof), layer1_prove = TC.compile_layer1 () in
+    ignore (module Layer1Proof : Pickles.Proof_intf) ;
+    let read_base i =
+      let proof_b64, _ =
+        W.read_proof_file ~path:(W.proof_path workdir ~layer:0 ~index:i)
+      in
+      let vk_b64, _ =
+        W.read_vk_file ~path:(W.vk_path workdir ~layer:0 ~index:i)
+      in
+      let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+      let proof = P.of_base64 proof_b64 |> Result.ok_or_failwith in
+      let vk =
+        Pickles.Side_loaded.Verification_key.of_base64 vk_b64 |> Or_error.ok_exn
+      in
+      (* Read input/output hashes for this circuit *)
+      let cin = W.read_hash ~workdir ~n:(i - 1) in
+      let cout = W.read_hash ~workdir ~n:i in
+      (cin, cout, proof, vk)
+    in
+    let cin_l, cout_l, proof_l, vk_l = read_base left_idx in
+    let cin_r, cout_r, proof_r, vk_r = read_base right_idx in
+    (* Handle padding for PLONK (24 circuits → 32 padded) *)
+    let actual_base = W.base_count system in
+    let verify_l = left_idx < actual_base in
+    let verify_r = right_idx < actual_base in
+    (* For padding entries, use the last valid output hash *)
+    let last_hash = W.read_hash ~workdir ~n:(actual_base - 1) in
+    let cin_l = if verify_l then cin_l else last_hash in
+    let cout_l = if verify_l then cout_l else last_hash in
+    let cin_r = if verify_r then cin_r else last_hash in
+    let cout_r = if verify_r then cout_r else last_hash in
+    let witness : TC.layer1_witness =
+      { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
+      ; vk_left = vk_l
+      ; verify_left = verify_l
+      ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
+      ; vk_right = vk_r
+      ; verify_right = verify_r
+      ; pi_left = (cin_l, cout_l)
+      ; pi_right = (cin_r, cout_r)
+      }
+    in
+    let carry, proof = TC.prove_layer1 ~prover:layer1_prove ~witness in
+    let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
+    W.write_proof_file
+      ~path:(W.proof_path workdir ~layer ~index)
+      ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
+    (* Write layer1 VK *)
+    let layer1_vk =
+      Promise.block_on_async_exn (fun () ->
+          Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
+    in
+    let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 layer1_vk in
+    let vk_hash =
+      let input = Pickles.Side_loaded.Verification_key.to_input layer1_vk in
+      let packed = Random_oracle.pack_input input in
+      Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+    in
+    W.write_vk_file
+      ~path:(W.vk_path workdir ~layer ~index)
+      ~vk_base64:vk_b64 ~vk_hash ;
+    (* Write carry as marshal for node layers to read *)
+    W.marshal_to_file
+      ~path:
+        (Filename.concat (W.state_dir workdir)
+           (sprintf "carry_%d_%d.bin" layer index) )
+      (let (li, ro), vkd = carry in
+       ( Step.Field.Constant.to_string li
+       , Step.Field.Constant.to_string ro
+       , Step.Field.Constant.to_string vkd ) ) ;
+    Printf.eprintf "Layer1 %d compressed.\n%!" index )
+  else
+    (* Node layers: merge two previous-layer proofs *)
+    let node_tag, (module NodeProof), node_prove = TC.compile_node () in
+    ignore (module NodeProof : Pickles.Proof_intf) ;
+    let read_carry l i =
+      let (li_s, ro_s, vkd_s) =
+        ( W.marshal_from_file
+            ~path:
+              (Filename.concat (W.state_dir workdir)
+                 (sprintf "carry_%d_%d.bin" l i) )
+          : string * string * string )
+      in
+      ( (Step.Field.Constant.of_string li_s, Step.Field.Constant.of_string ro_s)
+      , Step.Field.Constant.of_string vkd_s )
+    in
+    let carry_l = read_carry prev_layer left_idx in
+    let carry_r = read_carry prev_layer right_idx in
+    let proof_l_b64, _ =
+      W.read_proof_file
+        ~path:(W.proof_path workdir ~layer:prev_layer ~index:left_idx)
+    in
+    let proof_r_b64, _ =
+      W.read_proof_file
+        ~path:(W.proof_path workdir ~layer:prev_layer ~index:right_idx)
+    in
+    let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
+    let proof_l = P2.of_base64 proof_l_b64 |> Result.ok_or_failwith in
+    let proof_r = P2.of_base64 proof_r_b64 |> Result.ok_or_failwith in
+    (* Read VK from previous layer (same for all entries in a layer) *)
+    let prev_vk_b64, _ =
+      W.read_vk_file ~path:(W.vk_path workdir ~layer:prev_layer ~index:left_idx)
+    in
+    let prev_vk =
+      Pickles.Side_loaded.Verification_key.of_base64 prev_vk_b64
+      |> Or_error.ok_exn
+    in
+    let witness : TC.node_witness =
+      { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
+      ; vk_left = prev_vk
+      ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
+      ; vk_right = prev_vk
+      ; layer
+      ; carry_left = carry_l
+      ; carry_right = carry_r
+      }
+    in
+    let carry, proof = TC.prove_node ~prover:node_prove ~witness in
+    W.write_proof_file
+      ~path:(W.proof_path workdir ~layer ~index)
+      ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
+    let node_vk =
+      Promise.block_on_async_exn (fun () ->
+          Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
+    in
+    let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 node_vk in
+    let vk_hash =
+      let input = Pickles.Side_loaded.Verification_key.to_input node_vk in
+      let packed = Random_oracle.pack_input input in
+      Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+    in
+    W.write_vk_file
+      ~path:(W.vk_path workdir ~layer ~index)
+      ~vk_base64:vk_b64 ~vk_hash ;
+    (* Also write as nodeVk.json for collect-output *)
+    W.write_vk_file ~path:(W.node_vk_path workdir) ~vk_base64:vk_b64 ~vk_hash ;
+    W.marshal_to_file
+      ~path:
+        (Filename.concat (W.state_dir workdir)
+           (sprintf "carry_%d_%d.bin" layer index) )
+      (let (li, ro), vkd = carry in
+       ( Step.Field.Constant.to_string li
+       , Step.Field.Constant.to_string ro
+       , Step.Field.Constant.to_string vkd ) ) ;
+    Printf.eprintf "Node layer %d index %d compressed.\n%!" layer index
 
 (** Collect final output from workdir. *)
 let run_internal_collect_output ~workdir =
   Printf.eprintf "Collecting output from %s\n%!" workdir ;
   let system = W.detect_system ~workdir in
-  let max_layer = W.max_layer system in
+  let ml = W.max_layer system in
   let proof_b64, _mpv =
-    W.read_proof_file ~path:(W.proof_path workdir ~layer:max_layer ~index:0)
+    W.read_proof_file ~path:(W.proof_path workdir ~layer:ml ~index:0)
   in
   let vk_b64, vk_hash = W.read_vk_file ~path:(W.node_vk_path workdir) in
-  (* Read public output from final proof's carry *)
-  (* For now just output the proof and VK *)
+  (* Read public output from final carry *)
+  let carry_path =
+    Filename.concat (W.state_dir workdir) (sprintf "carry_%d_0.bin" ml)
+  in
+  let public_output =
+    if Stdlib.Sys.file_exists carry_path then
+      let (li_s, ro_s, vkd_s) =
+        (W.marshal_from_file ~path:carry_path : string * string * string)
+      in
+      [ `String li_s; `String ro_s; `String vkd_s ]
+    else []
+  in
   let output =
     `Assoc
       [ ( "vkData"
@@ -969,7 +1283,7 @@ let run_internal_collect_output ~workdir =
             [ ("maxProofsVerified", `Int 2)
             ; ("proof", `String proof_b64)
             ; ("publicInput", `List [])
-            ; ("publicOutput", `List [])
+            ; ("publicOutput", `List public_output)
             ] )
       ]
   in
