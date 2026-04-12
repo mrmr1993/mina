@@ -1444,8 +1444,11 @@ let run_internal_prove_zkp ~workdir ~n =
         W.write_groth16_state ~workdir ~n ~acc ~line_hashes ~g_values ) ;
   Printf.eprintf "zkp%d proved.\n%!" n
 
-(** Run one tree compression merge. *)
-let run_internal_compress ~workdir ~base_count ~layer ~index =
+(** Core compression logic.  Takes pre-compiled provers, tags, and VKs
+    so the caller can choose whether to compile per-invocation or reuse
+    a long-lived daemon. *)
+let do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
+    ~base_count ~layer ~index =
   Printf.eprintf "Compressing: base=%d layer=%d index=%d in %s\n%!" base_count
     layer index workdir ;
   let system = W.detect_system ~workdir in
@@ -1454,11 +1457,11 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
   let prev_layer = layer - 1 in
   if layer = 1 then (
     (* Layer 1: merge two base proofs *)
-    let layer1_tag, (module Layer1Proof), layer1_prove = TC.compile_layer1 () in
-    ignore (module Layer1Proof : Pickles.Proof_intf) ;
     let actual_base = W.base_count system in
-    let last_hash = W.read_hash ~workdir ~n:(actual_base - 1) in
-    (* Read a base proof, or use index 0 as dummy for padding *)
+    (* last_hash is only needed for dummy/padding slots (index >= base_count).
+       Read lazily so compression of early pairs can start before all states
+       are computed. *)
+    let last_hash = lazy (W.read_hash ~workdir ~n:(actual_base - 1)) in
     let read_base i =
       let real_i = if i < actual_base then i else 0 in
       let proof_b64, _ =
@@ -1476,7 +1479,9 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
         let cin = W.read_hash ~workdir ~n:(i - 1) in
         let cout = W.read_hash ~workdir ~n:i in
         (cin, cout, proof, vk, true)
-      else (last_hash, last_hash, proof, vk, false)
+      else
+        let lh = Lazy.force last_hash in
+        (lh, lh, proof, vk, false)
     in
     let cin_l, cout_l, proof_l, vk_l, verify_l = read_base left_idx in
     let cin_r, cout_r, proof_r, vk_r, verify_r = read_base right_idx in
@@ -1496,11 +1501,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     W.write_proof_file
       ~path:(W.proof_path workdir ~layer ~index)
       ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
-    (* Write layer1 VK *)
-    let layer1_vk =
-      Promise.block_on_async_exn (fun () ->
-          Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
-    in
     let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 layer1_vk in
     let vk_hash =
       let input = Pickles.Side_loaded.Verification_key.to_input layer1_vk in
@@ -1510,7 +1510,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     W.write_vk_file
       ~path:(W.vk_path workdir ~layer ~index)
       ~vk_base64:vk_b64 ~vk_hash ;
-    (* Write carry as marshal for node layers to read *)
     W.marshal_to_file
       ~path:
         (Filename.concat (W.state_dir workdir)
@@ -1521,9 +1520,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
        , Step.Field.Constant.to_string vkd ) ) ;
     Printf.eprintf "Layer1 %d compressed.\n%!" index )
   else
-    (* Node layers: merge two previous-layer proofs *)
-    let node_tag, (module NodeProof), node_prove = TC.compile_node () in
-    ignore (module NodeProof : Pickles.Proof_intf) ;
     let read_carry l i =
       let (li_s, ro_s, vkd_s) =
         ( W.marshal_from_file
@@ -1548,7 +1544,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
     let proof_l = P2.of_base64 proof_l_b64 |> Result.ok_or_failwith in
     let proof_r = P2.of_base64 proof_r_b64 |> Result.ok_or_failwith in
-    (* Read VK from previous layer (same for all entries in a layer) *)
     let prev_vk_b64, _ =
       W.read_vk_file ~path:(W.vk_path workdir ~layer:prev_layer ~index:left_idx)
     in
@@ -1570,10 +1565,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     W.write_proof_file
       ~path:(W.proof_path workdir ~layer ~index)
       ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
-    let node_vk =
-      Promise.block_on_async_exn (fun () ->
-          Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
-    in
     let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 node_vk in
     let vk_hash =
       let input = Pickles.Side_loaded.Verification_key.to_input node_vk in
@@ -1583,7 +1574,6 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     W.write_vk_file
       ~path:(W.vk_path workdir ~layer ~index)
       ~vk_base64:vk_b64 ~vk_hash ;
-    (* Also write as nodeVk.json for collect-output *)
     W.write_vk_file ~path:(W.node_vk_path workdir) ~vk_base64:vk_b64 ~vk_hash ;
     W.marshal_to_file
       ~path:
@@ -1594,6 +1584,136 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
        , Step.Field.Constant.to_string ro
        , Step.Field.Constant.to_string vkd ) ) ;
     Printf.eprintf "Node layer %d index %d compressed.\n%!" layer index
+
+(** Standalone compress: compile circuits, then compress.
+    Used by [internal compress] for backwards compatibility. *)
+let run_internal_compress ~workdir ~base_count ~layer ~index =
+  let layer1_tag, (module Layer1Proof_), layer1_prove = TC.compile_layer1 () in
+  let layer1_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
+  in
+  let node_tag, (module NodeProof_), node_prove = TC.compile_node () in
+  let node_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
+  in
+  do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir ~base_count
+    ~layer ~index
+
+(** Compression daemon: compile circuits once, then serve compress requests
+    over a Unix domain socket.  Each connection sends a single line command
+    and receives a single line response. *)
+let run_internal_compress_daemon ~socket_path =
+  Printf.eprintf "Compress daemon: compiling circuits...\n%!" ;
+  let layer1_tag, (module Layer1Proof_), layer1_prove = TC.compile_layer1 () in
+  let layer1_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
+  in
+  Printf.eprintf "Compress daemon: layer1 compiled.\n%!" ;
+  let node_tag, (module NodeProof_), node_prove = TC.compile_node () in
+  let node_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
+  in
+  Printf.eprintf "Compress daemon: node compiled.  Listening on %s\n%!"
+    socket_path ;
+  let socket =
+    Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
+  in
+  ( try Core_unix.bind socket ~addr:(ADDR_UNIX socket_path)
+    with exn ->
+      Core_unix.close socket ;
+      raise exn ) ;
+  Core_unix.listen socket ~backlog:16 ;
+  let running = ref true in
+  while !running do
+    let client_fd, _addr = Core_unix.accept socket in
+    let ic = Core_unix.in_channel_of_descr client_fd in
+    let oc = Core_unix.out_channel_of_descr client_fd in
+    ( try
+        let line = In_channel.input_line_exn ic in
+        let parts = String.split line ~on:' ' in
+        ( match parts with
+        | [ "shutdown" ] ->
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc ;
+            running := false
+        | [ workdir; base_count_s; layer_s; index_s ] ->
+            let base_count = Int.of_string base_count_s in
+            let layer = Int.of_string layer_s in
+            let index = Int.of_string index_s in
+            do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
+              ~base_count ~layer ~index ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | _ ->
+            Out_channel.output_string oc
+              (sprintf "ERROR bad command: %s\n" line) ;
+            Out_channel.flush oc )
+      with exn ->
+        ( try
+            Out_channel.output_string oc
+              (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
+            Out_channel.flush oc
+          with _ -> () ) ) ;
+    Core_unix.close client_fd
+  done ;
+  Core_unix.close socket ;
+  Printf.eprintf "Compress daemon: shutdown.\n%!"
+
+(** Thin client for compress-via-daemon: connect to the daemon's Unix
+    socket, send a compress command, wait for the response. *)
+let run_internal_compress_via_daemon ~socket_path ~workdir ~base_count ~layer
+    ~index =
+  Printf.eprintf "compress-via-daemon: layer=%d index=%d\n%!" layer index ;
+  let cmd_line =
+    sprintf "%s %d %d %d" workdir base_count layer index
+  in
+  let socket =
+    Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
+  in
+  (* Retry connection until daemon is ready *)
+  let rec connect_retry attempts =
+    try Core_unix.connect socket ~addr:(ADDR_UNIX socket_path)
+    with Core_unix.Unix_error ((ENOENT | ECONNREFUSED), _, _) ->
+      if attempts <= 0 then
+        failwith
+          (sprintf "compress-via-daemon: could not connect to %s after retries"
+             socket_path )
+      else (
+        ignore (Core_unix.nanosleep 0.2 : float) ;
+        connect_retry (attempts - 1) )
+  in
+  connect_retry 600 (* 2 minutes of retries *) ;
+  let oc = Core_unix.out_channel_of_descr socket in
+  let ic = Core_unix.in_channel_of_descr socket in
+  Out_channel.output_string oc (cmd_line ^ "\n") ;
+  Out_channel.flush oc ;
+  let response = In_channel.input_line_exn ic in
+  Core_unix.close socket ;
+  if not (String.is_prefix response ~prefix:"OK") then
+    failwith (sprintf "compress-via-daemon failed: %s" response) ;
+  Printf.eprintf "compress-via-daemon: layer=%d index=%d done.\n%!" layer index
+
+(** Send a shutdown command to the compress daemon. *)
+let shutdown_compress_daemon ~socket_path =
+  let socket =
+    Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
+  in
+  ( try
+      Core_unix.connect socket ~addr:(ADDR_UNIX socket_path) ;
+      let oc = Core_unix.out_channel_of_descr socket in
+      let ic = Core_unix.in_channel_of_descr socket in
+      Out_channel.output_string oc "shutdown\n" ;
+      Out_channel.flush oc ;
+      let _response = In_channel.input_line_exn ic in
+      Core_unix.close socket
+    with exn ->
+      Printf.eprintf "Warning: shutdown_compress_daemon: %s\n%!"
+        (Exn.to_string exn) ;
+      Core_unix.close socket )
 
 (** Collect final output from workdir. *)
 let run_internal_collect_output ~workdir =
@@ -1654,6 +1774,7 @@ type task_status = Pending | Running of Pid.t | Done | Failed of int
 type dag_task =
   { cmd : string
   ; deps : int array
+  ; priority : int  (** Higher = scheduled first when multiple tasks ready. *)
   ; mutable status : task_status
   }
 
@@ -1694,12 +1815,19 @@ let run_dag ~parallelism (tasks : dag_task array) =
           Hashtbl.set pid_to_task ~key:pid ~data:i ;
           incr running
     in
-    (* Fill initial slots with ready tasks *)
+    (* Fill slots with ready tasks, highest priority first.
+       Among equal-priority tasks, preserve index order. *)
     let fill_slots () =
-      let i = ref 0 in
-      while !running < parallelism && !i < n do
-        if is_ready !i then start_task !i ;
-        incr i
+      let found = ref true in
+      while !running < parallelism && !found do
+        let best = ref (-1) in
+        let best_pri = ref Int.min_value in
+        for i = 0 to n - 1 do
+          if is_ready i && tasks.(i).priority > !best_pri then (
+            best := i ;
+            best_pri := tasks.(i).priority )
+        done ;
+        if !best >= 0 then start_task !best else found := false
       done
     in
     fill_slots () ;
@@ -1715,7 +1843,8 @@ let run_dag ~parallelism (tasks : dag_task array) =
           | Ok () ->
               tasks.(task_idx).status <- Done ;
               incr completed ;
-              Printf.eprintf "  [%d/%d] completed\n%!" (task_idx + 1) n
+              Printf.eprintf "  %d completed [%d/%d]\n%!"
+                (task_idx + 1) !completed n
           | Error (`Exit_non_zero code) ->
               tasks.(task_idx).status <- Failed code ;
               failures := (task_idx, code) :: !failures
@@ -1787,25 +1916,36 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
           (Filename.quote input_path)
   in
   run_cmd init_cmd ;
-  (* Stage 2: generate-witness — only computes initial state (fast) *)
-  run_cmd
-    (sprintf "%s internal generate-witness %s" self (Filename.quote workdir)) ;
-  (* Build the DAG of compute-state + prove-zkp + compression tasks.
+  (* Fork compression daemon early so circuit compilation overlaps with
+     witness generation.  The daemon only needs the workdir to exist
+     (for its socket path); it doesn't read any witness/state files. *)
+  let socket_path = Filename.concat workdir "compress.sock" in
+  let daemon_pid =
+    match Core_unix.fork () with
+    | `In_the_child ->
+        run_internal_compress_daemon ~socket_path ;
+        Stdlib.exit 0
+    | `In_the_parent pid ->
+        pid
+  in
+  Printf.eprintf "Compress daemon started (pid %d), compiling in background\n%!"
+    (Pid.to_int daemon_pid) ;
+  (* Build the DAG.  generate-witness is task 0 so it runs in parallel
+     with daemon compilation rather than blocking the DAG start.
 
      Task layout (indices):
-       0 .. base_count-1                    : compute-state 0..N-1
-       base_count .. 2*base_count-1         : prove-zkp 0..N-1
-       2*base_count ..                      : compression tasks
+       0                                    : generate-witness
+       1 .. base_count                      : compute-state 0..N-1
+       base_count+1 .. 2*base_count         : prove-zkp 0..N-1
+       2*base_count+1 ..                    : compression tasks
 
      Dependencies:
-       compute-state 0     : (none — reads initial state from generate-witness)
+       generate-witness    : (none)
+       compute-state 0     : generate-witness
        compute-state n>0   : compute-state n-1
        prove-zkp n         : compute-state n
        compress layer=1, i : prove-zkp 2i, prove-zkp 2i+1
-       compress layer>1, i : compress prev_layer 2i, compress prev_layer 2i+1
-
-     This enables pipelining: while compute-state N+1 runs, prove-zkp N
-     can start in parallel. *)
+       compress layer>1, i : compress prev_layer 2i, compress prev_layer 2i+1 *)
   let padded_count =
     let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
     next_pow2 1
@@ -1825,39 +1965,55 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
   let total_compression =
     Array.fold compression_counts ~init:0 ~f:( + )
   in
-  (* compute-state tasks + prove-zkp tasks + compression tasks *)
-  let total_tasks = base_count + base_count + total_compression in
-  let cs_start = 0 in                     (* compute-state tasks *)
-  let prove_start = base_count in          (* prove-zkp tasks *)
-  let compress_start = 2 * base_count in   (* compression tasks *)
+  (* generate-witness + compute-state + prove-zkp + compression *)
+  let total_tasks = 1 + base_count + base_count + total_compression in
+  let gw_idx = 0 in                           (* generate-witness *)
+  let cs_start = 1 in                         (* compute-state tasks *)
+  let prove_start = 1 + base_count in          (* prove-zkp tasks *)
+  let compress_start = 1 + 2 * base_count in   (* compression tasks *)
   Printf.eprintf
-    "Building DAG: %d compute-state + %d prove-zkp + %d compression = %d \
-     tasks (parallelism=%d)\n\
+    "Building DAG: 1 generate-witness + %d compute-state + %d prove-zkp + %d \
+     compression = %d tasks (parallelism=%d)\n\
      %!"
     base_count base_count total_compression total_tasks parallelism ;
   let tasks = Array.create ~len:total_tasks
-      { cmd = ""; deps = [||]; status = Pending }
+      { cmd = ""; deps = [||]; priority = 0; status = Pending }
   in
-  (* compute-state tasks: sequential chain *)
+  (* generate-witness: high priority, no deps — runs in parallel with
+     daemon compilation *)
+  tasks.(gw_idx) <-
+    { cmd =
+        sprintf "%s internal generate-witness %s" self (Filename.quote workdir)
+    ; deps = [||]
+    ; priority = 1
+    ; status = Pending
+    } ;
+  (* compute-state tasks: sequential chain, high priority — gates all
+     proving so must not be starved by leaf proofs. *)
   for n = 0 to base_count - 1 do
     tasks.(cs_start + n) <-
       { cmd =
           sprintf "%s internal compute-state %s %d" self
             (Filename.quote workdir) n
-      ; deps = (if n = 0 then [||] else [| cs_start + n - 1 |])
+      ; deps =
+          (if n = 0 then [| gw_idx |] else [| cs_start + n - 1 |])
+      ; priority = 1
       ; status = Pending
       }
   done ;
-  (* prove-zkp tasks: each depends on its compute-state *)
+  (* prove-zkp tasks: lowest priority — most plentiful, fill idle slots *)
   for n = 0 to base_count - 1 do
     tasks.(prove_start + n) <-
       { cmd =
           sprintf "%s internal prove-zkp %s %d" self (Filename.quote workdir) n
       ; deps = [| cs_start + n |]
+      ; priority = 0
       ; status = Pending
       }
   done ;
-  (* Compression tasks *)
+  (* Compression tasks: highest priority — on the critical path of the
+     reduction tree.  Starting these as soon as their children are done
+     overlaps compression with remaining base proving. *)
   let layer_start = Array.create ~len:(max_layer + 1) 0 in
   layer_start.(0) <- prove_start ;  (* layer 0 = prove-zkp tasks *)
   let task_idx = ref compress_start in
@@ -1870,7 +2026,6 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
       let right_child = (index * 2) + 1 in
       let deps =
         if layer = 1 then
-          (* Children are prove-zkp tasks; clamp for padding *)
           let dep_l = prove_start + min left_child (base_count - 1) in
           let dep_r = prove_start + min right_child (base_count - 1) in
           if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
@@ -1880,9 +2035,11 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
       in
       tasks.(!task_idx) <-
         { cmd =
-            sprintf "%s internal compress %s %d %d %d" self
+            sprintf "%s internal compress-via-daemon %s %s %d %d %d" self
+              (Filename.quote socket_path)
               (Filename.quote workdir) base_count layer index
         ; deps
+        ; priority = 2
         ; status = Pending
         } ;
       incr task_idx
@@ -1891,6 +2048,17 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
   assert (!task_idx = total_tasks) ;
   (* Execute the DAG *)
   run_dag ~parallelism tasks ;
+  (* Shut down compression daemon *)
+  shutdown_compress_daemon ~socket_path ;
+  ( try
+      match Core_unix.waitpid daemon_pid with
+      | Ok () ->
+          Printf.eprintf "Compress daemon exited normally.\n%!"
+      | Error _ ->
+          Printf.eprintf "Warning: compress daemon exited abnormally.\n%!"
+    with Core_unix.Unix_error (ECHILD, _, _) ->
+      (* Already reaped by the DAG scheduler's wait(`Any) *)
+      Printf.eprintf "Compress daemon already exited.\n%!" ) ;
   (* Collect output (serial) *)
   run_cmd
     (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
@@ -1970,6 +2138,13 @@ let () =
   | [| _; "internal"; "compress"; workdir; base_count; layer; index |] ->
       run_internal_compress ~workdir ~base_count:(Int.of_string base_count)
         ~layer:(Int.of_string layer) ~index:(Int.of_string index)
+  | [| _; "internal"; "compress-daemon"; socket_path |] ->
+      run_internal_compress_daemon ~socket_path
+  | [| _; "internal"; "compress-via-daemon"
+     ; socket_path; workdir; base_count; layer; index |] ->
+      run_internal_compress_via_daemon ~socket_path ~workdir
+        ~base_count:(Int.of_string base_count) ~layer:(Int.of_string layer)
+        ~index:(Int.of_string index)
   | [| _; "internal"; "collect-output"; workdir |] ->
       run_internal_collect_output ~workdir
   | _ ->
