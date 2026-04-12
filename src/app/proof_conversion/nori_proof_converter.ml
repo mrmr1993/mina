@@ -822,74 +822,92 @@ let run_internal_generate_witness ~workdir =
       W.write_hash ~workdir ~n:12 ~hash:oh12 ;
       W.write_plonk_kzg_state ~workdir ~n:12 ~kzg:kzg12
         ~lines_hashes:!cur_kzg_lh ~g_values:!cur_kzg_gv ;
-      (* Circuits 13-23: just compute hashes, KZG state evolves but we
-         can't easily read it back. Write what we have. *)
-      for n = 13 to 23 do
-        Printf.eprintf "  State for plonk zkp%d...\n%!" n ;
-        let witness : Proof_conversion.Plonk_requests.witness =
-          if n <= 16 then
-            { Proof_conversion.Plonk_requests.empty_witness with
-              kzg_acc = Some !cur_kzg
-            ; lines_hashes = Some !cur_kzg_lh
-            }
-          else if n <= 22 then
-            let f_accum_params =
-              [| (1, 10, 9, 0)
-               ; (10, 21, 11, 9)
-               ; (21, 32, 11, 20)
-               ; (32, 43, 11, 31)
-               ; (43, 54, 11, 42)
-               ; (54, 65, 11, 53)
-              |]
-            in
-            let idx = n - 17 in
-            let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
-            let g_chunk = Array.sub !cur_kzg_gv ~pos:lhs_size ~len:chunk_size in
-            let lhs_h = Array.sub !cur_kzg_lh ~pos:0 ~len:lhs_size in
-            let rhs_start = lhs_size + chunk_size in
-            let rhs_h =
-              Array.sub !cur_kzg_lh ~pos:rhs_start
-                ~len:(ate_loop_len - rhs_start)
-            in
-            { Proof_conversion.Plonk_requests.empty_witness with
-              kzg_acc = Some !cur_kzg
-            ; g_chunk = Some g_chunk
-            ; flat_hashes = Some (Array.append lhs_h rhs_h)
-            }
-          else
-            let lhs_hashes =
-              Array.sub !cur_kzg_lh ~pos:0 ~len:(ate_loop_len - 1)
-            in
-            { Proof_conversion.Plonk_requests.empty_witness with
-              kzg_acc = Some !cur_kzg
-            ; lhs_hashes = Some lhs_hashes
-            ; g_chunk = Some [| !cur_kzg_gv.(ate_loop_len - 1) |]
-            }
+      (* Circuits 13-16: KZG line circuits — need to evolve KZG state
+         including g_values. Use compile_and_prove_zkp_lines which returns
+         the evolved state via auxiliary output. *)
+      for n = 13 to 16 do
+        Printf.eprintf "  State for plonk zkp%d (proving)...\n%!" n ;
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some !cur_kzg
+          ; lines_hashes = Some !cur_kzg_lh
+          }
         in
-        let handler = Proof_conversion.Plonk_requests.handler witness in
-        let body = Proof_conversion.Plonk_circuits.circuit_body n in
-        let result_hash = ref !cur_hash in
-        Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant !cur_hash in
-                let output_hash = body input_var in
-                Step.as_prover (fun () ->
-                    result_hash := Step.As_prover.read_var output_hash ) )
-              handler ) ;
-        cur_hash := !result_hash ;
-        W.write_hash ~workdir ~n ~hash:!cur_hash ;
-        (* For circuits 13-16 we need to evolve KZG state. Read it back
-           from the circuit's auxiliary output via the compile+prove path.
-           For now, write the current state — prove-zkp will handle the
-           KZG evolution during actual proving. *)
-        if n <= 16 then
-          W.write_plonk_kzg_state ~workdir ~n ~kzg:!cur_kzg
-            ~lines_hashes:!cur_kzg_lh ~g_values:!cur_kzg_gv
-        else
-          W.write_plonk_kzg_state ~workdir ~n ~kzg:!cur_kzg
-            ~lines_hashes:!cur_kzg_lh ~g_values:!cur_kzg_gv
+        let oh, kzg_after, lh_after, gv, _proof =
+          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
+            ~circuit_index:n ~input_hash:!cur_hash ~witness:w
+        in
+        cur_hash := oh ;
+        cur_kzg := kzg_after ;
+        cur_kzg_lh := lh_after ;
+        cur_kzg_gv := Array.append !cur_kzg_gv gv ;
+        W.write_hash ~workdir ~n ~hash:oh ;
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after
+          ~lines_hashes:lh_after ~g_values:!cur_kzg_gv
       done ;
+      (* Circuits 17-22: f-accumulation *)
+      let g_values_snapshot = !cur_kzg_gv in
+      let lines_hashes_snapshot = !cur_kzg_lh in
+      let f_accum_params =
+        [| (1, 10, 9, 0)
+         ; (10, 21, 11, 9)
+         ; (21, 32, 11, 20)
+         ; (32, 43, 11, 31)
+         ; (43, 54, 11, 42)
+         ; (54, 65, 11, 53)
+        |]
+      in
+      for idx = 0 to 5 do
+        let n = 17 + idx in
+        Printf.eprintf "  State for plonk zkp%d (proving)...\n%!" n ;
+        let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
+        let g_chunk =
+          Array.sub g_values_snapshot ~pos:lhs_size ~len:chunk_size
+        in
+        let lhs_h = Array.sub lines_hashes_snapshot ~pos:0 ~len:lhs_size in
+        let rhs_start = lhs_size + chunk_size in
+        let rhs_h =
+          Array.sub lines_hashes_snapshot ~pos:rhs_start
+            ~len:(ate_loop_len - rhs_start)
+        in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some !cur_kzg
+          ; g_chunk = Some g_chunk
+          ; flat_hashes = Some (Array.append lhs_h rhs_h)
+          }
+        in
+        let oh, kzg_after, _proof =
+          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
+            ~circuit_index:n ~input_hash:!cur_hash ~witness:w
+        in
+        cur_hash := oh ;
+        cur_kzg := kzg_after ;
+        W.write_hash ~workdir ~n ~hash:oh ;
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after
+          ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot
+      done ;
+      (* Circuit 23: final exponentiation *)
+      Printf.eprintf "  State for plonk zkp23 (proving)...\n%!" ;
+      let lhs_hashes_23 =
+        Array.sub lines_hashes_snapshot ~pos:0 ~len:(ate_loop_len - 1)
+      in
+      let g_chunk_23 = [| g_values_snapshot.(ate_loop_len - 1) |] in
+      let w23 : Proof_conversion.Plonk_requests.witness =
+        { Proof_conversion.Plonk_requests.empty_witness with
+          kzg_acc = Some !cur_kzg
+        ; lhs_hashes = Some lhs_hashes_23
+        ; g_chunk = Some g_chunk_23
+        }
+      in
+      let oh23, _proof =
+        Proof_conversion.Plonk_pickles_rules.compile_and_prove_one ~n:23
+          ~input_hash:!cur_hash ~witness:w23
+      in
+      cur_hash := oh23 ;
+      W.write_hash ~workdir ~n:23 ~hash:oh23 ;
+      W.write_plonk_kzg_state ~workdir ~n:23 ~kzg:!cur_kzg
+        ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot ;
       Snarky_backendless.Snark0.set_eval_constraints true
   | W.Groth16 _ ->
       let proof_path = Filename.concat workdir "proof.json" in
