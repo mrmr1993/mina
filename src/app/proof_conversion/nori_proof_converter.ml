@@ -1462,35 +1462,30 @@ let run_internal_compress ~workdir ~base_count ~layer ~index =
     (* Layer 1: merge two base proofs *)
     let layer1_tag, (module Layer1Proof), layer1_prove = TC.compile_layer1 () in
     ignore (module Layer1Proof : Pickles.Proof_intf) ;
+    let actual_base = W.base_count system in
+    let last_hash = W.read_hash ~workdir ~n:(actual_base - 1) in
+    (* Read a base proof, or use index 0 as dummy for padding *)
     let read_base i =
+      let real_i = if i < actual_base then i else 0 in
       let proof_b64, _ =
-        W.read_proof_file ~path:(W.proof_path workdir ~layer:0 ~index:i)
+        W.read_proof_file ~path:(W.proof_path workdir ~layer:0 ~index:real_i)
       in
       let vk_b64, _ =
-        W.read_vk_file ~path:(W.vk_path workdir ~layer:0 ~index:i)
+        W.read_vk_file ~path:(W.vk_path workdir ~layer:0 ~index:real_i)
       in
       let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
       let proof = P.of_base64 proof_b64 |> Result.ok_or_failwith in
       let vk =
         Pickles.Side_loaded.Verification_key.of_base64 vk_b64 |> Or_error.ok_exn
       in
-      (* Read input/output hashes for this circuit *)
-      let cin = W.read_hash ~workdir ~n:(i - 1) in
-      let cout = W.read_hash ~workdir ~n:i in
-      (cin, cout, proof, vk)
+      if i < actual_base then
+        let cin = W.read_hash ~workdir ~n:(i - 1) in
+        let cout = W.read_hash ~workdir ~n:i in
+        (cin, cout, proof, vk, true)
+      else (last_hash, last_hash, proof, vk, false)
     in
-    let cin_l, cout_l, proof_l, vk_l = read_base left_idx in
-    let cin_r, cout_r, proof_r, vk_r = read_base right_idx in
-    (* Handle padding for PLONK (24 circuits → 32 padded) *)
-    let actual_base = W.base_count system in
-    let verify_l = left_idx < actual_base in
-    let verify_r = right_idx < actual_base in
-    (* For padding entries, use the last valid output hash *)
-    let last_hash = W.read_hash ~workdir ~n:(actual_base - 1) in
-    let cin_l = if verify_l then cin_l else last_hash in
-    let cout_l = if verify_l then cout_l else last_hash in
-    let cin_r = if verify_r then cin_r else last_hash in
-    let cout_r = if verify_r then cout_r else last_hash in
+    let cin_l, cout_l, proof_l, vk_l, verify_l = read_base left_idx in
+    let cin_r, cout_r, proof_r, vk_r, verify_r = read_base right_idx in
     let witness : TC.layer1_witness =
       { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
       ; vk_left = vk_l
