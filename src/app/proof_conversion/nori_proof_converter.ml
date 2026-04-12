@@ -1684,9 +1684,10 @@ let run_internal_compress_daemon ~socket_path =
               (sprintf "ERROR bad command: %s\n" line) ;
             Out_channel.flush oc
       with exn -> (
+        let msg = String.tr (Exn.to_string exn) ~target:'\n' ~replacement:' ' in
+        Printf.eprintf "Compress daemon error: %s\n%!" msg ;
         try
-          Out_channel.output_string oc
-            (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
+          Out_channel.output_string oc (sprintf "ERROR %s\n" msg) ;
           Out_channel.flush oc
         with _ -> () ) ) ;
     Core_unix.close client_fd
@@ -2293,9 +2294,10 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec =
               (sprintf "ERROR bad command: %s\n" line) ;
             Out_channel.flush oc )
       with exn ->
+        let msg = String.tr (Exn.to_string exn) ~target:'\n' ~replacement:' ' in
+        Printf.eprintf "Prove daemon error: %s\n%!" msg ;
         ( try
-            Out_channel.output_string oc
-              (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
+            Out_channel.output_string oc (sprintf "ERROR %s\n" msg) ;
             Out_channel.flush oc
           with _ -> () ) ) ;
     Core_unix.close client_fd
