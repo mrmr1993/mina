@@ -2064,22 +2064,76 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n =
   W.write_hash ~workdir ~n ~hash:output_hash ;
   Printf.eprintf "Daemon proved groth16 zkp%d.\n%!" n
 
-(** Unified prove daemon: compiles all circuits (base + compression) once,
+(** Parse a --circuits spec like "0-11,layer1,node" or "all".
+    Returns (base_circuit_set option, compile_layer1, compile_node).
+    None for base set means compile all base circuits. *)
+let parse_circuits_spec ~base_count spec =
+  if String.equal spec "all" then (None, true, true)
+  else
+    let base_set = Hash_set.create (module Int) in
+    let layer1 = ref false in
+    let node = ref false in
+    let parts = String.split spec ~on:',' in
+    List.iter parts ~f:(fun part ->
+        let part = String.strip part in
+        if String.equal part "layer1" then layer1 := true
+        else if String.equal part "node" then node := true
+        else if String.equal part "compress" then (
+          layer1 := true ;
+          node := true )
+        else
+          match String.split part ~on:'-' with
+          | [ a; b ] ->
+              let lo = Int.of_string a in
+              let hi = Int.of_string b in
+              for i = lo to hi do
+                if i >= 0 && i < base_count then Hash_set.add base_set i
+              done
+          | [ a ] ->
+              let n = Int.of_string a in
+              if n >= 0 && n < base_count then Hash_set.add base_set n
+          | _ ->
+              failwith (sprintf "Bad --circuits component: %s" part) ) ;
+    let base =
+      if Hash_set.is_empty base_set && not !layer1 && not !node then
+        None
+      else
+        Some base_set
+    in
+    (base, !layer1, !node)
+
+(** Unified prove daemon: compiles circuits at startup (optionally a subset),
     then serves prove-zkp, compress, compute-state, generate-witness, and
-    compute-aux-witness requests over a Unix domain socket. *)
-let run_internal_prove_daemon ~socket_path ~system ~vk_path =
+    compute-aux-witness requests over a Unix domain socket.
+    Circuits not pre-compiled are compiled on demand (slower but saves RAM). *)
+let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec =
   Printf.eprintf "Prove daemon: compiling circuits for %s...\n%!" system ;
   let base_count =
     match system with "plonk" -> 24 | "groth16" -> 16 | _ -> assert false
   in
-  (* Compile base circuits *)
+  let base_set, compile_layer1_flag, compile_node_flag =
+    match circuits_spec with
+    | Some spec ->
+        parse_circuits_spec ~base_count spec
+    | None ->
+        (None, true, true)
+  in
+  let should_compile_base n =
+    match base_set with None -> true | Some s -> Hash_set.mem s n
+  in
+  (* Compile base circuits — None for circuits not in the set *)
   let base_provers =
     match system with
     | "plonk" ->
         Array.init base_count ~f:(fun n ->
-            Printf.eprintf "  Compiling plonk circuit %d/%d...\n%!" (n + 1)
-              base_count ;
-            Proof_conversion.Plonk_pickles_rules.compile_circuit ~n )
+            if should_compile_base n then (
+              Printf.eprintf "  Compiling plonk circuit %d/%d...\n%!" (n + 1)
+                base_count ;
+              Some (Proof_conversion.Plonk_pickles_rules.compile_circuit ~n) )
+            else (
+              Printf.eprintf "  Skipping plonk circuit %d/%d (on-demand)\n%!"
+                (n + 1) base_count ;
+              None ) )
     | "groth16" ->
         let vk =
           Proof_conversion.Proof_json.load_vk
@@ -2088,26 +2142,48 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path =
         in
         let vk_const = Proof_conversion.Vk_constants.create vk in
         Array.init base_count ~f:(fun n ->
-            Printf.eprintf "  Compiling groth16 circuit %d/%d...\n%!" (n + 1)
-              base_count ;
-            Proof_conversion.Pickles_rules.compile_circuit ~vk:vk_const ~n )
+            if should_compile_base n then (
+              Printf.eprintf "  Compiling groth16 circuit %d/%d...\n%!" (n + 1)
+                base_count ;
+              Some
+                (Proof_conversion.Pickles_rules.compile_circuit ~vk:vk_const ~n)
+              )
+            else (
+              Printf.eprintf "  Skipping groth16 circuit %d/%d (on-demand)\n%!"
+                (n + 1) base_count ;
+              None ) )
     | _ ->
         assert false
   in
   Printf.eprintf "Prove daemon: base circuits compiled.\n%!" ;
-  (* Compile compression circuits *)
-  let layer1_tag, (module Layer1Proof_), layer1_prove = TC.compile_layer1 () in
-  let layer1_vk =
-    Promise.block_on_async_exn (fun () ->
-        Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
+  (* Compile compression circuits (optionally) *)
+  let layer1_compiled =
+    if compile_layer1_flag then (
+      let tag, (module Layer1Proof_), prove = TC.compile_layer1 () in
+      let vk =
+        Promise.block_on_async_exn (fun () ->
+            Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+      in
+      Printf.eprintf "Prove daemon: layer1 compiled.\n%!" ;
+      Some (prove, vk) )
+    else (
+      Printf.eprintf "Prove daemon: layer1 skipped (on-demand).\n%!" ;
+      None )
   in
-  Printf.eprintf "Prove daemon: layer1 compiled.\n%!" ;
-  let node_tag, (module NodeProof_), node_prove = TC.compile_node () in
-  let node_vk =
-    Promise.block_on_async_exn (fun () ->
-        Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
+  let node_compiled =
+    if compile_node_flag then (
+      let tag, (module NodeProof_), prove = TC.compile_node () in
+      let vk =
+        Promise.block_on_async_exn (fun () ->
+            Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+      in
+      Printf.eprintf "Prove daemon: node compiled.\n%!" ;
+      Some (prove, vk) )
+    else (
+      Printf.eprintf "Prove daemon: node skipped (on-demand).\n%!" ;
+      None )
   in
-  Printf.eprintf "Prove daemon: all circuits compiled.\n%!" ;
+  Printf.eprintf "Prove daemon: compilation finished.\n%!" ;
   (* Write readiness marker *)
   Out_channel.write_all (socket_path ^ ".ready") ~data:"ready\n" ;
   (* Listen on socket *)
@@ -2135,16 +2211,65 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path =
             running := false
         | [ "prove-zkp"; workdir; n_str ] ->
             let n = Int.of_string n_str in
-            ( match system with
-            | "plonk" ->
-                do_prove_zkp_plonk ~provers:base_provers ~workdir ~n
-            | "groth16" ->
-                do_prove_zkp_groth16 ~provers:base_provers ~workdir ~n
-            | _ ->
-                assert false ) ;
+            ( match base_provers.(n) with
+            | Some (prover, side_vk, proof_module) ->
+                (* Use pre-compiled prover *)
+                let provers_for_n =
+                  (* Build a single-use array with the compiled prover at
+                     index n — do_prove_zkp only accesses provers.(n). *)
+                  let a = Array.create ~len:(n + 1)
+                    (prover, side_vk, proof_module) in
+                  a
+                in
+                ( match system with
+                | "plonk" ->
+                    do_prove_zkp_plonk ~provers:provers_for_n ~workdir ~n
+                | "groth16" ->
+                    do_prove_zkp_groth16 ~provers:provers_for_n ~workdir ~n
+                | _ ->
+                    assert false )
+            | None ->
+                (* Circuit not pre-compiled — compile on demand *)
+                Printf.eprintf
+                  "  prove-zkp %d: not pre-compiled, compiling on demand\n%!"
+                  n ;
+                run_internal_prove_zkp ~workdir ~n ) ;
             Out_channel.output_string oc "OK\n" ;
             Out_channel.flush oc
         | [ "compress"; workdir; base_count_s; layer_s; index_s ] ->
+            (* Get compression provers — compile on demand if needed *)
+            let layer1_prove, layer1_vk =
+              match layer1_compiled with
+              | Some (p, v) ->
+                  (p, v)
+              | None ->
+                  Printf.eprintf
+                    "  compress: layer1 not pre-compiled, compiling on \
+                     demand\n\
+                     %!" ;
+                  let tag, (module L1P_), prove = TC.compile_layer1 () in
+                  let vk =
+                    Promise.block_on_async_exn (fun () ->
+                        Pickles.Side_loaded.Verification_key
+                        .of_compiled_promise tag )
+                  in
+                  (prove, vk)
+            in
+            let node_prove, node_vk =
+              match node_compiled with
+              | Some (p, v) ->
+                  (p, v)
+              | None ->
+                  Printf.eprintf
+                    "  compress: node not pre-compiled, compiling on demand\n%!" ;
+                  let tag, (module NP_), prove = TC.compile_node () in
+                  let vk =
+                    Promise.block_on_async_exn (fun () ->
+                        Pickles.Side_loaded.Verification_key
+                        .of_compiled_promise tag )
+                  in
+                  (prove, vk)
+            in
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s)
@@ -2388,7 +2513,8 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
   Printf.eprintf "Output written to %s\n%!" output_dst
 
 (** Start N worker daemons. *)
-let run_start_workers ~system ~count ~socket_dir ~vk_path ~background =
+let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
+    ~background =
   Core_unix.mkdir_p socket_dir ;
   let pids =
     Array.init count ~f:(fun i ->
@@ -2400,7 +2526,8 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~background =
         ( try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> () ) ;
         match Core_unix.fork () with
         | `In_the_child ->
-            run_internal_prove_daemon ~socket_path ~system ~vk_path ;
+            run_internal_prove_daemon ~socket_path ~system ~vk_path
+              ~circuits_spec ;
             Stdlib.exit 0
         | `In_the_parent pid ->
             Printf.eprintf "  Worker %d started (pid %d)\n%!" i
@@ -2836,6 +2963,7 @@ let () =
       run_internal_collect_output ~workdir
   | [| _; "internal"; "prove-daemon"; socket_path; "--system"; system |] ->
       run_internal_prove_daemon ~socket_path ~system ~vk_path:None
+        ~circuits_spec:None
   | [| _
      ; "internal"
      ; "prove-daemon"
@@ -2846,6 +2974,7 @@ let () =
      ; vk_p
     |] ->
       run_internal_prove_daemon ~socket_path ~system ~vk_path:(Some vk_p)
+        ~circuits_spec:None
   | [| _; "internal"; "dispatch-to-worker"; socket_path; command |] ->
       run_internal_dispatch_to_worker ~socket_path ~command
   | _ when Array.length argv >= 2 && String.equal argv.(1) "sp1ToPlonkDaemonised"
@@ -2894,26 +3023,28 @@ let () =
         ~vk_path:(Some vk_p)
   | _ when Array.length argv >= 2 && String.equal argv.(1) "start-workers" ->
       let args = Array.to_list argv in
-      let rec parse ~system ~count ~socket_dir ~vk_p ~bg = function
+      let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg = function
         | "--system" :: s :: rest ->
-            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~bg rest
+            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~bg rest
         | "--count" :: n :: rest ->
-            parse ~system ~count:(Some (Int.of_string n)) ~socket_dir ~vk_p ~bg
-              rest
+            parse ~system ~count:(Some (Int.of_string n)) ~socket_dir ~vk_p
+              ~circuits ~bg rest
         | "--socket-dir" :: d :: rest ->
-            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~bg rest
+            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~bg rest
         | "--vk-path" :: p :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~bg rest
+        | "--circuits" :: c :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~bg rest
         | "--background" :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~bg:true rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg:true rest
         | _ :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg rest
         | [] ->
-            (system, count, socket_dir, vk_p, bg)
+            (system, count, socket_dir, vk_p, circuits, bg)
       in
-      let system, count, socket_dir, vk_p, background =
-        parse ~system:None ~count:None ~socket_dir:None ~vk_p:None ~bg:false
-          args
+      let system, count, socket_dir, vk_p, circuits_spec, background =
+        parse ~system:None ~count:None ~socket_dir:None ~vk_p:None
+          ~circuits:None ~bg:false args
       in
       let system =
         Option.value_exn system ~message:"start-workers requires --system"
@@ -2925,7 +3056,8 @@ let () =
         Option.value_exn socket_dir
           ~message:"start-workers requires --socket-dir"
       in
-      run_start_workers ~system ~count ~socket_dir ~vk_path:vk_p ~background
+      run_start_workers ~system ~count ~socket_dir ~vk_path:vk_p ~circuits_spec
+        ~background
   | _ when Array.length argv >= 2 && String.equal argv.(1) "stop-workers" ->
       let rec find_socket_dir = function
         | "--socket-dir" :: d :: _ ->
