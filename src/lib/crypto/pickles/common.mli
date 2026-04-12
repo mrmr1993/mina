@@ -38,6 +38,8 @@ val when_profiling : 'a -> 'a -> 'a
  *)
 val time : string -> (unit -> 'a) -> 'a
 
+val time_async : string -> (unit -> 'a Promise.t) -> 'a Promise.t
+
 (** {2 FFT Coset Shifts} *)
 
 (** [tick_shifts ~log2_size] computes the coset shifts for FFT operations

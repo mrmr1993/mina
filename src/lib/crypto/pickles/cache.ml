@@ -110,7 +110,9 @@ module Step = struct
     let open Impls.Step in
     let pk =
       lazy
-        (let%map.Promise k_p = Lazy.force k_p in
+        (let%map.Promise k_p =
+           Common.time_async "step generate cs" (fun () -> Lazy.force k_p)
+         in
          match
            Common.time "step keypair read" (fun () ->
                Key_cache.Sync.read cache s_p k_p )
@@ -253,7 +255,9 @@ module Wrap = struct
     let open Impls.Wrap in
     let pk =
       lazy
-        (let%map.Promise k = Lazy.force k_p in
+        (let%map.Promise k =
+           Common.time_async "wrap generate cs" (fun () -> Lazy.force k_p)
+         in
          match
            Common.time "wrap key read" (fun () ->
                Key_cache.Sync.read cache s_p k )

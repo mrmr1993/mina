@@ -805,7 +805,7 @@ struct
       let%bind.Promise main = branch_data.main ~step_domains in
       let%bind.Promise step_domains = step_domains in
       let { Domains.h } = Vector.nth_exn step_domains branch_data.index in
-      ksprintf Common.time "step-prover %d (%d)" branch_data.index
+      ksprintf Common.time_async "step-prover %d (%d)" branch_data.index
         (Domain.size h) (fun () ->
           [%log internal] "Step_generate_witness_conv" ;
           let builder =
@@ -813,19 +813,22 @@ struct
               ~input_typ:Impls.Step.Typ.unit ~return_typ:input ()
           in
           let%bind.Promise res =
-            builder.run_circuit (fun () () ->
-                Promise.map ~f:conv_inv (main ()) )
+            Common.time_async "step-circuit" (fun () ->
+                builder.run_circuit (fun () () ->
+                    Promise.map ~f:conv_inv (main ()) ) )
           in
           let ( { Impls.Step.Proof_inputs.auxiliary_inputs; public_inputs }
               , next_statement_hashed ) =
-            builder.finish_computation res
+            Common.time "step finish witness" (fun () ->
+                builder.finish_computation res )
           in
           [%log internal] "Backend_tick_proof_create_async" ;
           let create_proof () =
-            Backend.Tick.Proof.create_async ~primary:public_inputs
-              ~auxiliary:auxiliary_inputs
-              ~message:(Lazy.force prev_challenge_polynomial_commitments)
-              pk
+            Common.time_async "step create proof" (fun () ->
+                Backend.Tick.Proof.create_async ~primary:public_inputs
+                  ~auxiliary:auxiliary_inputs
+                  ~message:(Lazy.force prev_challenge_polynomial_commitments)
+                  pk )
           in
           let%map.Promise proof =
             match proof_cache with

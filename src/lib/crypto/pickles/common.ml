@@ -68,6 +68,16 @@ let time lab f =
       x )
     f ()
 
+let time_async lab f =
+  when_profiling
+    (fun () ->
+      let start = Time.now () in
+      let%map.Promise x = f () in
+      let stop = Time.now () in
+      printf "%s: %s\n%!" lab (Time.Span.to_string_hum (Time.diff stop start)) ;
+      x )
+    f ()
+
 let bits_to_bytes bits =
   let byte_of_bits bs =
     List.foldi bs ~init:0 ~f:(fun i acc b ->

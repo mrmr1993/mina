@@ -96,6 +96,26 @@ let vk_of_json (j : Yojson.Safe.t) : vk =
   let w27 = fp12_of_json (member "w27" j) in
   { alpha; beta; gamma; delta; ic; alpha_beta; w27 }
 
+(** Serialize an Fp12 constant to JSON with g00..h21 field names. *)
+let fp12_to_json ((c0, c1) : Fp12.Constant.t) : Yojson.Safe.t =
+  let s x = `String (BI.to_string x) in
+  let (g00, g01), (g10, g11), (g20, g21) = c0 in
+  let (h00, h01), (h10, h11), (h20, h21) = c1 in
+  `Assoc
+    [ ("g00", s g00)
+    ; ("g01", s g01)
+    ; ("g10", s g10)
+    ; ("g11", s g11)
+    ; ("g20", s g20)
+    ; ("g21", s g21)
+    ; ("h00", s h00)
+    ; ("h01", s h01)
+    ; ("h10", s h10)
+    ; ("h11", s h11)
+    ; ("h20", s h20)
+    ; ("h21", s h21)
+    ]
+
 (** Auxiliary witness data (c, shift_power) computed externally. *)
 type aux_witness = { c : Fp12.Constant.t; shift_power : int }
 
@@ -118,6 +138,16 @@ let aux_witness_of_json (j : Yojson.Safe.t) : aux_witness =
 let load_aux_witness (path : string) : aux_witness =
   let j = Yojson.Safe.from_file path in
   aux_witness_of_json j
+
+(** Save auxiliary witness to JSON file in nori-compatible format. *)
+let save_aux_witness (path : string) (aux : aux_witness) : unit =
+  let j =
+    `Assoc
+      [ ("c", fp12_to_json aux.c)
+      ; ("shift_power", `String (Int.to_string aux.shift_power))
+      ]
+  in
+  Yojson.Safe.to_file path j
 
 (** Parsed Groth16 proof. *)
 type proof =

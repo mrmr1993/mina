@@ -510,14 +510,15 @@ let wrap
   in
   let%map.Promise next_proof =
     let (T (input, conv, _conv_inv)) = Impls.Wrap.input ~feature_flags () in
-    Common.time "wrap proof" (fun () ->
+    Common.time_async "wrap proof" (fun () ->
         [%log internal] "Wrap_generate_witness_conv" ;
         Impls.Wrap.generate_witness_conv
           ~f:(fun { Impls.Wrap.Proof_inputs.auxiliary_inputs; public_inputs } () ->
             [%log internal] "Backend_tock_proof_create_async" ;
             let create_proof () =
-              Backend.Tock.Proof.create_async ~primary:public_inputs
-                ~auxiliary:auxiliary_inputs pk ~message:next_accumulator
+              Common.time_async "wrap create proof" (fun () ->
+                  Backend.Tock.Proof.create_async ~primary:public_inputs
+                    ~auxiliary:auxiliary_inputs pk ~message:next_accumulator )
             in
             let%map.Promise proof =
               match proof_cache with
@@ -546,7 +547,9 @@ let wrap
             proof )
           ~input_typ:input ~return_typ:Impls.Wrap.Typ.unit
           (fun x () : unit ->
-            Impls.Wrap.handle (fun () : unit -> wrap_main (conv x)) handler )
+            Common.time "wrap-circuit" (fun () ->
+                Impls.Wrap.handle (fun () : unit -> wrap_main (conv x)) handler )
+            )
           { messages_for_next_step_proof =
               prev_statement_with_hashes.proof_state
                 .messages_for_next_step_proof

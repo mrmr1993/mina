@@ -642,6 +642,342 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Out_channel.close oc ;
   Printf.eprintf "Output written to %s\n%!" output_path
 
+(* ==== Internal stage commands ==== *)
+
+module W = Proof_conversion.Workdir
+
+(** Initialize a working directory for staged execution. *)
+let run_internal_init_workdir ~workdir ~system ~input_path ~vk_path =
+  Printf.eprintf "Initializing workdir: %s (%s)\n%!" workdir system ;
+  ( match system with
+  | "plonk" ->
+      W.init ~workdir ~system:(W.Plonk { base_count = 24 }) ;
+      (* Copy input file *)
+      let data = In_channel.read_all input_path in
+      Out_channel.write_all (Filename.concat workdir "input.json") ~data
+  | "groth16" ->
+      W.init ~workdir ~system:(W.Groth16 { base_count = 16 }) ;
+      let proof_data = In_channel.read_all input_path in
+      Out_channel.write_all
+        (Filename.concat workdir "proof.json")
+        ~data:proof_data ;
+      let vk_p = Option.value_exn vk_path in
+      let vk_data = In_channel.read_all vk_p in
+      Out_channel.write_all (Filename.concat workdir "vk.json") ~data:vk_data
+  | s ->
+      failwith (sprintf "Unknown system: %s" s) ) ;
+  Printf.eprintf "Workdir initialized.\n%!"
+
+(** Generate witness: compute aux witness and write initial state. *)
+let run_internal_generate_witness ~workdir =
+  Printf.eprintf "Generating witness in %s\n%!" workdir ;
+  let system = W.detect_system ~workdir in
+  ( match system with
+  | W.Plonk _ ->
+      let input_path = Filename.concat workdir "input.json" in
+      let json = Yojson.Safe.from_file input_path in
+      let is_sp1 =
+        match Yojson.Safe.Util.member "proof" json with
+        | `Null ->
+            false
+        | pj -> (
+            match Yojson.Safe.Util.member "Plonk" pj with
+            | `Null ->
+                false
+            | _ ->
+                true )
+      in
+      let acc_const, aux =
+        if is_sp1 then
+          let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
+          let aux_file = Filename.concat workdir "aux_witness.json" in
+          let aux =
+            if Stdlib.Sys.file_exists aux_file then
+              let aj = Yojson.Safe.from_file aux_file in
+              Proof_conversion.Plonk_proof_json.parse_aux_witness aj
+            else
+              let mlo =
+                Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
+              in
+              let w27 = Proof_conversion.Bn254_params.w27 () in
+              let g_aux =
+                Proof_conversion.Pairing_utils_bridge
+                .compute_aux_witness_with_w27 mlo w27
+              in
+              { Proof_conversion.Plonk_proof_json.shift_power =
+                  Step.Field.Constant.of_int g_aux.shift_power
+              ; c_fp12 = g_aux.c
+              }
+          in
+          (acc, aux)
+        else Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
+      in
+      (* Write aux witness *)
+      let aux_json =
+        `Assoc
+          [ ( "shift_power"
+            , `String (Step.Field.Constant.to_string aux.shift_power) )
+          ; ("c", W.fp12_to_json aux.c_fp12)
+          ]
+      in
+      Yojson.Safe.to_file (Filename.concat workdir "aux_witness.json") aux_json ;
+      (* Write initial state *)
+      let initial_hash =
+        Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
+      in
+      W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
+      W.write_plonk_state ~workdir ~n:(-1) ~acc:acc_const
+  | W.Groth16 _ ->
+      let proof_path = Filename.concat workdir "proof.json" in
+      let vk_path = Filename.concat workdir "vk.json" in
+      let proof = Proof_conversion.Proof_json.load_proof proof_path in
+      let vk = Proof_conversion.Proof_json.load_vk vk_path in
+      let aux =
+        Proof_conversion.Pairing_utils_bridge.groth16_aux_witness ~proof ~vk
+      in
+      (* Write aux witness in nori-compatible format *)
+      Proof_conversion.Proof_json.save_aux_witness
+        (Filename.concat workdir "aux_witness.json")
+        aux ;
+      (* Set up tracker and initial accumulator *)
+      let module WT = Proof_conversion.Witness_tracker in
+      let tracker = WT.create ~proof ~vk ~aux in
+      Proof_conversion.Circuit_config.set_tracker tracker ;
+      let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+      let initial_acc =
+        let acc = WT.get_accumulator_constant tracker in
+        let initial_g_digest =
+          let zeros = Array.create ~len:n_total Step.Field.Constant.zero in
+          Random_oracle.hash zeros
+        in
+        { acc with
+          state =
+            { g_digest = initial_g_digest
+            ; t_point = acc.proof.b
+            ; f =
+                ( Proof_conversion.Fp6.Constant.zero
+                , Proof_conversion.Fp6.Constant.zero )
+            }
+        }
+      in
+      let initial_hash =
+        Step.run_and_check_exn (fun () ->
+            let acc =
+              Step.exists Proof_conversion.Accumulator.typ ~compute:(fun () ->
+                  initial_acc )
+            in
+            let h = Proof_conversion.Accumulator.hash acc in
+            fun () -> Step.As_prover.read_var h )
+      in
+      W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
+      let line_hashes = Array.create ~len:n_total Step.Field.Constant.zero in
+      W.write_groth16_state ~workdir ~n:(-1) ~acc:initial_acc ~line_hashes
+        ~g_values:[||] ) ;
+  Printf.eprintf "Witness generated.\n%!"
+
+(** Prove a single base circuit. *)
+let run_internal_prove_zkp ~workdir ~n =
+  Printf.eprintf "Proving zkp%d in %s\n%!" n workdir ;
+  let system = W.detect_system ~workdir in
+  let prev = n - 1 in
+  let input_hash = W.read_hash ~workdir ~n:prev in
+  ( match system with
+  | W.Plonk _ ->
+      (* TODO: full PLONK prove-zkp with accumulator chaining *)
+      failwith "internal prove-zkp for PLONK: not yet implemented"
+  | W.Groth16 _ ->
+      let vk_path = Filename.concat workdir "vk.json" in
+      let vk = Proof_conversion.Proof_json.load_vk vk_path in
+      let vk_const = Proof_conversion.Vk_constants.create vk in
+      let proof_path = Filename.concat workdir "proof.json" in
+      let proof = Proof_conversion.Proof_json.load_proof proof_path in
+      let aux =
+        Proof_conversion.Proof_json.load_aux_witness
+          (Filename.concat workdir "aux_witness.json")
+      in
+      let module WT = Proof_conversion.Witness_tracker in
+      let tracker = WT.create ~proof ~vk ~aux in
+      Proof_conversion.Circuit_config.set_tracker tracker ;
+      let acc, line_hashes, g_values = W.read_groth16_state ~workdir ~n:prev in
+      let b_lines = WT.get_all_b_lines tracker in
+      if n <= 6 then (
+        (* Ate loop circuit *)
+        let witness : Proof_conversion.Groth16_requests.witness =
+          { Proof_conversion.Groth16_requests.empty_witness with
+            accumulator = Some acc
+          ; line_hashes = Some line_hashes
+          ; b_lines =
+              Some
+                (Array.map b_lines ~f:(fun (l : WT.Line.t) ->
+                     (l.lambda, l.neg_mu) ) )
+          }
+        in
+        let output_hash, acc_after, lh_after, gv_after, proof_out, side_vk =
+          Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~vk:vk_const ~n ~input_hash ~witness
+        in
+        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+        W.write_proof_file
+          ~path:(W.proof_path workdir ~layer:0 ~index:n)
+          ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+        let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+        let vk_hash =
+          let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+          let packed = Random_oracle.pack_input input in
+          Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+        in
+        W.write_vk_file
+          ~path:(W.vk_path workdir ~layer:0 ~index:n)
+          ~vk_base64:vk_b64 ~vk_hash ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        let new_g_values = Array.append g_values gv_after in
+        W.write_groth16_state ~workdir ~n ~acc:acc_after ~line_hashes:lh_after
+          ~g_values:new_g_values )
+      else if n <= 12 then (
+        (* F-update circuit *)
+        let idx = n - 7 in
+        let n_iters =
+          Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+        in
+        let g_start =
+          Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+        in
+        let all_lh = line_hashes in
+        let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
+        let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
+        let rhs_start = g_start + n_iters in
+        let rhs =
+          Array.sub all_lh ~pos:rhs_start ~len:(Array.length all_lh - rhs_start)
+        in
+        let witness : Proof_conversion.Groth16_requests.witness =
+          { Proof_conversion.Groth16_requests.empty_witness with
+            accumulator = Some acc
+          ; g_chunk = Some g_chunk
+          ; lhs_hashes = Some lhs
+          ; rhs_hashes = Some rhs
+          }
+        in
+        let output_hash, acc_after, _lh, _gv, proof_out, side_vk =
+          Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~vk:vk_const ~n ~input_hash ~witness
+        in
+        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+        W.write_proof_file
+          ~path:(W.proof_path workdir ~layer:0 ~index:n)
+          ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+        let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+        let vk_hash =
+          let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+          let packed = Random_oracle.pack_input input in
+          Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+        in
+        W.write_vk_file
+          ~path:(W.vk_path workdir ~layer:0 ~index:n)
+          ~vk_base64:vk_b64 ~vk_hash ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        W.write_groth16_state ~workdir ~n ~acc:acc_after ~line_hashes ~g_values
+        )
+      else
+        (* Circuits 13-15 *)
+        let n_total =
+          Array.length Proof_conversion.Bn254_params.ate_loop_count
+        in
+        let witness : Proof_conversion.Groth16_requests.witness =
+          match n with
+          | 13 ->
+              let lhs_13 = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
+              { Proof_conversion.Groth16_requests.empty_witness with
+                accumulator = Some acc
+              ; lhs_hashes = Some lhs_13
+              ; final_g = Some g_values.(Array.length g_values - 1)
+              }
+          | 14 ->
+              let n_pi = WT.num_public_inputs tracker in
+              let pis =
+                Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i)
+              in
+              { Proof_conversion.Groth16_requests.empty_witness with
+                public_inputs = Some pis
+              }
+          | 15 ->
+              let n_pi = WT.num_public_inputs tracker in
+              let pis =
+                Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i)
+              in
+              let pi = WT.get_pi tracker in
+              let partial_acc = WT.get_partial_ic_acc tracker in
+              let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+                { x = p.x; y = p.y }
+              in
+              { Proof_conversion.Groth16_requests.empty_witness with
+                public_inputs = Some pis
+              ; pi_point = Some (g1c pi)
+              ; partial_ic_acc = Some (g1c partial_acc)
+              }
+          | _ ->
+              Proof_conversion.Groth16_requests.empty_witness
+        in
+        let output_hash, proof_out, side_vk =
+          Proof_conversion.Pickles_rules.compile_prove_and_export ~vk:vk_const
+            ~n ~input_hash ~witness
+        in
+        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+        W.write_proof_file
+          ~path:(W.proof_path workdir ~layer:0 ~index:n)
+          ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+        let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+        let vk_hash =
+          let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+          let packed = Random_oracle.pack_input input in
+          Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+        in
+        W.write_vk_file
+          ~path:(W.vk_path workdir ~layer:0 ~index:n)
+          ~vk_base64:vk_b64 ~vk_hash ;
+        W.write_hash ~workdir ~n ~hash:output_hash ;
+        W.write_groth16_state ~workdir ~n ~acc ~line_hashes ~g_values ) ;
+  Printf.eprintf "zkp%d proved.\n%!" n
+
+(** Run one tree compression merge. *)
+let run_internal_compress ~workdir ~base_count ~layer ~index =
+  Printf.eprintf "Compressing: base=%d layer=%d index=%d in %s\n%!" base_count
+    layer index workdir ;
+  let _system = W.detect_system ~workdir in
+  ignore (base_count : int) ;
+  ignore (layer : int) ;
+  ignore (index : int) ;
+  (* TODO: implement tree compression stage *)
+  failwith "internal compress: not yet implemented"
+
+(** Collect final output from workdir. *)
+let run_internal_collect_output ~workdir =
+  Printf.eprintf "Collecting output from %s\n%!" workdir ;
+  let system = W.detect_system ~workdir in
+  let max_layer = W.max_layer system in
+  let proof_b64, _mpv =
+    W.read_proof_file ~path:(W.proof_path workdir ~layer:max_layer ~index:0)
+  in
+  let vk_b64, vk_hash = W.read_vk_file ~path:(W.node_vk_path workdir) in
+  (* Read public output from final proof's carry *)
+  (* For now just output the proof and VK *)
+  let output =
+    `Assoc
+      [ ( "vkData"
+        , `Assoc [ ("data", `String vk_b64); ("hash", `String vk_hash) ] )
+      ; ( "proofData"
+        , `Assoc
+            [ ("maxProofsVerified", `Int 2)
+            ; ("proof", `String proof_b64)
+            ; ("publicInput", `List [])
+            ; ("publicOutput", `List [])
+            ] )
+      ]
+  in
+  let oc = Out_channel.create (Filename.concat workdir "output.json") in
+  Yojson.Safe.pretty_to_channel ~std:true oc output ;
+  Out_channel.close oc ;
+  Printf.eprintf "Output written to %s/output.json\n%!" workdir
+
 let () =
   (* Extract --cache-dir option before command dispatch *)
   let argv = Array.to_list Sys.argv in
@@ -672,17 +1008,37 @@ let () =
       run_sp1_to_plonk ~input_path ~aux_path
   | [| _; "risc0ToGroth16"; proof_path; vk_path |] ->
       run_risc0_to_groth16 ~proof_path ~vk_path
+  (* ---- Internal stage commands ---- *)
+  | [| _; "internal"; "init-workdir"; workdir; "plonk"; input_path |] ->
+      run_internal_init_workdir ~workdir ~system:"plonk" ~input_path
+        ~vk_path:None
+  | [| _; "internal"; "init-workdir"; workdir; "groth16"; proof_path; vk_path |]
+    ->
+      run_internal_init_workdir ~workdir ~system:"groth16"
+        ~input_path:proof_path ~vk_path:(Some vk_path)
+  | [| _; "internal"; "generate-witness"; workdir |] ->
+      run_internal_generate_witness ~workdir
+  | [| _; "internal"; "prove-zkp"; workdir; n_str |] ->
+      run_internal_prove_zkp ~workdir ~n:(Int.of_string n_str)
+  | [| _; "internal"; "compress"; workdir; base_count; layer; index |] ->
+      run_internal_compress ~workdir ~base_count:(Int.of_string base_count)
+        ~layer:(Int.of_string layer) ~index:(Int.of_string index)
+  | [| _; "internal"; "collect-output"; workdir |] ->
+      run_internal_collect_output ~workdir
   | _ ->
       Printf.eprintf
-        "Usage: nori-proof-converter [--cache-dir <dir>] <command> <arg1> \
-         [arg2]\n\n" ;
+        "Usage: nori-proof-converter [--cache-dir <dir>] <command> [args...]\n\n" ;
       Printf.eprintf "Available commands: sp1ToPlonk, risc0ToGroth16\n\n" ;
+      Printf.eprintf "Internal commands (for staged/parallel execution):\n" ;
+      Printf.eprintf "  internal init-workdir <workdir> plonk <input.json>\n" ;
+      Printf.eprintf
+        "  internal init-workdir <workdir> groth16 <proof.json> <vk.json>\n" ;
+      Printf.eprintf "  internal generate-witness <workdir>\n" ;
+      Printf.eprintf "  internal prove-zkp <workdir> <n>\n" ;
+      Printf.eprintf
+        "  internal compress <workdir> <base_count> <layer> <index>\n" ;
+      Printf.eprintf "  internal collect-output <workdir>\n\n" ;
       Printf.eprintf "Options:\n" ;
       Printf.eprintf
-        "  --cache-dir <dir>  Cache proving keys to disk for reuse\n\n" ;
-      Printf.eprintf "  sp1ToPlonk <input.json>\n" ;
-      Printf.eprintf "    Convert SP1 PLONK proof to Mina-compatible proof\n\n" ;
-      Printf.eprintf "  risc0ToGroth16 <proof.json> <vk.json>\n" ;
-      Printf.eprintf
-        "    Convert RISC Zero Groth16 proof to Mina-compatible proof\n" ;
+        "  --cache-dir <dir>  Cache proving keys to disk for reuse\n" ;
       exit 1

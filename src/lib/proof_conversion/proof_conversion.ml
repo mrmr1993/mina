@@ -33,6 +33,7 @@ module Ate_circuit = Ate_circuit
 module Fupdate_circuit = Fupdate_circuit
 module Pairing_utils_bridge = Pairing_utils_bridge
 module Cache_config = Cache_config
+module Workdir = Workdir
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig
