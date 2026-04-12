@@ -717,7 +717,7 @@ let run_internal_generate_witness ~workdir =
         `Assoc
           [ ( "shift_power"
             , `String (Step.Field.Constant.to_string aux.shift_power) )
-          ; ("c", W.fp12_to_json aux.c_fp12)
+          ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
           ]
       in
       Yojson.Safe.to_file (Filename.concat workdir "aux_witness.json") aux_json ;
