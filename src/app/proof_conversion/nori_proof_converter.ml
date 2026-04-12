@@ -1292,20 +1292,172 @@ let run_internal_collect_output ~workdir =
   Out_channel.close oc ;
   Printf.eprintf "Output written to %s/output.json\n%!" workdir
 
-let () =
-  (* Extract --cache-dir option before command dispatch *)
-  let argv = Array.to_list Sys.argv in
-  let cache_dir, argv =
-    let rec extract acc = function
-      | "--cache-dir" :: dir :: rest ->
-          (Some dir, List.rev_append acc rest)
-      | x :: rest ->
-          extract (x :: acc) rest
-      | [] ->
-          (None, List.rev acc)
+(* ==== Parallel orchestrator ==== *)
+
+(** Run a shell command, fail if it exits non-zero. *)
+let run_cmd cmd =
+  Printf.eprintf "  $ %s\n%!" cmd ;
+  let exit_code = Stdlib.Sys.command cmd in
+  if exit_code <> 0 then
+    failwith (sprintf "Command failed (exit %d): %s" exit_code cmd)
+
+(** Run a batch of commands with bounded parallelism.
+    Spawns up to [parallelism] processes at a time, waits for all to
+    finish before returning. Fails if any child exits non-zero. *)
+let run_parallel ~parallelism cmds =
+  let cmds = Array.of_list cmds in
+  let n = Array.length cmds in
+  if n = 0 then ()
+  else if parallelism <= 1 then Array.iter cmds ~f:run_cmd
+  else
+    let i = ref 0 in
+    while !i < n do
+      let batch_size = min parallelism (n - !i) in
+      let pids =
+        Array.init batch_size ~f:(fun j ->
+            let cmd = cmds.(!i + j) in
+            Printf.eprintf "  [%d/%d] $ %s\n%!" (!i + j + 1) n cmd ;
+            match Core_unix.fork () with
+            | `In_the_child ->
+                let exit_code = Stdlib.Sys.command cmd in
+                Stdlib.exit exit_code
+            | `In_the_parent pid ->
+                pid )
+      in
+      (* Wait for all children in this batch *)
+      let failures = ref [] in
+      Array.iter pids ~f:(fun pid ->
+          match Core_unix.waitpid pid with
+          | Ok () ->
+              ()
+          | Error (`Exit_non_zero code) ->
+              failures := (pid, code) :: !failures
+          | Error (`Signal s) ->
+              failures := (pid, Core.Signal.to_system_int s) :: !failures ) ;
+      if not (List.is_empty !failures) then
+        failwith
+          (sprintf "Parallel batch failed: %d of %d processes exited non-zero"
+             (List.length !failures) batch_size ) ;
+      i := !i + batch_size
+    done
+
+(** Build the self-invocation command prefix, forwarding --cache-dir. *)
+let self_cmd ~cache_dir =
+  let exe = Sys.argv.(0) in
+  match cache_dir with
+  | Some dir ->
+      sprintf "%s --cache-dir %s" (Filename.quote exe) (Filename.quote dir)
+  | None ->
+      Filename.quote exe
+
+(** Run the parallel orchestration for a proof system.
+    [system]: "plonk" or "groth16"
+    [base_count]: 24 or 16
+    [max_layer]: 5 or 4
+    [input_path]: path to the input proof JSON
+    [vk_path]: optional VK path (Groth16 only) *)
+let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
+    ~input_path ~vk_path =
+  let self = self_cmd ~cache_dir in
+  (* Create temp working directory *)
+  let workdir =
+    let base = Filename.temp_dir_name in
+    let name =
+      sprintf "nori-%s-%d" system (Core_unix.getpid () |> Pid.to_int)
     in
-    extract [] argv
+    Filename.concat base name
   in
+  Printf.eprintf "Working directory: %s\n%!" workdir ;
+  (* Stage 1: init-workdir *)
+  let init_cmd =
+    match vk_path with
+    | Some vk ->
+        sprintf "%s internal init-workdir %s %s %s %s" self
+          (Filename.quote workdir) system
+          (Filename.quote input_path)
+          (Filename.quote vk)
+    | None ->
+        sprintf "%s internal init-workdir %s %s %s" self
+          (Filename.quote workdir) system
+          (Filename.quote input_path)
+  in
+  run_cmd init_cmd ;
+  (* Stage 2: generate-witness *)
+  run_cmd
+    (sprintf "%s internal generate-witness %s" self (Filename.quote workdir)) ;
+  (* Stage 3: prove base circuits (parallel) *)
+  Printf.eprintf "Proving %d base circuits (parallelism=%d)...\n%!" base_count
+    parallelism ;
+  let prove_cmds =
+    List.init base_count ~f:(fun n ->
+        sprintf "%s internal prove-zkp %s %d" self (Filename.quote workdir) n )
+  in
+  (* Base circuits must run sequentially — each reads the previous state *)
+  List.iter prove_cmds ~f:run_cmd ;
+  (* Stage 4+: tree compression layers (parallel within each layer) *)
+  let padded_count =
+    (* Next power of 2 *)
+    let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
+    next_pow2 1
+  in
+  (* Create dummy proofs for padding if needed *)
+  if padded_count > base_count then
+    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count padded_count ;
+  for layer = 1 to max_layer do
+    let n_merges =
+      let prev_count =
+        if layer = 1 then padded_count else padded_count / Int.pow 2 (layer - 1)
+      in
+      prev_count / 2
+    in
+    Printf.eprintf "Compression layer %d: %d merges (parallelism=%d)...\n%!"
+      layer n_merges parallelism ;
+    let compress_cmds =
+      List.init n_merges ~f:(fun index ->
+          sprintf "%s internal compress %s %d %d %d" self
+            (Filename.quote workdir) base_count layer index )
+    in
+    run_parallel ~parallelism compress_cmds
+  done ;
+  (* Stage 5: collect output *)
+  run_cmd
+    (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
+  (* Copy output to final location *)
+  let output_src = Filename.concat workdir "output.json" in
+  let dir = Filename.dirname input_path in
+  let base = Filename.basename input_path in
+  let base_no_ext =
+    if String.is_suffix ~suffix:".json" (String.lowercase base) then
+      String.sub base ~pos:0 ~len:(String.length base - 5)
+    else base
+  in
+  let command_name =
+    match system with "plonk" -> "sp1ToPlonk" | _ -> "risc0ToGroth16"
+  in
+  let output_dst =
+    Filename.concat dir (base_no_ext ^ "." ^ command_name ^ ".json")
+  in
+  let data = In_channel.read_all output_src in
+  Out_channel.write_all output_dst ~data ;
+  Printf.eprintf "Output written to %s\n%!" output_dst
+
+let () =
+  (* Extract --cache-dir and --parallelism options before command dispatch *)
+  let argv = Array.to_list Sys.argv in
+  let cache_dir, parallelism, argv =
+    let rec extract ~cd ~par acc = function
+      | "--cache-dir" :: dir :: rest ->
+          extract ~cd:(Some dir) ~par acc rest
+      | "--parallelism" :: n :: rest ->
+          extract ~cd ~par:(Some (Int.of_string n)) acc rest
+      | x :: rest ->
+          extract ~cd ~par (x :: acc) rest
+      | [] ->
+          (cd, par, List.rev acc)
+    in
+    extract ~cd:None ~par:None [] argv
+  in
+  let parallelism = Option.value parallelism ~default:1 in
   ( match cache_dir with
   | Some dir ->
       Printf.eprintf "Using cache directory: %s\n%!" dir ;
@@ -1322,6 +1474,13 @@ let () =
       run_sp1_to_plonk ~input_path ~aux_path
   | [| _; "risc0ToGroth16"; proof_path; vk_path |] ->
       run_risc0_to_groth16 ~proof_path ~vk_path
+  | [| _; "sp1ToPlonkParallel"; input_path |] ->
+      run_parallel_pipeline ~cache_dir ~parallelism ~system:"plonk"
+        ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
+  | [| _; "risc0ToGroth16Parallel"; proof_path; vk_path |] ->
+      run_parallel_pipeline ~cache_dir ~parallelism ~system:"groth16"
+        ~base_count:16 ~max_layer:4 ~input_path:proof_path
+        ~vk_path:(Some vk_path)
   (* ---- Internal stage commands ---- *)
   | [| _; "internal"; "init-workdir"; workdir; "plonk"; input_path |] ->
       run_internal_init_workdir ~workdir ~system:"plonk" ~input_path
@@ -1341,8 +1500,14 @@ let () =
       run_internal_collect_output ~workdir
   | _ ->
       Printf.eprintf
-        "Usage: nori-proof-converter [--cache-dir <dir>] <command> [args...]\n\n" ;
-      Printf.eprintf "Available commands: sp1ToPlonk, risc0ToGroth16\n\n" ;
+        "Usage: nori-proof-converter [--cache-dir <dir>] [--parallelism <n>] \
+         <command> [args...]\n\n" ;
+      Printf.eprintf
+        "Available commands: sp1ToPlonk, risc0ToGroth16, sp1ToPlonkParallel, \
+         risc0ToGroth16Parallel\n\n" ;
+      Printf.eprintf "Parallel commands:\n" ;
+      Printf.eprintf "  sp1ToPlonkParallel <input.json>\n" ;
+      Printf.eprintf "  risc0ToGroth16Parallel <proof.json> <vk.json>\n\n" ;
       Printf.eprintf "Internal commands (for staged/parallel execution):\n" ;
       Printf.eprintf "  internal init-workdir <workdir> plonk <input.json>\n" ;
       Printf.eprintf
@@ -1354,5 +1519,8 @@ let () =
       Printf.eprintf "  internal collect-output <workdir>\n\n" ;
       Printf.eprintf "Options:\n" ;
       Printf.eprintf
-        "  --cache-dir <dir>  Cache proving keys to disk for reuse\n" ;
+        "  --cache-dir <dir>     Cache proving keys to disk for reuse\n" ;
+      Printf.eprintf
+        "  --parallelism <n>     Max parallel processes for compression \
+         (default: 1)\n" ;
       exit 1
