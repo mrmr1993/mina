@@ -1744,46 +1744,7 @@ let shutdown_compress_daemon ~socket_path =
       (Exn.to_string exn) ;
     Core_unix.close socket
 
-(** Collect final output from workdir. *)
-let run_internal_collect_output ~workdir =
-  Printf.eprintf "Collecting output from %s\n%!" workdir ;
-  let system = W.detect_system ~workdir in
-  let ml = W.max_layer system in
-  let proof_b64, _mpv =
-    W.read_proof_file ~path:(W.proof_path workdir ~layer:ml ~index:0)
-  in
-  let vk_b64, vk_hash = W.read_vk_file ~path:(W.node_vk_path workdir) in
-  (* Read public output from final carry *)
-  let carry_path =
-    Filename.concat (W.state_dir workdir) (sprintf "carry_%d_0.bin" ml)
-  in
-  let public_output =
-    if Stdlib.Sys.file_exists carry_path then
-      let (li_s, ro_s, vkd_s) =
-        (W.marshal_from_file ~path:carry_path : string * string * string)
-      in
-      [ `String li_s; `String ro_s; `String vkd_s ]
-    else []
-  in
-  let output =
-    `Assoc
-      [ ( "vkData"
-        , `Assoc [ ("data", `String vk_b64); ("hash", `String vk_hash) ] )
-      ; ( "proofData"
-        , `Assoc
-            [ ("maxProofsVerified", `Int 2)
-            ; ("proof", `String proof_b64)
-            ; ("publicInput", `List [])
-            ; ("publicOutput", `List public_output)
-            ] )
-      ]
-  in
-  let oc = Out_channel.create (Filename.concat workdir "output.json") in
-  Yojson.Safe.pretty_to_channel ~std:true oc output ;
-  Out_channel.close oc ;
-  Printf.eprintf "Output written to %s/output.json\n%!" workdir
-
-(* ==== Parallel orchestrator ==== *)
+(* ==== Shared orchestration utilities ==== *)
 
 (** Run a shell command, fail if it exits non-zero. *)
 let run_cmd cmd =
@@ -1834,7 +1795,8 @@ let run_dag ~parallelism (tasks : dag_task array) =
     in
     let start_task i =
       let cmd = tasks.(i).cmd in
-      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n cmd ;
+      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n
+        cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
           let exit_code = Stdlib.Sys.command cmd in
@@ -1899,6 +1861,644 @@ let run_dag ~parallelism (tasks : dag_task array) =
     if !completed < n then
       failwith
         (sprintf "DAG scheduler bug: only %d of %d tasks completed" !completed n)
+
+(* ==== Unified prove daemon ==== *)
+
+(** Prove base circuit [n] using a pre-compiled prover (PLONK).
+    Reads state from workdir, writes proof + VK. *)
+let do_prove_zkp_plonk ~provers ~workdir ~n =
+  Printf.eprintf "Daemon proving plonk zkp%d in %s\n%!" n workdir ;
+  let prover, side_vk, proof_module = provers.(n) in
+  let prev = n - 1 in
+  let input_hash = W.read_hash ~workdir ~n:prev in
+  let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+  let write_base_proof ~proof_out =
+    W.write_proof_file
+      ~path:(W.proof_path workdir ~layer:0 ~index:n)
+      ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+    let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+    let vk_hash =
+      let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+      let packed = Random_oracle.pack_input input in
+      Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+    in
+    W.write_vk_file
+      ~path:(W.vk_path workdir ~layer:0 ~index:n)
+      ~vk_base64:vk_b64 ~vk_hash
+  in
+  let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+  let w : Proof_conversion.Plonk_requests.witness =
+    if n <= 11 then
+      let acc = W.read_plonk_state ~workdir ~n:prev in
+      { Proof_conversion.Plonk_requests.empty_witness with
+        plonk_acc = Some acc
+      }
+    else if n = 12 then
+      let acc = W.read_plonk_state ~workdir ~n:prev in
+      let aux_path = Filename.concat workdir "aux_witness.json" in
+      let aux_json = Yojson.Safe.from_file aux_path in
+      let shift_power =
+        Step.Field.Constant.of_string
+          Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
+      in
+      let c_fp12 =
+        Proof_conversion.Proof_json.fp12_of_json
+          (Yojson.Safe.Util.member "c" aux_json)
+      in
+      { Proof_conversion.Plonk_requests.empty_witness with
+        plonk_acc = Some acc
+      ; shift_power = Some shift_power
+      ; c_fp12 = Some c_fp12
+      }
+    else if n <= 16 then
+      let kzg, lines_hashes, _gv = W.read_plonk_kzg_state ~workdir ~n:prev in
+      { Proof_conversion.Plonk_requests.empty_witness with
+        kzg_acc = Some kzg
+      ; lines_hashes = Some lines_hashes
+      }
+    else if n <= 22 then
+      let kzg, lines_hashes, g_values =
+        W.read_plonk_kzg_state ~workdir ~n:prev
+      in
+      let f_accum_params =
+        [| (1, 10, 9, 0)
+         ; (10, 21, 11, 9)
+         ; (21, 32, 11, 20)
+         ; (32, 43, 11, 31)
+         ; (43, 54, 11, 42)
+         ; (54, 65, 11, 53)
+        |]
+      in
+      let idx = n - 17 in
+      let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
+      let g_chunk = Array.sub g_values ~pos:lhs_size ~len:chunk_size in
+      let lhs_h = Array.sub lines_hashes ~pos:0 ~len:lhs_size in
+      let rhs_start = lhs_size + chunk_size in
+      let rhs_h =
+        Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
+      in
+      { Proof_conversion.Plonk_requests.empty_witness with
+        kzg_acc = Some kzg
+      ; g_chunk = Some g_chunk
+      ; flat_hashes = Some (Array.append lhs_h rhs_h)
+      }
+    else (
+      assert (n = 23) ;
+      let kzg, lines_hashes, g_values =
+        W.read_plonk_kzg_state ~workdir ~n:prev
+      in
+      let lhs_hashes =
+        Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1)
+      in
+      let g_chunk = [| g_values.(ate_loop_len - 1) |] in
+      { Proof_conversion.Plonk_requests.empty_witness with
+        kzg_acc = Some kzg
+      ; lhs_hashes = Some lhs_hashes
+      ; g_chunk = Some g_chunk
+      } )
+  in
+  let output_hash, proof_out =
+    Proof_conversion.Plonk_pickles_rules.prove_with_compiled ~n ~prover
+      ~proof_module ~input_hash ~witness:w
+  in
+  write_base_proof ~proof_out ;
+  W.write_hash ~workdir ~n ~hash:output_hash ;
+  Printf.eprintf "Daemon proved plonk zkp%d.\n%!" n
+
+(** Prove base circuit [n] using a pre-compiled prover (Groth16).
+    Reads state from workdir, writes proof + VK. *)
+let do_prove_zkp_groth16 ~provers ~workdir ~n =
+  Printf.eprintf "Daemon proving groth16 zkp%d in %s\n%!" n workdir ;
+  let prover, side_vk, proof_module = provers.(n) in
+  let prev = n - 1 in
+  let input_hash = W.read_hash ~workdir ~n:prev in
+  let vk_path = Filename.concat workdir "vk.json" in
+  let vk = Proof_conversion.Proof_json.load_vk vk_path in
+  let proof_path = Filename.concat workdir "proof.json" in
+  let proof = Proof_conversion.Proof_json.load_proof proof_path in
+  let aux =
+    Proof_conversion.Proof_json.load_aux_witness
+      (Filename.concat workdir "aux_witness.json")
+  in
+  let module WT = Proof_conversion.Witness_tracker in
+  let tracker = WT.create ~proof ~vk ~aux in
+  Proof_conversion.Circuit_config.set_tracker tracker ;
+  let acc, line_hashes, g_values = W.read_groth16_state ~workdir ~n:prev in
+  let b_lines = WT.get_all_b_lines tracker in
+  let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+  let w : Proof_conversion.Groth16_requests.witness =
+    if n <= 6 then
+      { Proof_conversion.Groth16_requests.empty_witness with
+        accumulator = Some acc
+      ; line_hashes = Some line_hashes
+      ; b_lines =
+          Some
+            (Array.map b_lines ~f:(fun (l : WT.Line.t) ->
+                 (l.lambda, l.neg_mu) ) )
+      }
+    else if n <= 12 then
+      let idx = n - 7 in
+      let n_iters =
+        Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+      in
+      let g_start =
+        Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+      in
+      let lhs = Array.sub line_hashes ~pos:0 ~len:g_start in
+      let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
+      let rhs_start = g_start + n_iters in
+      let rhs =
+        Array.sub line_hashes ~pos:rhs_start
+          ~len:(Array.length line_hashes - rhs_start)
+      in
+      { Proof_conversion.Groth16_requests.empty_witness with
+        accumulator = Some acc
+      ; g_chunk = Some g_chunk
+      ; lhs_hashes = Some lhs
+      ; rhs_hashes = Some rhs
+      }
+    else if n = 13 then
+      let lhs_13 = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
+      { Proof_conversion.Groth16_requests.empty_witness with
+        accumulator = Some acc
+      ; lhs_hashes = Some lhs_13
+      ; final_g = Some g_values.(Array.length g_values - 1)
+      }
+    else if n = 14 then
+      let n_pi = WT.num_public_inputs tracker in
+      { Proof_conversion.Groth16_requests.empty_witness with
+        public_inputs =
+          Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+      }
+    else
+      let n_pi = WT.num_public_inputs tracker in
+      let pi = WT.get_pi tracker in
+      let partial_acc = WT.get_partial_ic_acc tracker in
+      let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+        { x = p.x; y = p.y }
+      in
+      { Proof_conversion.Groth16_requests.empty_witness with
+        public_inputs =
+          Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+      ; pi_point = Some (g1c pi)
+      ; partial_ic_acc = Some (g1c partial_acc)
+      }
+  in
+  let output_hash, proof_out =
+    Proof_conversion.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
+      ~input_hash ~witness:w
+  in
+  let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+  W.write_proof_file
+    ~path:(W.proof_path workdir ~layer:0 ~index:n)
+    ~proof_base64:(P.to_base64 proof_out) ~max_proofs_verified:0 ;
+  let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 side_vk in
+  let vk_hash =
+    let input = Pickles.Side_loaded.Verification_key.to_input side_vk in
+    let packed = Random_oracle.pack_input input in
+    Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+  in
+  W.write_vk_file
+    ~path:(W.vk_path workdir ~layer:0 ~index:n)
+    ~vk_base64:vk_b64 ~vk_hash ;
+  W.write_hash ~workdir ~n ~hash:output_hash ;
+  Printf.eprintf "Daemon proved groth16 zkp%d.\n%!" n
+
+(** Unified prove daemon: compiles all circuits (base + compression) once,
+    then serves prove-zkp, compress, compute-state, generate-witness, and
+    compute-aux-witness requests over a Unix domain socket. *)
+let run_internal_prove_daemon ~socket_path ~system ~vk_path =
+  Printf.eprintf "Prove daemon: compiling circuits for %s...\n%!" system ;
+  let base_count =
+    match system with "plonk" -> 24 | "groth16" -> 16 | _ -> assert false
+  in
+  (* Compile base circuits *)
+  let base_provers =
+    match system with
+    | "plonk" ->
+        Array.init base_count ~f:(fun n ->
+            Printf.eprintf "  Compiling plonk circuit %d/%d...\n%!" (n + 1)
+              base_count ;
+            Proof_conversion.Plonk_pickles_rules.compile_circuit ~n )
+    | "groth16" ->
+        let vk =
+          Proof_conversion.Proof_json.load_vk
+            (Option.value_exn vk_path
+               ~message:"Groth16 prove-daemon requires --vk-path" )
+        in
+        let vk_const = Proof_conversion.Vk_constants.create vk in
+        Array.init base_count ~f:(fun n ->
+            Printf.eprintf "  Compiling groth16 circuit %d/%d...\n%!" (n + 1)
+              base_count ;
+            Proof_conversion.Pickles_rules.compile_circuit ~vk:vk_const ~n )
+    | _ ->
+        assert false
+  in
+  Printf.eprintf "Prove daemon: base circuits compiled.\n%!" ;
+  (* Compile compression circuits *)
+  let layer1_tag, (module Layer1Proof_), layer1_prove = TC.compile_layer1 () in
+  let layer1_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise layer1_tag )
+  in
+  Printf.eprintf "Prove daemon: layer1 compiled.\n%!" ;
+  let node_tag, (module NodeProof_), node_prove = TC.compile_node () in
+  let node_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise node_tag )
+  in
+  Printf.eprintf "Prove daemon: all circuits compiled.\n%!" ;
+  (* Write readiness marker *)
+  Out_channel.write_all (socket_path ^ ".ready") ~data:"ready\n" ;
+  (* Listen on socket *)
+  let socket =
+    Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
+  in
+  ( try Core_unix.bind socket ~addr:(ADDR_UNIX socket_path)
+    with exn ->
+      Core_unix.close socket ;
+      raise exn ) ;
+  Core_unix.listen socket ~backlog:16 ;
+  Printf.eprintf "Prove daemon: listening on %s\n%!" socket_path ;
+  let running = ref true in
+  while !running do
+    let client_fd, _addr = Core_unix.accept socket in
+    let ic = Core_unix.in_channel_of_descr client_fd in
+    let oc = Core_unix.out_channel_of_descr client_fd in
+    ( try
+        let line = In_channel.input_line_exn ic in
+        let parts = String.split line ~on:' ' in
+        ( match parts with
+        | [ "shutdown" ] ->
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc ;
+            running := false
+        | [ "prove-zkp"; workdir; n_str ] ->
+            let n = Int.of_string n_str in
+            ( match system with
+            | "plonk" ->
+                do_prove_zkp_plonk ~provers:base_provers ~workdir ~n
+            | "groth16" ->
+                do_prove_zkp_groth16 ~provers:base_provers ~workdir ~n
+            | _ ->
+                assert false ) ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | [ "compress"; workdir; base_count_s; layer_s; index_s ] ->
+            do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
+              ~base_count:(Int.of_string base_count_s)
+              ~layer:(Int.of_string layer_s)
+              ~index:(Int.of_string index_s) ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | [ "compute-state"; workdir; n_str ] ->
+            run_internal_compute_state ~workdir ~n:(Int.of_string n_str) ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | [ "compute-aux-witness"; workdir ] ->
+            run_internal_compute_aux_witness ~workdir ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | [ "generate-witness"; workdir ] ->
+            run_internal_generate_witness ~workdir ;
+            Out_channel.output_string oc "OK\n" ;
+            Out_channel.flush oc
+        | _ ->
+            Out_channel.output_string oc
+              (sprintf "ERROR bad command: %s\n" line) ;
+            Out_channel.flush oc )
+      with exn ->
+        ( try
+            Out_channel.output_string oc
+              (sprintf "ERROR %s\n" (Exn.to_string exn)) ;
+            Out_channel.flush oc
+          with _ -> () ) ) ;
+    Core_unix.close client_fd
+  done ;
+  Core_unix.close socket ;
+  ( try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> () ) ;
+  Printf.eprintf "Prove daemon: shutdown.\n%!"
+
+(** Send a command to a worker daemon via Unix socket.
+    Connects with retry, sends the command, waits for OK. *)
+let run_internal_dispatch_to_worker ~socket_path ~command =
+  let socket =
+    Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
+  in
+  let rec connect_retry attempts =
+    try Core_unix.connect socket ~addr:(ADDR_UNIX socket_path)
+    with Core_unix.Unix_error ((ENOENT | ECONNREFUSED), _, _) ->
+      if attempts <= 0 then
+        failwith
+          (sprintf "dispatch-to-worker: could not connect to %s" socket_path)
+      else (
+        ignore (Core_unix.nanosleep 0.2 : float) ;
+        connect_retry (attempts - 1) )
+  in
+  connect_retry 3000 (* 10 minutes for initial compilation *) ;
+  let oc = Core_unix.out_channel_of_descr socket in
+  let ic = Core_unix.in_channel_of_descr socket in
+  Out_channel.output_string oc (command ^ "\n") ;
+  Out_channel.flush oc ;
+  let response = In_channel.input_line_exn ic in
+  Core_unix.close socket ;
+  if not (String.is_prefix response ~prefix:"OK") then
+    failwith (sprintf "dispatch-to-worker failed: %s" response)
+
+(** Discover worker sockets in a directory. *)
+let discover_workers ~socket_dir =
+  let entries = Stdlib.Sys.readdir socket_dir in
+  let sockets =
+    Array.filter entries ~f:(fun name ->
+        String.is_suffix name ~suffix:".sock"
+        && not (String.is_suffix name ~suffix:".ready") )
+  in
+  Array.sort sockets ~compare:String.compare ;
+  Array.map sockets ~f:(fun name -> Filename.concat socket_dir name)
+
+(** Run a proof conversion using pre-started worker daemons.
+    Same DAG structure as [run_parallel_pipeline] but dispatches to
+    workers via socket instead of forking subprocesses. *)
+let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
+    ~max_layer ~input_path ~vk_path =
+  let self = Filename.quote Sys.argv.(0) in
+  let n_workers = Array.length worker_sockets in
+  if n_workers = 0 then failwith "No workers found" ;
+  Printf.eprintf "Daemonised pipeline: %d workers, system=%s\n%!" n_workers
+    system ;
+  (* Create temp working directory *)
+  let workdir =
+    let base = Filename.temp_dir_name in
+    let name =
+      sprintf "nori-%s-%d" system (Core_unix.getpid () |> Pid.to_int)
+    in
+    Filename.concat base name
+  in
+  Printf.eprintf "Working directory: %s\n%!" workdir ;
+  (* init-workdir (local, fast) *)
+  let init_cmd =
+    match vk_path with
+    | Some vk ->
+        sprintf "%s internal init-workdir %s %s %s %s" self
+          (Filename.quote workdir) system
+          (Filename.quote input_path)
+          (Filename.quote vk)
+    | None ->
+        sprintf "%s internal init-workdir %s %s %s" self
+          (Filename.quote workdir) system
+          (Filename.quote input_path)
+  in
+  run_cmd init_cmd ;
+  (* Build DAG — same structure as parallel pipeline but dispatching
+     to workers. *)
+  let padded_count =
+    let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
+    next_pow2 1
+  in
+  if padded_count > base_count then
+    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count
+      padded_count ;
+  let compression_counts =
+    Array.init max_layer ~f:(fun i ->
+        let layer = i + 1 in
+        let prev_count =
+          if layer = 1 then padded_count
+          else padded_count / Int.pow 2 (layer - 1)
+        in
+        prev_count / 2 )
+  in
+  let total_compression = Array.fold compression_counts ~init:0 ~f:( + ) in
+  let total_tasks = 2 + base_count + base_count + total_compression in
+  let gw_idx = 0 in
+  let aux_idx = 1 in
+  let cs_start = 2 in
+  let prove_start = 2 + base_count in
+  let compress_start = 2 + 2 * base_count in
+  let aux_needed_at =
+    match system with "plonk" -> Some 12 | _ -> None
+  in
+  Printf.eprintf
+    "Building DAG: %d tasks, dispatching to %d workers\n%!" total_tasks
+    n_workers ;
+  let tasks =
+    Array.create ~len:total_tasks
+      { cmd = ""; deps = [||]; priority = 0; status = Pending }
+  in
+  (* All tasks dispatch to workers via the thin client.
+     Round-robin assignment across workers. *)
+  let worker_cmd i command =
+    let socket = worker_sockets.(i % n_workers) in
+    sprintf "%s internal dispatch-to-worker %s %s" self
+      (Filename.quote socket) (Filename.quote command)
+  in
+  (* generate-witness *)
+  tasks.(gw_idx) <-
+    { cmd = worker_cmd 0 (sprintf "generate-witness %s" workdir)
+    ; deps = [||]
+    ; priority = 1
+    ; status = Pending
+    } ;
+  (* compute-aux-witness *)
+  tasks.(aux_idx) <-
+    { cmd = worker_cmd 1 (sprintf "compute-aux-witness %s" workdir)
+    ; deps = [||]
+    ; priority = 1
+    ; status = Pending
+    } ;
+  (* compute-state: sequential chain *)
+  for n = 0 to base_count - 1 do
+    let deps =
+      if n = 0 then [| gw_idx |]
+      else
+        match aux_needed_at with
+        | Some k when n = k ->
+            [| cs_start + n - 1; aux_idx |]
+        | _ ->
+            [| cs_start + n - 1 |]
+    in
+    tasks.(cs_start + n) <-
+      { cmd = worker_cmd n (sprintf "compute-state %s %d" workdir n)
+      ; deps
+      ; priority = 1
+      ; status = Pending
+      }
+  done ;
+  (* prove-zkp: each depends on its compute-state *)
+  for n = 0 to base_count - 1 do
+    tasks.(prove_start + n) <-
+      { cmd = worker_cmd n (sprintf "prove-zkp %s %d" workdir n)
+      ; deps = [| cs_start + n |]
+      ; priority = 0
+      ; status = Pending
+      }
+  done ;
+  (* Compression tasks *)
+  let layer_start = Array.create ~len:(max_layer + 1) 0 in
+  layer_start.(0) <- prove_start ;
+  let task_idx = ref compress_start in
+  for li = 0 to max_layer - 1 do
+    let layer = li + 1 in
+    layer_start.(layer) <- !task_idx ;
+    let n_merges = compression_counts.(li) in
+    for index = 0 to n_merges - 1 do
+      let left_child = index * 2 in
+      let right_child = (index * 2) + 1 in
+      let deps =
+        if layer = 1 then
+          let dep_l = prove_start + min left_child (base_count - 1) in
+          let dep_r = prove_start + min right_child (base_count - 1) in
+          if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
+        else
+          let prev_start = layer_start.(layer - 1) in
+          [| prev_start + left_child; prev_start + right_child |]
+      in
+      let compress_task_num = !task_idx - compress_start in
+      tasks.(!task_idx) <-
+        { cmd =
+            worker_cmd compress_task_num
+              (sprintf "compress %s %d %d %d" workdir base_count layer index)
+        ; deps
+        ; priority = 2
+        ; status = Pending
+        } ;
+      incr task_idx
+    done
+  done ;
+  assert (!task_idx = total_tasks) ;
+  run_dag ~parallelism:n_workers tasks ;
+  (* Collect output (local) *)
+  run_cmd
+    (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
+  let output_src = Filename.concat workdir "output.json" in
+  let dir = Filename.dirname input_path in
+  let base = Filename.basename input_path in
+  let base_no_ext =
+    if String.is_suffix ~suffix:".json" (String.lowercase base) then
+      String.sub base ~pos:0 ~len:(String.length base - 5)
+    else base
+  in
+  let command_name =
+    match system with "plonk" -> "sp1ToPlonk" | _ -> "risc0ToGroth16"
+  in
+  let output_dst =
+    Filename.concat dir (base_no_ext ^ "." ^ command_name ^ ".json")
+  in
+  let data = In_channel.read_all output_src in
+  Out_channel.write_all output_dst ~data ;
+  Printf.eprintf "Output written to %s\n%!" output_dst
+
+(** Start N worker daemons. *)
+let run_start_workers ~system ~count ~socket_dir ~vk_path ~background =
+  Core_unix.mkdir_p socket_dir ;
+  let pids =
+    Array.init count ~f:(fun i ->
+        let socket_path =
+          Filename.concat socket_dir (sprintf "worker.%d.sock" i)
+        in
+        (* Clean up stale socket/ready files *)
+        ( try Stdlib.Sys.remove socket_path with _ -> () ) ;
+        ( try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> () ) ;
+        match Core_unix.fork () with
+        | `In_the_child ->
+            run_internal_prove_daemon ~socket_path ~system ~vk_path ;
+            Stdlib.exit 0
+        | `In_the_parent pid ->
+            Printf.eprintf "  Worker %d started (pid %d)\n%!" i
+              (Pid.to_int pid) ;
+            pid )
+  in
+  (* Wait for all workers to be ready *)
+  let all_ready () =
+    Array.for_all
+      (Array.init count ~f:(fun i ->
+           Stdlib.Sys.file_exists
+             (Filename.concat socket_dir
+                (sprintf "worker.%d.sock.ready" i) ) ) )
+      ~f:Fn.id
+  in
+  Printf.eprintf "Waiting for %d workers to compile circuits...\n%!" count ;
+  while not (all_ready ()) do
+    ignore (Core_unix.nanosleep 1.0 : float)
+  done ;
+  Printf.eprintf "All %d workers ready in %s\n%!" count socket_dir ;
+  if background then
+    (* Print PIDs and exit *)
+    Array.iteri pids ~f:(fun i pid ->
+        Printf.eprintf "  worker.%d: pid %d, socket %s\n%!" i
+          (Pid.to_int pid)
+          (Filename.concat socket_dir (sprintf "worker.%d.sock" i)) )
+  else (
+    (* Foreground: wait for SIGINT, then shut down *)
+    let interrupted = ref false in
+    let handle_signal _ = interrupted := true in
+    Stdlib.Sys.set_signal Stdlib.Sys.sigint (Signal_handle handle_signal) ;
+    Stdlib.Sys.set_signal Stdlib.Sys.sigterm (Signal_handle handle_signal) ;
+    Printf.eprintf "Workers running. Press Ctrl-C to stop.\n%!" ;
+    while not !interrupted do
+      ignore (Core_unix.nanosleep 1.0 : float)
+    done ;
+    Printf.eprintf "Shutting down workers...\n%!" ;
+    Array.iteri
+      (Array.init count ~f:(fun i ->
+           Filename.concat socket_dir (sprintf "worker.%d.sock" i) ) )
+      ~f:(fun _i sp -> shutdown_compress_daemon ~socket_path:sp) ;
+    Array.iter pids ~f:(fun pid ->
+        try ignore (Core_unix.waitpid pid : Core.Unix.Exit_or_signal.t)
+        with _ -> () ) ;
+    Printf.eprintf "All workers shut down.\n%!" )
+
+(** Stop all workers in a socket directory. *)
+let run_stop_workers ~socket_dir =
+  let entries = Stdlib.Sys.readdir socket_dir in
+  Array.iter entries ~f:(fun name ->
+      if String.is_suffix name ~suffix:".sock"
+         && not (String.is_suffix name ~suffix:".sock.ready")
+      then (
+        Printf.eprintf "Stopping %s...\n%!" name ;
+        shutdown_compress_daemon
+          ~socket_path:(Filename.concat socket_dir name) ) ) ;
+  Printf.eprintf "All workers stopped.\n%!"
+
+(** Collect final output from workdir. *)
+let run_internal_collect_output ~workdir =
+  Printf.eprintf "Collecting output from %s\n%!" workdir ;
+  let system = W.detect_system ~workdir in
+  let ml = W.max_layer system in
+  let proof_b64, _mpv =
+    W.read_proof_file ~path:(W.proof_path workdir ~layer:ml ~index:0)
+  in
+  let vk_b64, vk_hash = W.read_vk_file ~path:(W.node_vk_path workdir) in
+  (* Read public output from final carry *)
+  let carry_path =
+    Filename.concat (W.state_dir workdir) (sprintf "carry_%d_0.bin" ml)
+  in
+  let public_output =
+    if Stdlib.Sys.file_exists carry_path then
+      let (li_s, ro_s, vkd_s) =
+        (W.marshal_from_file ~path:carry_path : string * string * string)
+      in
+      [ `String li_s; `String ro_s; `String vkd_s ]
+    else []
+  in
+  let output =
+    `Assoc
+      [ ( "vkData"
+        , `Assoc [ ("data", `String vk_b64); ("hash", `String vk_hash) ] )
+      ; ( "proofData"
+        , `Assoc
+            [ ("maxProofsVerified", `Int 2)
+            ; ("proof", `String proof_b64)
+            ; ("publicInput", `List [])
+            ; ("publicOutput", `List public_output)
+            ] )
+      ]
+  in
+  let oc = Out_channel.create (Filename.concat workdir "output.json") in
+  Yojson.Safe.pretty_to_channel ~std:true oc output ;
+  Out_channel.close oc ;
+  Printf.eprintf "Output written to %s/output.json\n%!" workdir
+
+(* ==== Parallel orchestrator ==== *)
 
 (** Build the self-invocation command prefix, forwarding --cache-dir. *)
 let self_cmd ~cache_dir =
@@ -2234,6 +2834,109 @@ let () =
         ~index:(Int.of_string index)
   | [| _; "internal"; "collect-output"; workdir |] ->
       run_internal_collect_output ~workdir
+  | [| _; "internal"; "prove-daemon"; socket_path; "--system"; system |] ->
+      run_internal_prove_daemon ~socket_path ~system ~vk_path:None
+  | [| _
+     ; "internal"
+     ; "prove-daemon"
+     ; socket_path
+     ; "--system"
+     ; system
+     ; "--vk-path"
+     ; vk_p
+    |] ->
+      run_internal_prove_daemon ~socket_path ~system ~vk_path:(Some vk_p)
+  | [| _; "internal"; "dispatch-to-worker"; socket_path; command |] ->
+      run_internal_dispatch_to_worker ~socket_path ~command
+  | _ when Array.length argv >= 2 && String.equal argv.(1) "sp1ToPlonkDaemonised"
+    ->
+      let input_path = argv.(2) in
+      let worker_sockets =
+        let workers_dir = ref "" in
+        Array.iter argv ~f:(fun arg ->
+            if String.is_prefix arg ~prefix:"--workers=" then
+              workers_dir := String.chop_prefix_exn arg ~prefix:"--workers="
+            else if String.equal !workers_dir "" && String.equal arg "--workers"
+            then ()
+            else () ) ;
+        (* Look for --workers in argv *)
+        let rec find_workers = function
+          | "--workers" :: dir :: _ ->
+              dir
+          | _ :: rest ->
+              find_workers rest
+          | [] ->
+              failwith "Missing --workers <socket-dir>"
+        in
+        let dir = find_workers (Array.to_list argv) in
+        discover_workers ~socket_dir:dir
+      in
+      run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"plonk"
+        ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
+  | _ when Array.length argv >= 3
+           && String.equal argv.(1) "risc0ToGroth16Daemonised" ->
+      let proof_path = argv.(2) in
+      let vk_p = argv.(3) in
+      let worker_sockets =
+        let rec find_workers = function
+          | "--workers" :: dir :: _ ->
+              dir
+          | _ :: rest ->
+              find_workers rest
+          | [] ->
+              failwith "Missing --workers <socket-dir>"
+        in
+        let dir = find_workers (Array.to_list argv) in
+        discover_workers ~socket_dir:dir
+      in
+      run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"groth16"
+        ~base_count:16 ~max_layer:4 ~input_path:proof_path
+        ~vk_path:(Some vk_p)
+  | _ when Array.length argv >= 2 && String.equal argv.(1) "start-workers" ->
+      let args = Array.to_list argv in
+      let rec parse ~system ~count ~socket_dir ~vk_p ~bg = function
+        | "--system" :: s :: rest ->
+            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~bg rest
+        | "--count" :: n :: rest ->
+            parse ~system ~count:(Some (Int.of_string n)) ~socket_dir ~vk_p ~bg
+              rest
+        | "--socket-dir" :: d :: rest ->
+            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~bg rest
+        | "--vk-path" :: p :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~bg rest
+        | "--background" :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p ~bg:true rest
+        | _ :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p ~bg rest
+        | [] ->
+            (system, count, socket_dir, vk_p, bg)
+      in
+      let system, count, socket_dir, vk_p, background =
+        parse ~system:None ~count:None ~socket_dir:None ~vk_p:None ~bg:false
+          args
+      in
+      let system =
+        Option.value_exn system ~message:"start-workers requires --system"
+      in
+      let count =
+        Option.value_exn count ~message:"start-workers requires --count"
+      in
+      let socket_dir =
+        Option.value_exn socket_dir
+          ~message:"start-workers requires --socket-dir"
+      in
+      run_start_workers ~system ~count ~socket_dir ~vk_path:vk_p ~background
+  | _ when Array.length argv >= 2 && String.equal argv.(1) "stop-workers" ->
+      let rec find_socket_dir = function
+        | "--socket-dir" :: d :: _ ->
+            d
+        | _ :: rest ->
+            find_socket_dir rest
+        | [] ->
+            failwith "stop-workers requires --socket-dir"
+      in
+      let socket_dir = find_socket_dir (Array.to_list argv) in
+      run_stop_workers ~socket_dir
   | _ ->
       Printf.eprintf
         "Usage: nori-proof-converter [--cache-dir <dir>] [--parallelism <n>] \

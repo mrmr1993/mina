@@ -35,6 +35,56 @@ let make_rule ~(vk : Vk_constants.t) ~(n : int) :
         } )
   }
 
+(** Compile circuit [n] and return the prover function and side-loaded VK.
+    The prover can be called many times with different witnesses without
+    recompilation.  Used by long-lived daemon workers. *)
+let compile_circuit ~(vk : Vk_constants.t) ~(n : int) =
+  let rule = make_rule ~vk ~n in
+  let tag, _cache, (module Proof), provers =
+    Pickles.compile_promise
+      ~cache:(Cache_config.get_cache ())
+      ~public_input:
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
+      ~auxiliary_typ:Step.Typ.unit
+      ~max_proofs_verified:(module Pickles_types.Nat.N0)
+      ~name:(sprintf "groth16-zkp%d" n)
+      ~o1js_compatible_mode:false
+      ~choices:(fun ~self:_ -> [ rule ])
+      ()
+  in
+  let side_vk =
+    Promise.block_on_async_exn (fun () ->
+        Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
+  in
+  let Pickles.Provers.[ prove ] = provers in
+  (prove, side_vk, (module Proof : Pickles.Proof_intf
+    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
+
+(** Prove circuit [n] using a pre-compiled prover.
+    Returns (output_hash, proof). *)
+let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proof_intf
+    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
+    ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Groth16_requests.witness) =
+  let (module Proof) = proof_module in
+  let handler = Groth16_requests.handler witness in
+  let output_hash, _aux, proof =
+    Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) input_hash)
+  in
+  let verified =
+    Promise.block_on_async_exn (fun () ->
+        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+  in
+  ( match verified with
+  | Ok () ->
+      ()
+  | Error e ->
+      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  (output_hash, proof)
+
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
 let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
