@@ -726,231 +726,7 @@ let run_internal_generate_witness ~workdir =
         Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
       in
       W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
-      W.write_plonk_state ~workdir ~n:(-1) ~acc:acc_const ;
-      (* Pre-compute all intermediate states for parallel prove-zkp.
-         Uses the same run_unchecked pattern as compute_kzg_mlo. *)
-      Printf.eprintf "Pre-computing all PLONK intermediate states...\n%!" ;
-      Snarky_backendless.Snark0.set_eval_constraints false ;
-      let cur_hash = ref initial_hash in
-      let cur_acc = ref acc_const in
-      let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
-      let cur_kzg =
-        ref (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const)
-      in
-      let cur_kzg_lh =
-        ref (Array.create ~len:ate_loop_len Step.Field.Constant.zero)
-      in
-      let cur_kzg_gv = ref [||] in
-      let zkp_fns =
-        Proof_conversion.Plonk_circuits.
-          [| zkp0
-           ; zkp1
-           ; zkp2
-           ; zkp3
-           ; zkp4
-           ; zkp5
-           ; zkp6
-           ; zkp7
-           ; zkp8
-           ; zkp9
-           ; zkp10
-           ; zkp11
-          |]
-      in
-      (* Circuits 0-11: evolve Plonk_accumulator *)
-      for n = 0 to 11 do
-        Printf.eprintf "  State for plonk zkp%d...\n%!" n ;
-        let witness : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            plonk_acc = Some !cur_acc
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler witness in
-        let result = ref (Step.Field.Constant.zero, !cur_acc) in
-        Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant !cur_hash in
-                let output_hash, acc = zkp_fns.(n) input_var in
-                Step.as_prover (fun () ->
-                    let oh = Step.As_prover.read_var output_hash in
-                    let ac =
-                      Step.As_prover.read Proof_conversion.Plonk_accumulator.typ
-                        acc
-                    in
-                    result := (oh, ac) ) )
-              handler ) ;
-        let oh, ac = !result in
-        cur_hash := oh ;
-        cur_acc := ac ;
-        W.write_hash ~workdir ~n ~hash:oh ;
-        W.write_plonk_state ~workdir ~n ~acc:ac
-      done ;
-      (* Circuit 12: transition to KZG *)
-      Printf.eprintf "  State for plonk zkp12...\n%!" ;
-      let w12 : Proof_conversion.Plonk_requests.witness =
-        { Proof_conversion.Plonk_requests.empty_witness with
-          plonk_acc = Some !cur_acc
-        ; shift_power = Some aux.shift_power
-        ; c_fp12 = Some aux.c_fp12
-        }
-      in
-      let handler12 = Proof_conversion.Plonk_requests.handler w12 in
-      let result12 =
-        ref
-          ( Step.Field.Constant.zero
-          , (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const) )
-      in
-      Step.run_unchecked (fun () ->
-          Step.handle
-            (fun () ->
-              let input_var = Step.Field.constant !cur_hash in
-              let output_hash, kzg =
-                Proof_conversion.Plonk_circuits.zkp12 input_var
-              in
-              Step.as_prover (fun () ->
-                  let oh = Step.As_prover.read_var output_hash in
-                  let kc =
-                    Step.As_prover.read Proof_conversion.Kzg_accumulator.typ kzg
-                  in
-                  result12 := (oh, kc) ) )
-            handler12 ) ;
-      let oh12, kzg12 = !result12 in
-      cur_hash := oh12 ;
-      cur_kzg := kzg12 ;
-      cur_kzg_lh := Array.create ~len:ate_loop_len Step.Field.Constant.zero ;
-      W.write_hash ~workdir ~n:12 ~hash:oh12 ;
-      W.write_plonk_kzg_state ~workdir ~n:12 ~kzg:kzg12
-        ~lines_hashes:!cur_kzg_lh ~g_values:!cur_kzg_gv ;
-      (* Circuits 13-16: KZG line circuits via run_unchecked.
-         Read back kzg, lines_hashes, g_values via as_prover. *)
-      for n = 13 to 16 do
-        Printf.eprintf "  State for plonk zkp%d...\n%!" n ;
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            kzg_acc = Some !cur_kzg
-          ; lines_hashes = Some !cur_kzg_lh
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler w in
-        let result_hash = ref !cur_hash in
-        let result_kzg = ref !cur_kzg in
-        let result_lh = ref !cur_kzg_lh in
-        let result_gv = ref [||] in
-        Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant !cur_hash in
-                let output_hash, kzg_var, lh_var, gv_arr =
-                  Proof_conversion.Plonk_circuits.zkp_lines ~circuit_index:n
-                    input_var
-                in
-                Step.as_prover (fun () ->
-                    result_hash := Step.As_prover.read_var output_hash ;
-                    result_kzg :=
-                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                        kzg_var ;
-                    result_lh :=
-                      Step.As_prover.read
-                        (Step.Typ.array ~length:ate_loop_len Step.Field.typ)
-                        lh_var ;
-                    result_gv :=
-                      Array.map gv_arr ~f:(fun g ->
-                          Step.As_prover.read Proof_conversion.Fp12.typ g ) ) )
-              handler ) ;
-        cur_hash := !result_hash ;
-        cur_kzg := !result_kzg ;
-        cur_kzg_lh := !result_lh ;
-        cur_kzg_gv := Array.append !cur_kzg_gv !result_gv ;
-        W.write_hash ~workdir ~n ~hash:!cur_hash ;
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:!cur_kzg
-          ~lines_hashes:!cur_kzg_lh ~g_values:!cur_kzg_gv
-      done ;
-      (* Circuits 17-22: f-accumulation via run_unchecked *)
-      let g_values_snapshot = !cur_kzg_gv in
-      let lines_hashes_snapshot = !cur_kzg_lh in
-      let f_accum_params =
-        [| (1, 10, 9, 0)
-         ; (10, 21, 11, 9)
-         ; (21, 32, 11, 20)
-         ; (32, 43, 11, 31)
-         ; (43, 54, 11, 42)
-         ; (54, 65, 11, 53)
-        |]
-      in
-      for idx = 0 to 5 do
-        let n = 17 + idx in
-        Printf.eprintf "  State for plonk zkp%d...\n%!" n ;
-        let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
-        let g_chunk =
-          Array.sub g_values_snapshot ~pos:lhs_size ~len:chunk_size
-        in
-        let lhs_h = Array.sub lines_hashes_snapshot ~pos:0 ~len:lhs_size in
-        let rhs_start = lhs_size + chunk_size in
-        let rhs_h =
-          Array.sub lines_hashes_snapshot ~pos:rhs_start
-            ~len:(ate_loop_len - rhs_start)
-        in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            kzg_acc = Some !cur_kzg
-          ; g_chunk = Some g_chunk
-          ; flat_hashes = Some (Array.append lhs_h rhs_h)
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler w in
-        let result_hash = ref !cur_hash in
-        let result_kzg = ref !cur_kzg in
-        Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant !cur_hash in
-                let output_hash, kzg_var =
-                  Proof_conversion.Plonk_circuits.zkp_f_accum ~circuit_index:n
-                    input_var
-                in
-                Step.as_prover (fun () ->
-                    result_hash := Step.As_prover.read_var output_hash ;
-                    result_kzg :=
-                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                        kzg_var ) )
-              handler ) ;
-        cur_hash := !result_hash ;
-        cur_kzg := !result_kzg ;
-        W.write_hash ~workdir ~n ~hash:!cur_hash ;
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:!cur_kzg
-          ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot
-      done ;
-      (* Circuit 23: final exponentiation via run_unchecked *)
-      Printf.eprintf "  State for plonk zkp23...\n%!" ;
-      let lhs_hashes_23 =
-        Array.sub lines_hashes_snapshot ~pos:0 ~len:(ate_loop_len - 1)
-      in
-      let g_chunk_23 = [| g_values_snapshot.(ate_loop_len - 1) |] in
-      let w23 : Proof_conversion.Plonk_requests.witness =
-        { Proof_conversion.Plonk_requests.empty_witness with
-          kzg_acc = Some !cur_kzg
-        ; lhs_hashes = Some lhs_hashes_23
-        ; g_chunk = Some g_chunk_23
-        }
-      in
-      let handler23 = Proof_conversion.Plonk_requests.handler w23 in
-      let result_hash23 = ref !cur_hash in
-      Step.run_unchecked (fun () ->
-          Step.handle
-            (fun () ->
-              let input_var = Step.Field.constant !cur_hash in
-              let output_hash =
-                Proof_conversion.Plonk_circuits.zkp23 input_var
-              in
-              Step.as_prover (fun () ->
-                  result_hash23 := Step.As_prover.read_var output_hash ) )
-            handler23 ) ;
-      cur_hash := !result_hash23 ;
-      W.write_hash ~workdir ~n:23 ~hash:!cur_hash ;
-      W.write_plonk_kzg_state ~workdir ~n:23 ~kzg:!cur_kzg
-        ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot ;
-      Snarky_backendless.Snark0.set_eval_constraints true
+      W.write_plonk_state ~workdir ~n:(-1) ~acc:acc_const
   | W.Groth16 _ ->
       let proof_path = Filename.concat workdir "proof.json" in
       let vk_path = Filename.concat workdir "vk.json" in
@@ -996,137 +772,377 @@ let run_internal_generate_witness ~workdir =
       W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
       let line_hashes = Array.create ~len:n_total Step.Field.Constant.zero in
       W.write_groth16_state ~workdir ~n:(-1) ~acc:initial_acc ~line_hashes
-        ~g_values:[||] ;
-      (* Pre-compute ALL intermediate accumulator states by running circuit
-         bodies unchecked (no proving). This writes state for all 16 circuits
-         so that prove-zkp commands can run in parallel. *)
-      Printf.eprintf "Pre-computing all intermediate states (unchecked)...\n%!" ;
-      Snarky_backendless.Snark0.set_eval_constraints false ;
-      let vk_const = Proof_conversion.Vk_constants.create vk in
-      let b_lines = WT.get_all_b_lines tracker in
-      let cur_hash = ref initial_hash in
-      let cur_acc = ref initial_acc in
-      let cur_lh = ref line_hashes in
-      let cur_gv = ref [||] in
-      for n = 0 to 15 do
-        Printf.eprintf "  State for zkp%d...\n%!" n ;
-        let witness : Proof_conversion.Groth16_requests.witness =
-          if n <= 6 then
-            { Proof_conversion.Groth16_requests.empty_witness with
-              accumulator = Some !cur_acc
-            ; line_hashes = Some !cur_lh
-            ; b_lines =
-                Some
-                  (Array.map b_lines ~f:(fun (l : WT.Line.t) ->
-                       (l.lambda, l.neg_mu) ) )
-            }
-          else if n <= 12 then
-            let idx = n - 7 in
-            let n_iters =
-              Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
-            in
-            let g_start =
-              Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
-            in
-            let lhs = Array.sub !cur_lh ~pos:0 ~len:g_start in
-            let g_chunk = Array.sub !cur_gv ~pos:g_start ~len:n_iters in
-            let rhs_start = g_start + n_iters in
-            let rhs =
-              Array.sub !cur_lh ~pos:rhs_start
-                ~len:(Array.length !cur_lh - rhs_start)
-            in
-            { Proof_conversion.Groth16_requests.empty_witness with
-              accumulator = Some !cur_acc
-            ; g_chunk = Some g_chunk
-            ; lhs_hashes = Some lhs
-            ; rhs_hashes = Some rhs
-            }
-          else if n = 13 then
-            { Proof_conversion.Groth16_requests.empty_witness with
-              accumulator = Some !cur_acc
-            ; lhs_hashes = Some (Array.sub !cur_lh ~pos:0 ~len:(n_total - 1))
-            ; final_g = Some !cur_gv.(Array.length !cur_gv - 1)
-            }
-          else if n = 14 then
-            let n_pi = WT.num_public_inputs tracker in
-            { Proof_conversion.Groth16_requests.empty_witness with
-              public_inputs =
-                Some
-                  (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
-            }
-          else
-            let n_pi = WT.num_public_inputs tracker in
-            let pi = WT.get_pi tracker in
-            let pa = WT.get_partial_ic_acc tracker in
-            let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
-              { x = p.x; y = p.y }
-            in
-            { Proof_conversion.Groth16_requests.empty_witness with
-              public_inputs =
-                Some
-                  (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
-            ; pi_point = Some (g1c pi)
-            ; partial_ic_acc = Some (g1c pa)
-            }
-        in
-        let handler = Proof_conversion.Groth16_requests.handler witness in
-        (* Run circuit body unchecked, read output via as_prover *)
-        ( if n <= 12 then (
-          let body =
-            Proof_conversion.Circuits.build_circuit_body_with_acc ~vk:vk_const
-              ~circuit_index:n
-          in
-          let result_hash = ref !cur_hash in
-          let result_acc = ref !cur_acc in
-          let result_lh = ref !cur_lh in
-          let result_gv = ref [||] in
-          Step.run_unchecked (fun () ->
-              Step.handle
-                (fun () ->
-                  let input_var = Step.Field.constant !cur_hash in
-                  let output_hash, (acc_var, lh_var, gv_arr) = body input_var in
-                  Step.as_prover (fun () ->
-                      result_hash := Step.As_prover.read_var output_hash ;
-                      result_acc :=
-                        Step.As_prover.read Proof_conversion.Accumulator.typ
-                          acc_var ;
-                      result_lh :=
-                        Step.As_prover.read
-                          (Step.Typ.array ~length:n_total Step.Field.typ)
-                          lh_var ;
-                      result_gv :=
-                        Array.map gv_arr ~f:(fun g ->
-                            Step.As_prover.read Proof_conversion.Fp12.typ g ) )
-                  )
-                handler ) ;
-          cur_hash := !result_hash ;
-          if n <= 6 then (
-            cur_acc := !result_acc ;
-            cur_lh := !result_lh ;
-            cur_gv := Array.append !cur_gv !result_gv )
-          else cur_acc := !result_acc )
-        else
-          (* Circuits 13-15: just compute the hash, acc doesn't change *)
-          let body =
-            Proof_conversion.Circuits.build_circuit_body ~vk:vk_const
-              ~circuit_index:n
-          in
-          let result_hash = ref !cur_hash in
-          Step.run_unchecked (fun () ->
-              Step.handle
-                (fun () ->
-                  let input_var = Step.Field.constant !cur_hash in
-                  let output_hash = body input_var in
-                  Step.as_prover (fun () ->
-                      result_hash := Step.As_prover.read_var output_hash ) )
-                handler ) ;
-          cur_hash := !result_hash ) ;
-        W.write_hash ~workdir ~n ~hash:!cur_hash ;
-        W.write_groth16_state ~workdir ~n ~acc:!cur_acc ~line_hashes:!cur_lh
-          ~g_values:!cur_gv
-      done ;
-      Snarky_backendless.Snark0.set_eval_constraints true ) ;
+        ~g_values:[||] ) ;
   Printf.eprintf "Witness generated.\n%!"
+
+(** Compute the intermediate state for a single circuit via run_unchecked.
+    Reads state n-1 from disk, runs the circuit body without constraint
+    checking, and writes state n.  This enables pipelining: prove-zkp N
+    can start as soon as compute-state N finishes, while compute-state N+1
+    runs in parallel. *)
+let run_internal_compute_state ~workdir ~n =
+  Printf.eprintf "Computing state for circuit %d in %s\n%!" n workdir ;
+  let system = W.detect_system ~workdir in
+  Snarky_backendless.Snark0.set_eval_constraints false ;
+  ( match system with
+  | W.Plonk _ ->
+      let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+      if n <= 11 then (
+        (* Circuits 0-11: evolve Plonk_accumulator *)
+        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+        let cur_acc = W.read_plonk_state ~workdir ~n:(n - 1) in
+        let zkp_fns =
+          Proof_conversion.Plonk_circuits.
+            [| zkp0
+             ; zkp1
+             ; zkp2
+             ; zkp3
+             ; zkp4
+             ; zkp5
+             ; zkp6
+             ; zkp7
+             ; zkp8
+             ; zkp9
+             ; zkp10
+             ; zkp11
+            |]
+        in
+        let witness : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            plonk_acc = Some cur_acc
+          }
+        in
+        let handler = Proof_conversion.Plonk_requests.handler witness in
+        let result = ref (Step.Field.Constant.zero, cur_acc) in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash, acc = zkp_fns.(n) input_var in
+                Step.as_prover (fun () ->
+                    let oh = Step.As_prover.read_var output_hash in
+                    let ac =
+                      Step.As_prover.read Proof_conversion.Plonk_accumulator.typ
+                        acc
+                    in
+                    result := (oh, ac) ) )
+              handler ) ;
+        let oh, ac = !result in
+        W.write_hash ~workdir ~n ~hash:oh ;
+        W.write_plonk_state ~workdir ~n ~acc:ac )
+      else if n = 12 then (
+        (* Circuit 12: transition Plonk_accumulator → Kzg_accumulator *)
+        let cur_hash = W.read_hash ~workdir ~n:11 in
+        let cur_acc = W.read_plonk_state ~workdir ~n:11 in
+        let aux_path = Filename.concat workdir "aux_witness.json" in
+        let aux_json = Yojson.Safe.from_file aux_path in
+        let shift_power =
+          Step.Field.Constant.of_string
+            Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
+        in
+        let c_fp12 =
+          Proof_conversion.Proof_json.fp12_of_json
+            (Yojson.Safe.Util.member "c" aux_json)
+        in
+        let w12 : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            plonk_acc = Some cur_acc
+          ; shift_power = Some shift_power
+          ; c_fp12 = Some c_fp12
+          }
+        in
+        let handler12 = Proof_conversion.Plonk_requests.handler w12 in
+        let result12 =
+          ref
+            ( Step.Field.Constant.zero
+            , (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const) )
+        in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash, kzg =
+                  Proof_conversion.Plonk_circuits.zkp12 input_var
+                in
+                Step.as_prover (fun () ->
+                    let oh = Step.As_prover.read_var output_hash in
+                    let kc =
+                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
+                        kzg
+                    in
+                    result12 := (oh, kc) ) )
+              handler12 ) ;
+        let oh12, kzg12 = !result12 in
+        W.write_hash ~workdir ~n:12 ~hash:oh12 ;
+        W.write_plonk_kzg_state ~workdir ~n:12 ~kzg:kzg12
+          ~lines_hashes:(Array.create ~len:ate_loop_len Step.Field.Constant.zero)
+          ~g_values:[||] )
+      else if n <= 16 then (
+        (* Circuits 13-16: KZG line circuits *)
+        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+        let cur_kzg, cur_kzg_lh, cur_kzg_gv =
+          W.read_plonk_kzg_state ~workdir ~n:(n - 1)
+        in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some cur_kzg
+          ; lines_hashes = Some cur_kzg_lh
+          }
+        in
+        let handler = Proof_conversion.Plonk_requests.handler w in
+        let result_hash = ref cur_hash in
+        let result_kzg = ref cur_kzg in
+        let result_lh = ref cur_kzg_lh in
+        let result_gv = ref [||] in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash, kzg_var, lh_var, gv_arr =
+                  Proof_conversion.Plonk_circuits.zkp_lines ~circuit_index:n
+                    input_var
+                in
+                Step.as_prover (fun () ->
+                    result_hash := Step.As_prover.read_var output_hash ;
+                    result_kzg :=
+                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
+                        kzg_var ;
+                    result_lh :=
+                      Step.As_prover.read
+                        (Step.Typ.array ~length:ate_loop_len Step.Field.typ)
+                        lh_var ;
+                    result_gv :=
+                      Array.map gv_arr ~f:(fun g ->
+                          Step.As_prover.read Proof_conversion.Fp12.typ g ) ) )
+              handler ) ;
+        W.write_hash ~workdir ~n ~hash:!result_hash ;
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
+          ~lines_hashes:!result_lh
+          ~g_values:(Array.append cur_kzg_gv !result_gv) )
+      else if n <= 22 then (
+        (* Circuits 17-22: f-accumulation.
+           g_values and lines_hashes are a snapshot from state 16;
+           only kzg evolves. *)
+        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+        let cur_kzg, _lh_prev, _gv_prev =
+          W.read_plonk_kzg_state ~workdir ~n:(n - 1)
+        in
+        (* Read the g_values/lines_hashes snapshot from state 16 *)
+        let _kzg16, lines_hashes_snapshot, g_values_snapshot =
+          W.read_plonk_kzg_state ~workdir ~n:16
+        in
+        let f_accum_params =
+          [| (1, 10, 9, 0)
+           ; (10, 21, 11, 9)
+           ; (21, 32, 11, 20)
+           ; (32, 43, 11, 31)
+           ; (43, 54, 11, 42)
+           ; (54, 65, 11, 53)
+          |]
+        in
+        let idx = n - 17 in
+        let _, _, chunk_size, lhs_size = f_accum_params.(idx) in
+        let g_chunk =
+          Array.sub g_values_snapshot ~pos:lhs_size ~len:chunk_size
+        in
+        let lhs_h = Array.sub lines_hashes_snapshot ~pos:0 ~len:lhs_size in
+        let rhs_start = lhs_size + chunk_size in
+        let rhs_h =
+          Array.sub lines_hashes_snapshot ~pos:rhs_start
+            ~len:(ate_loop_len - rhs_start)
+        in
+        let w : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some cur_kzg
+          ; g_chunk = Some g_chunk
+          ; flat_hashes = Some (Array.append lhs_h rhs_h)
+          }
+        in
+        let handler = Proof_conversion.Plonk_requests.handler w in
+        let result_hash = ref cur_hash in
+        let result_kzg = ref cur_kzg in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash, kzg_var =
+                  Proof_conversion.Plonk_circuits.zkp_f_accum ~circuit_index:n
+                    input_var
+                in
+                Step.as_prover (fun () ->
+                    result_hash := Step.As_prover.read_var output_hash ;
+                    result_kzg :=
+                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
+                        kzg_var ) )
+              handler ) ;
+        W.write_hash ~workdir ~n ~hash:!result_hash ;
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
+          ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot )
+      else (
+        (* Circuit 23: final exponentiation *)
+        assert (n = 23) ;
+        let cur_hash = W.read_hash ~workdir ~n:22 in
+        let cur_kzg, _lh_prev, _gv_prev =
+          W.read_plonk_kzg_state ~workdir ~n:22
+        in
+        let _kzg16, lines_hashes_snapshot, g_values_snapshot =
+          W.read_plonk_kzg_state ~workdir ~n:16
+        in
+        let lhs_hashes_23 =
+          Array.sub lines_hashes_snapshot ~pos:0 ~len:(ate_loop_len - 1)
+        in
+        let g_chunk_23 = [| g_values_snapshot.(ate_loop_len - 1) |] in
+        let w23 : Proof_conversion.Plonk_requests.witness =
+          { Proof_conversion.Plonk_requests.empty_witness with
+            kzg_acc = Some cur_kzg
+          ; lhs_hashes = Some lhs_hashes_23
+          ; g_chunk = Some g_chunk_23
+          }
+        in
+        let handler23 = Proof_conversion.Plonk_requests.handler w23 in
+        let result_hash23 = ref cur_hash in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash =
+                  Proof_conversion.Plonk_circuits.zkp23 input_var
+                in
+                Step.as_prover (fun () ->
+                    result_hash23 := Step.As_prover.read_var output_hash ) )
+              handler23 ) ;
+        W.write_hash ~workdir ~n:23 ~hash:!result_hash23 ;
+        W.write_plonk_kzg_state ~workdir ~n:23 ~kzg:cur_kzg
+          ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot )
+  | W.Groth16 _ ->
+      let proof_path = Filename.concat workdir "proof.json" in
+      let vk_path = Filename.concat workdir "vk.json" in
+      let proof = Proof_conversion.Proof_json.load_proof proof_path in
+      let vk = Proof_conversion.Proof_json.load_vk vk_path in
+      let vk_const = Proof_conversion.Vk_constants.create vk in
+      let aux =
+        Proof_conversion.Proof_json.load_aux_witness
+          (Filename.concat workdir "aux_witness.json")
+      in
+      let module WT = Proof_conversion.Witness_tracker in
+      let tracker = WT.create ~proof ~vk ~aux in
+      Proof_conversion.Circuit_config.set_tracker tracker ;
+      let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+      let b_lines = WT.get_all_b_lines tracker in
+      let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+      let cur_acc, cur_lh, cur_gv =
+        W.read_groth16_state ~workdir ~n:(n - 1)
+      in
+      let witness : Proof_conversion.Groth16_requests.witness =
+        if n <= 6 then
+          { Proof_conversion.Groth16_requests.empty_witness with
+            accumulator = Some cur_acc
+          ; line_hashes = Some cur_lh
+          ; b_lines =
+              Some
+                (Array.map b_lines ~f:(fun (l : WT.Line.t) ->
+                     (l.lambda, l.neg_mu) ) )
+          }
+        else if n <= 12 then
+          let idx = n - 7 in
+          let n_iters =
+            Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+          in
+          let g_start =
+            Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+          in
+          let lhs = Array.sub cur_lh ~pos:0 ~len:g_start in
+          let g_chunk = Array.sub cur_gv ~pos:g_start ~len:n_iters in
+          let rhs_start = g_start + n_iters in
+          let rhs =
+            Array.sub cur_lh ~pos:rhs_start
+              ~len:(Array.length cur_lh - rhs_start)
+          in
+          { Proof_conversion.Groth16_requests.empty_witness with
+            accumulator = Some cur_acc
+          ; g_chunk = Some g_chunk
+          ; lhs_hashes = Some lhs
+          ; rhs_hashes = Some rhs
+          }
+        else if n = 13 then
+          { Proof_conversion.Groth16_requests.empty_witness with
+            accumulator = Some cur_acc
+          ; lhs_hashes = Some (Array.sub cur_lh ~pos:0 ~len:(n_total - 1))
+          ; final_g = Some cur_gv.(Array.length cur_gv - 1)
+          }
+        else if n = 14 then
+          let n_pi = WT.num_public_inputs tracker in
+          { Proof_conversion.Groth16_requests.empty_witness with
+            public_inputs =
+              Some
+                (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+          }
+        else
+          let n_pi = WT.num_public_inputs tracker in
+          let pi = WT.get_pi tracker in
+          let pa = WT.get_partial_ic_acc tracker in
+          let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+            { x = p.x; y = p.y }
+          in
+          { Proof_conversion.Groth16_requests.empty_witness with
+            public_inputs =
+              Some
+                (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
+          ; pi_point = Some (g1c pi)
+          ; partial_ic_acc = Some (g1c pa)
+          }
+      in
+      let handler = Proof_conversion.Groth16_requests.handler witness in
+      let result_hash = ref cur_hash in
+      let result_acc = ref cur_acc in
+      let result_lh = ref cur_lh in
+      let result_gv = ref cur_gv in
+      ( if n <= 12 then (
+        let body =
+          Proof_conversion.Circuits.build_circuit_body_with_acc ~vk:vk_const
+            ~circuit_index:n
+        in
+        let res_gv = ref [||] in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash, (acc_var, lh_var, gv_arr) = body input_var in
+                Step.as_prover (fun () ->
+                    result_hash := Step.As_prover.read_var output_hash ;
+                    result_acc :=
+                      Step.As_prover.read Proof_conversion.Accumulator.typ
+                        acc_var ;
+                    result_lh :=
+                      Step.As_prover.read
+                        (Step.Typ.array ~length:n_total Step.Field.typ)
+                        lh_var ;
+                    res_gv :=
+                      Array.map gv_arr ~f:(fun g ->
+                          Step.As_prover.read Proof_conversion.Fp12.typ g ) ) )
+              handler ) ;
+        if n <= 6 then (
+          result_lh := !result_lh ;
+          result_gv := Array.append cur_gv !res_gv )
+        else result_gv := cur_gv )
+      else
+        let body =
+          Proof_conversion.Circuits.build_circuit_body ~vk:vk_const
+            ~circuit_index:n
+        in
+        Step.run_unchecked (fun () ->
+            Step.handle
+              (fun () ->
+                let input_var = Step.Field.constant cur_hash in
+                let output_hash = body input_var in
+                Step.as_prover (fun () ->
+                    result_hash := Step.As_prover.read_var output_hash ) )
+              handler ) ) ;
+      W.write_hash ~workdir ~n ~hash:!result_hash ;
+      W.write_groth16_state ~workdir ~n ~acc:!result_acc
+        ~line_hashes:!result_lh ~g_values:!result_gv ) ;
+  Snarky_backendless.Snark0.set_eval_constraints true ;
+  Printf.eprintf "State for circuit %d computed.\n%!" n
 
 (** Prove a single base circuit. *)
 let run_internal_prove_zkp ~workdir ~n =
@@ -1154,7 +1170,9 @@ let run_internal_prove_zkp ~workdir ~n =
       let aux_path = Filename.concat workdir "aux_witness.json" in
       let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
       if n <= 11 then (
-        (* PLONK verification circuits 0-11: Plonk_accumulator *)
+        (* PLONK verification circuits 0-11: Plonk_accumulator.
+           State was already pre-computed by generate-witness; only need
+           to compile, prove, and export the proof + VK. *)
         let acc = W.read_plonk_state ~workdir ~n:prev in
         let w : Proof_conversion.Plonk_requests.witness =
           { Proof_conversion.Plonk_requests.empty_witness with
@@ -1165,13 +1183,8 @@ let run_internal_prove_zkp ~workdir ~n =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
             ~input_hash ~witness:w
         in
-        let _, acc_after, _ =
-          Proof_conversion.Plonk_pickles_rules
-          .compile_and_prove_one_with_plonk_acc ~n ~input_hash ~witness:w
-        in
         write_base_proof ~proof_out ~side_vk ;
-        W.write_hash ~workdir ~n ~hash:output_hash ;
-        W.write_plonk_state ~workdir ~n ~acc:acc_after )
+        W.write_hash ~workdir ~n ~hash:output_hash )
       else if n = 12 then (
         (* Circuit 12: transition Plonk_accumulator → Kzg_accumulator *)
         let acc = W.read_plonk_state ~workdir ~n:prev in
@@ -1195,20 +1208,13 @@ let run_internal_prove_zkp ~workdir ~n =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:12
             ~input_hash ~witness:w
         in
-        let _, kzg_const, _ =
-          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
-            ~input_hash ~witness:w
-        in
+        (* KZG state was already pre-computed by generate-witness. *)
         write_base_proof ~proof_out ~side_vk ;
-        W.write_hash ~workdir ~n ~hash:output_hash ;
-        let lines_hashes =
-          Array.create ~len:ate_loop_len Step.Field.Constant.zero
-        in
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_const ~lines_hashes
-          ~g_values:[||] )
+        W.write_hash ~workdir ~n ~hash:output_hash )
       else if n <= 16 then (
-        (* Circuits 13-16: KZG line circuits *)
-        let kzg, lines_hashes, g_values_prev =
+        (* Circuits 13-16: KZG line circuits.
+           KZG state was already pre-computed by generate-witness. *)
+        let kzg, lines_hashes, _g_values_prev =
           W.read_plonk_kzg_state ~workdir ~n:prev
         in
         let w : Proof_conversion.Plonk_requests.witness =
@@ -1221,17 +1227,11 @@ let run_internal_prove_zkp ~workdir ~n =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
             ~input_hash ~witness:w
         in
-        let _, kzg_after, lh_after, gv, _ =
-          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
-            ~circuit_index:n ~input_hash ~witness:w
-        in
         write_base_proof ~proof_out ~side_vk ;
-        W.write_hash ~workdir ~n ~hash:output_hash ;
-        let new_g_values = Array.append g_values_prev gv in
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after
-          ~lines_hashes:lh_after ~g_values:new_g_values )
+        W.write_hash ~workdir ~n ~hash:output_hash )
       else if n <= 22 then (
-        (* Circuits 17-22: f-accumulation *)
+        (* Circuits 17-22: f-accumulation.
+           KZG state was already pre-computed by generate-witness. *)
         let kzg, lines_hashes, g_values =
           W.read_plonk_kzg_state ~workdir ~n:prev
         in
@@ -1264,14 +1264,8 @@ let run_internal_prove_zkp ~workdir ~n =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
             ~input_hash ~witness:w
         in
-        let _, kzg_after, _ =
-          Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
-            ~circuit_index:n ~input_hash ~witness:w
-        in
         write_base_proof ~proof_out ~side_vk ;
-        W.write_hash ~workdir ~n ~hash:output_hash ;
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:kzg_after ~lines_hashes
-          ~g_values )
+        W.write_hash ~workdir ~n ~hash:output_hash )
       else (
         (* Circuit 23: final exponentiation *)
         assert (n = 23) ;
@@ -1649,45 +1643,104 @@ let run_cmd cmd =
   if exit_code <> 0 then
     failwith (sprintf "Command failed (exit %d): %s" exit_code cmd)
 
-(** Run a batch of commands with bounded parallelism.
-    Spawns up to [parallelism] processes at a time, waits for all to
-    finish before returning. Fails if any child exits non-zero. *)
-let run_parallel ~parallelism cmds =
-  let cmds = Array.of_list cmds in
-  let n = Array.length cmds in
+(** DAG-based task scheduler with bounded parallelism.
+    Each task has a command and a list of dependency indices.  Tasks whose
+    dependencies have all completed are eligible to run.  Up to [parallelism]
+    processes run concurrently; as each finishes, the next eligible task is
+    started immediately (work-stealing, no batch barriers). *)
+
+type task_status = Pending | Running of Pid.t | Done | Failed of int
+
+type dag_task =
+  { cmd : string
+  ; deps : int array
+  ; mutable status : task_status
+  }
+
+let run_dag ~parallelism (tasks : dag_task array) =
+  let n = Array.length tasks in
   if n = 0 then ()
-  else if parallelism <= 1 then Array.iter cmds ~f:run_cmd
+  else if parallelism <= 1 then
+    (* Sequential fallback: topological order is guaranteed by deps pointing
+       to lower indices only. *)
+    Array.iter tasks ~f:(fun t ->
+        run_cmd t.cmd ;
+        t.status <- Done )
   else
-    let i = ref 0 in
-    while !i < n do
-      let batch_size = min parallelism (n - !i) in
-      let pids =
-        Array.init batch_size ~f:(fun j ->
-            let cmd = cmds.(!i + j) in
-            Printf.eprintf "  [%d/%d] $ %s\n%!" (!i + j + 1) n cmd ;
-            match Core_unix.fork () with
-            | `In_the_child ->
-                let exit_code = Stdlib.Sys.command cmd in
-                Stdlib.exit exit_code
-            | `In_the_parent pid ->
-                pid )
-      in
-      (* Wait for all children in this batch *)
-      let failures = ref [] in
-      Array.iter pids ~f:(fun pid ->
-          match Core_unix.waitpid pid with
+    (* pid_to_task maps a child PID to its task index *)
+    let pid_to_task : (Pid.t, int) Hashtbl.t =
+      Hashtbl.create (module Pid) ~size:parallelism
+    in
+    let running = ref 0 in
+    let completed = ref 0 in
+    let failures = ref [] in
+    let is_ready i =
+      match tasks.(i).status with
+      | Pending ->
+          Array.for_all tasks.(i).deps ~f:(fun d ->
+              match tasks.(d).status with Done -> true | _ -> false )
+      | _ ->
+          false
+    in
+    let start_task i =
+      let cmd = tasks.(i).cmd in
+      Printf.eprintf "  [%d/%d] $ %s\n%!" (i + 1) n cmd ;
+      match Core_unix.fork () with
+      | `In_the_child ->
+          let exit_code = Stdlib.Sys.command cmd in
+          Stdlib.exit exit_code
+      | `In_the_parent pid ->
+          tasks.(i).status <- Running pid ;
+          Hashtbl.set pid_to_task ~key:pid ~data:i ;
+          incr running
+    in
+    (* Fill initial slots with ready tasks *)
+    let fill_slots () =
+      let i = ref 0 in
+      while !running < parallelism && !i < n do
+        if is_ready !i then start_task !i ;
+        incr i
+      done
+    in
+    fill_slots () ;
+    (* Main loop: wait for any child, mark done, start new tasks *)
+    while !running > 0 do
+      (* Wait for any child *)
+      let pid, status = Core_unix.wait `Any in
+      ( match Hashtbl.find pid_to_task pid with
+      | Some task_idx ->
+          Hashtbl.remove pid_to_task pid ;
+          decr running ;
+          ( match status with
           | Ok () ->
-              ()
+              tasks.(task_idx).status <- Done ;
+              incr completed ;
+              Printf.eprintf "  [%d/%d] completed\n%!" (task_idx + 1) n
           | Error (`Exit_non_zero code) ->
-              failures := (pid, code) :: !failures
+              tasks.(task_idx).status <- Failed code ;
+              failures := (task_idx, code) :: !failures
           | Error (`Signal s) ->
-              failures := (pid, Core.Signal.to_system_int s) :: !failures ) ;
-      if not (List.is_empty !failures) then
-        failwith
-          (sprintf "Parallel batch failed: %d of %d processes exited non-zero"
-             (List.length !failures) batch_size ) ;
-      i := !i + batch_size
-    done
+              let code = Core.Signal.to_system_int s in
+              tasks.(task_idx).status <- Failed code ;
+              failures := (task_idx, code) :: !failures ) ;
+          (* If any task failed, don't start new ones — let running tasks
+             finish then report the failure. *)
+          if List.is_empty !failures then fill_slots ()
+      | None ->
+          (* Unknown child — ignore (shouldn't happen) *)
+          () )
+    done ;
+    if not (List.is_empty !failures) then (
+      let msgs =
+        List.map !failures ~f:(fun (i, code) ->
+            sprintf "task %d (exit %d): %s" i code tasks.(i).cmd )
+      in
+      failwith
+        (sprintf "DAG execution failed:\n  %s" (String.concat ~sep:"\n  " msgs))
+    ) ;
+    if !completed < n then
+      failwith
+        (sprintf "DAG scheduler bug: only %d of %d tasks completed" !completed n)
 
 (** Build the self-invocation command prefix, forwarding --cache-dir. *)
 let self_cmd ~cache_dir =
@@ -1698,7 +1751,11 @@ let self_cmd ~cache_dir =
   | None ->
       Filename.quote exe
 
-(** Run the parallel orchestration for a proof system.
+(** Build the full DAG of proving + compression tasks and execute them with
+    bounded parallelism.  Base proofs have no dependencies; each compression
+    node depends on its two children from the previous layer.  The scheduler
+    starts compression as soon as both children are done — no layer barriers.
+
     [system]: "plonk" or "groth16"
     [base_count]: 24 or 16
     [max_layer]: 5 or 4
@@ -1716,7 +1773,7 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
     Filename.concat base name
   in
   Printf.eprintf "Working directory: %s\n%!" workdir ;
-  (* Stage 1: init-workdir *)
+  (* Stage 1: init-workdir (serial) *)
   let init_cmd =
     match vk_path with
     | Some vk ->
@@ -1730,44 +1787,111 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~system ~base_count ~max_layer
           (Filename.quote input_path)
   in
   run_cmd init_cmd ;
-  (* Stage 2: generate-witness *)
+  (* Stage 2: generate-witness — only computes initial state (fast) *)
   run_cmd
     (sprintf "%s internal generate-witness %s" self (Filename.quote workdir)) ;
-  (* Stage 3: prove base circuits (parallel — states pre-computed by
-     generate-witness, so each prove-zkp is independent) *)
-  Printf.eprintf "Proving %d base circuits (parallelism=%d)...\n%!" base_count
-    parallelism ;
-  let prove_cmds =
-    List.init base_count ~f:(fun n ->
-        sprintf "%s internal prove-zkp %s %d" self (Filename.quote workdir) n )
-  in
-  run_parallel ~parallelism prove_cmds ;
-  (* Stage 4+: tree compression layers (parallel within each layer) *)
+  (* Build the DAG of compute-state + prove-zkp + compression tasks.
+
+     Task layout (indices):
+       0 .. base_count-1                    : compute-state 0..N-1
+       base_count .. 2*base_count-1         : prove-zkp 0..N-1
+       2*base_count ..                      : compression tasks
+
+     Dependencies:
+       compute-state 0     : (none — reads initial state from generate-witness)
+       compute-state n>0   : compute-state n-1
+       prove-zkp n         : compute-state n
+       compress layer=1, i : prove-zkp 2i, prove-zkp 2i+1
+       compress layer>1, i : compress prev_layer 2i, compress prev_layer 2i+1
+
+     This enables pipelining: while compute-state N+1 runs, prove-zkp N
+     can start in parallel. *)
   let padded_count =
-    (* Next power of 2 *)
     let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
     next_pow2 1
   in
-  (* Create dummy proofs for padding if needed *)
   if padded_count > base_count then
-    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count padded_count ;
-  for layer = 1 to max_layer do
-    let n_merges =
-      let prev_count =
-        if layer = 1 then padded_count else padded_count / Int.pow 2 (layer - 1)
-      in
-      prev_count / 2
-    in
-    Printf.eprintf "Compression layer %d: %d merges (parallelism=%d)...\n%!"
-      layer n_merges parallelism ;
-    let compress_cmds =
-      List.init n_merges ~f:(fun index ->
-          sprintf "%s internal compress %s %d %d %d" self
-            (Filename.quote workdir) base_count layer index )
-    in
-    run_parallel ~parallelism compress_cmds
+    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count
+      padded_count ;
+  let compression_counts =
+    Array.init max_layer ~f:(fun i ->
+        let layer = i + 1 in
+        let prev_count =
+          if layer = 1 then padded_count
+          else padded_count / Int.pow 2 (layer - 1)
+        in
+        prev_count / 2 )
+  in
+  let total_compression =
+    Array.fold compression_counts ~init:0 ~f:( + )
+  in
+  (* compute-state tasks + prove-zkp tasks + compression tasks *)
+  let total_tasks = base_count + base_count + total_compression in
+  let cs_start = 0 in                     (* compute-state tasks *)
+  let prove_start = base_count in          (* prove-zkp tasks *)
+  let compress_start = 2 * base_count in   (* compression tasks *)
+  Printf.eprintf
+    "Building DAG: %d compute-state + %d prove-zkp + %d compression = %d \
+     tasks (parallelism=%d)\n\
+     %!"
+    base_count base_count total_compression total_tasks parallelism ;
+  let tasks = Array.create ~len:total_tasks
+      { cmd = ""; deps = [||]; status = Pending }
+  in
+  (* compute-state tasks: sequential chain *)
+  for n = 0 to base_count - 1 do
+    tasks.(cs_start + n) <-
+      { cmd =
+          sprintf "%s internal compute-state %s %d" self
+            (Filename.quote workdir) n
+      ; deps = (if n = 0 then [||] else [| cs_start + n - 1 |])
+      ; status = Pending
+      }
   done ;
-  (* Stage 5: collect output *)
+  (* prove-zkp tasks: each depends on its compute-state *)
+  for n = 0 to base_count - 1 do
+    tasks.(prove_start + n) <-
+      { cmd =
+          sprintf "%s internal prove-zkp %s %d" self (Filename.quote workdir) n
+      ; deps = [| cs_start + n |]
+      ; status = Pending
+      }
+  done ;
+  (* Compression tasks *)
+  let layer_start = Array.create ~len:(max_layer + 1) 0 in
+  layer_start.(0) <- prove_start ;  (* layer 0 = prove-zkp tasks *)
+  let task_idx = ref compress_start in
+  for li = 0 to max_layer - 1 do
+    let layer = li + 1 in
+    layer_start.(layer) <- !task_idx ;
+    let n_merges = compression_counts.(li) in
+    for index = 0 to n_merges - 1 do
+      let left_child = index * 2 in
+      let right_child = (index * 2) + 1 in
+      let deps =
+        if layer = 1 then
+          (* Children are prove-zkp tasks; clamp for padding *)
+          let dep_l = prove_start + min left_child (base_count - 1) in
+          let dep_r = prove_start + min right_child (base_count - 1) in
+          if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
+        else
+          let prev_start = layer_start.(layer - 1) in
+          [| prev_start + left_child; prev_start + right_child |]
+      in
+      tasks.(!task_idx) <-
+        { cmd =
+            sprintf "%s internal compress %s %d %d %d" self
+              (Filename.quote workdir) base_count layer index
+        ; deps
+        ; status = Pending
+        } ;
+      incr task_idx
+    done
+  done ;
+  assert (!task_idx = total_tasks) ;
+  (* Execute the DAG *)
+  run_dag ~parallelism tasks ;
+  (* Collect output (serial) *)
   run_cmd
     (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
   (* Copy output to final location *)
@@ -1839,6 +1963,8 @@ let () =
         ~input_path:proof_path ~vk_path:(Some vk_path)
   | [| _; "internal"; "generate-witness"; workdir |] ->
       run_internal_generate_witness ~workdir
+  | [| _; "internal"; "compute-state"; workdir; n_str |] ->
+      run_internal_compute_state ~workdir ~n:(Int.of_string n_str)
   | [| _; "internal"; "prove-zkp"; workdir; n_str |] ->
       run_internal_prove_zkp ~workdir ~n:(Int.of_string n_str)
   | [| _; "internal"; "compress"; workdir; base_count; layer; index |] ->
@@ -1861,6 +1987,7 @@ let () =
       Printf.eprintf
         "  internal init-workdir <workdir> groth16 <proof.json> <vk.json>\n" ;
       Printf.eprintf "  internal generate-witness <workdir>\n" ;
+      Printf.eprintf "  internal compute-state <workdir> <n>\n" ;
       Printf.eprintf "  internal prove-zkp <workdir> <n>\n" ;
       Printf.eprintf
         "  internal compress <workdir> <base_count> <layer> <index>\n" ;
