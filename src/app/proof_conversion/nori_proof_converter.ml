@@ -824,51 +824,28 @@ let run_internal_compute_state ~workdir ~n =
   | W.Plonk _ ->
       let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
       if n <= 11 then (
-        (* Circuits 0-11: evolve Plonk_accumulator *)
-        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+        (* Circuits 0-11: evolve Plonk_accumulator.
+           Use fast path: inject acc as constants, skip Poseidon hashing,
+           compute output hash natively after readback. *)
         let cur_acc = W.read_plonk_state ~workdir ~n:(n - 1) in
-        let zkp_fns =
-          Proof_conversion.Plonk_circuits.
-            [| zkp0
-             ; zkp1
-             ; zkp2
-             ; zkp3
-             ; zkp4
-             ; zkp5
-             ; zkp6
-             ; zkp7
-             ; zkp8
-             ; zkp9
-             ; zkp10
-             ; zkp11
-            |]
-        in
-        let witness : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            plonk_acc = Some cur_acc
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler witness in
-        let result = ref (Step.Field.Constant.zero, cur_acc) in
+        let result = ref cur_acc in
         Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant cur_hash in
-                let output_hash, acc = zkp_fns.(n) input_var in
-                Step.as_prover (fun () ->
-                    let oh = Step.As_prover.read_var output_hash in
-                    let ac =
-                      Step.As_prover.read Proof_conversion.Plonk_accumulator.typ
-                        acc
-                    in
-                    result := (oh, ac) ) )
-              handler ) ;
-        let oh, ac = !result in
+            let acc_var =
+              Proof_conversion.Plonk_circuits.zkp_fast_fns.(n) cur_acc
+            in
+            Step.as_prover (fun () ->
+                result :=
+                  Step.As_prover.read Proof_conversion.Plonk_accumulator.typ
+                    acc_var ) ) ;
+        let ac = !result in
+        let oh =
+          Proof_conversion.Plonk_witness_tracker.hash_accumulator_const ac
+        in
         W.write_hash ~workdir ~n ~hash:oh ;
         W.write_plonk_state ~workdir ~n ~acc:ac )
       else if n = 12 then (
-        (* Circuit 12: transition Plonk_accumulator → Kzg_accumulator *)
-        let cur_hash = W.read_hash ~workdir ~n:11 in
+        (* Circuit 12: transition Plonk_accumulator → Kzg_accumulator.
+           Fast path: inject acc + aux as constants, skip hashing. *)
         let cur_acc = W.read_plonk_state ~workdir ~n:11 in
         let aux_path = Filename.concat workdir "aux_witness.json" in
         let aux_json = Yojson.Safe.from_file aux_path in
@@ -880,91 +857,65 @@ let run_internal_compute_state ~workdir ~n =
           Proof_conversion.Proof_json.fp12_of_json
             (Yojson.Safe.Util.member "c" aux_json)
         in
-        let w12 : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            plonk_acc = Some cur_acc
-          ; shift_power = Some shift_power
-          ; c_fp12 = Some c_fp12
-          }
-        in
-        let handler12 = Proof_conversion.Plonk_requests.handler w12 in
         let result12 =
-          ref
-            ( Step.Field.Constant.zero
-            , (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const) )
+          ref (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const)
         in
         Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant cur_hash in
-                let output_hash, kzg =
-                  Proof_conversion.Plonk_circuits.zkp12 input_var
-                in
-                Step.as_prover (fun () ->
-                    let oh = Step.As_prover.read_var output_hash in
-                    let kc =
-                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                        kzg
-                    in
-                    result12 := (oh, kc) ) )
-              handler12 ) ;
-        let oh12, kzg12 = !result12 in
+            let kzg =
+              Proof_conversion.Plonk_circuits.zkp12_fast cur_acc ~shift_power
+                ~c_fp12
+            in
+            Step.as_prover (fun () ->
+                result12 :=
+                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ kzg
+            ) ) ;
+        let kzg12 = !result12 in
+        let oh12 =
+          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+            kzg12
+        in
         W.write_hash ~workdir ~n:12 ~hash:oh12 ;
         W.write_plonk_kzg_state ~workdir ~n:12 ~kzg:kzg12
           ~lines_hashes:
             (Array.create ~len:ate_loop_len Step.Field.Constant.zero)
           ~g_values:[||] )
       else if n <= 16 then (
-        (* Circuits 13-16: KZG line circuits *)
-        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+        (* Circuits 13-16: KZG line circuits.
+           Fast path: inject KZG acc + lines_hashes as constants. *)
         let cur_kzg, cur_kzg_lh, cur_kzg_gv =
           W.read_plonk_kzg_state ~workdir ~n:(n - 1)
         in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            kzg_acc = Some cur_kzg
-          ; lines_hashes = Some cur_kzg_lh
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler w in
-        let result_hash = ref cur_hash in
         let result_kzg = ref cur_kzg in
         let result_lh = ref cur_kzg_lh in
         let result_gv = ref [||] in
         Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant cur_hash in
-                let output_hash, kzg_var, lh_var, gv_arr =
-                  Proof_conversion.Plonk_circuits.zkp_lines ~circuit_index:n
-                    input_var
-                in
-                Step.as_prover (fun () ->
-                    result_hash := Step.As_prover.read_var output_hash ;
-                    result_kzg :=
-                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                        kzg_var ;
-                    result_lh :=
-                      Step.As_prover.read
-                        (Step.Typ.array ~length:ate_loop_len Step.Field.typ)
-                        lh_var ;
-                    result_gv :=
-                      Array.map gv_arr ~f:(fun g ->
-                          Step.As_prover.read Proof_conversion.Fp12.typ g ) ) )
-              handler ) ;
-        W.write_hash ~workdir ~n ~hash:!result_hash ;
+            let kzg_var, lh_vars, gv_arr =
+              Proof_conversion.Plonk_circuits.zkp_lines_fast ~circuit_index:n
+                cur_kzg ~lines_hashes:cur_kzg_lh
+            in
+            Step.as_prover (fun () ->
+                result_kzg :=
+                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
+                    kzg_var ;
+                result_lh :=
+                  Array.map lh_vars ~f:Step.As_prover.read_var ;
+                result_gv :=
+                  Array.map gv_arr ~f:(fun g ->
+                      Step.As_prover.read Proof_conversion.Fp12.typ g ) ) ) ;
+        let oh =
+          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+            !result_kzg
+        in
+        W.write_hash ~workdir ~n ~hash:oh ;
         W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
           ~lines_hashes:!result_lh
           ~g_values:(Array.append cur_kzg_gv !result_gv) )
       else if n <= 22 then (
         (* Circuits 17-22: f-accumulation.
-           g_values and lines_hashes are a snapshot from state 16;
-           only kzg evolves. *)
-        let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
+           Fast path: inject KZG acc + g_chunk as constants. *)
         let cur_kzg, _lh_prev, _gv_prev =
           W.read_plonk_kzg_state ~workdir ~n:(n - 1)
         in
-        (* Read the g_values/lines_hashes snapshot from state 16 *)
         let _kzg16, lines_hashes_snapshot, g_values_snapshot =
           W.read_plonk_kzg_state ~workdir ~n:16
         in
@@ -988,35 +939,30 @@ let run_internal_compute_state ~workdir ~n =
           Array.sub lines_hashes_snapshot ~pos:rhs_start
             ~len:(ate_loop_len - rhs_start)
         in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
-            kzg_acc = Some cur_kzg
-          ; g_chunk = Some g_chunk
-          ; flat_hashes = Some (Array.append lhs_h rhs_h)
-          }
-        in
-        let handler = Proof_conversion.Plonk_requests.handler w in
-        let result_hash = ref cur_hash in
         let result_kzg = ref cur_kzg in
         Step.run_unchecked (fun () ->
-            Step.handle
-              (fun () ->
-                let input_var = Step.Field.constant cur_hash in
-                let output_hash, kzg_var =
-                  Proof_conversion.Plonk_circuits.zkp_f_accum ~circuit_index:n
-                    input_var
-                in
-                Step.as_prover (fun () ->
-                    result_hash := Step.As_prover.read_var output_hash ;
-                    result_kzg :=
-                      Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                        kzg_var ) )
-              handler ) ;
-        W.write_hash ~workdir ~n ~hash:!result_hash ;
+            let kzg_var =
+              Proof_conversion.Plonk_circuits.zkp_f_accum_fast ~circuit_index:n
+                cur_kzg ~g_chunk_const:g_chunk
+                ~flat_hashes:(Array.append lhs_h rhs_h)
+            in
+            Step.as_prover (fun () ->
+                result_kzg :=
+                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
+                    kzg_var ) ) ;
+        let oh =
+          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+            !result_kzg
+        in
+        W.write_hash ~workdir ~n ~hash:oh ;
         W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
           ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot )
       else (
-        (* Circuit 23: final exponentiation *)
+        (* Circuit 23: final exponentiation.
+           This circuit returns a hash of pi0/pi1, not the KZG accumulator.
+           Keep the original approach for now (zkp23 needs the full circuit
+           including hash verification for the pi output), but use constants
+           for the KZG acc and subsidiary witnesses. *)
         assert (n = 23) ;
         let cur_hash = W.read_hash ~workdir ~n:22 in
         let cur_kzg, _lh_prev, _gv_prev =

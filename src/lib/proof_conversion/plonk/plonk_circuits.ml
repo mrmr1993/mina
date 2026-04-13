@@ -592,3 +592,290 @@ let circuit_body (n : int) : Step.Field.t -> Step.Field.t =
       zkp23
   | n ->
       failwith (sprintf "Invalid PLONK circuit index: %d" n)
+
+(* ==== Fast variants for compute-state ==== *)
+
+(** Fast body for circuits 0-11: inject accumulator as constants (no exists),
+    run inner mutation, skip both Poseidon hashes.  Returns evolved acc. *)
+let plonk_acc_body_fast (inner : Plonk_accumulator.t -> unit)
+    (acc_const : Plonk_accumulator.t_const) : Plonk_accumulator.t =
+  let acc = Plonk_accumulator.of_constant acc_const in
+  inner acc ;
+  acc
+
+let zkp0_fast acc = plonk_acc_body_fast (fun acc ->
+    Fiat_shamir.squeeze_gamma acc.fs ~proof:acc.proof ~pi0:acc.state.pi0
+      ~pi1:acc.state.pi1 ~vk:plonk_vk ;
+    Fiat_shamir.squeeze_beta acc.fs) acc
+
+let zkp1_fast acc = plonk_acc_body_fast (fun acc ->
+    Fiat_shamir.squeeze_alpha acc.fs ~proof:acc.proof ;
+    Fiat_shamir.squeeze_zeta acc.fs ~proof:acc.proof ;
+    let zeta_pow_n, zh_eval =
+      Piop.eval_vanishing acc.fs.zeta
+        ~domain_size_bits:plonk_vk.domain_size_bits
+    in
+    let inv_domain_size = FF.FpA.of_constant plonk_vk.inv_domain_size in
+    let alpha_2_l0 =
+      Piop.compute_alpha_square_lagrange_0 ~zh_eval ~zeta:acc.fs.zeta
+        ~alpha:acc.fs.alpha ~inv_domain_size
+    in
+    acc.state.zeta_pow_n <- zeta_pow_n ;
+    acc.state.zh_eval <- zh_eval ;
+    acc.state.alpha_2_l0 <- alpha_2_l0) acc
+
+let zkp2_fast acc = plonk_acc_body_fast (fun acc ->
+    let hx, hy =
+      Piop.fold_quotient_split_0 ~h0_x:acc.proof.h0_x ~h0_y:acc.proof.h0_y
+        ~h1_x:acc.proof.h1_x ~h1_y:acc.proof.h1_y ~h2_x:acc.proof.h2_x
+        ~h2_y:acc.proof.h2_y ~zeta:acc.fs.zeta
+        ~zeta_pow_n:acc.state.zeta_pow_n
+    in
+    acc.state.hx <- hx ;
+    acc.state.hy <- hy) acc
+
+let zkp3_fast acc = plonk_acc_body_fast (fun acc ->
+    let hx, hy =
+      Piop.fold_quotient_split_1 ~hx:acc.state.hx ~hy:acc.state.hy
+        ~zh_eval:acc.state.zh_eval
+    in
+    acc.state.hx <- hx ;
+    acc.state.hy <- hy ;
+    let inv_domain_size = FF.FpA.of_constant plonk_vk.inv_domain_size in
+    let omega = FF.FpA.of_constant plonk_vk.omega in
+    let pis =
+      Piop.pi_contribution
+        ~pub_inputs:[| acc.state.pi0; acc.state.pi1 |]
+        ~zeta:acc.fs.zeta ~zh_eval:acc.state.zh_eval
+        ~domain_inv:inv_domain_size ~omega
+    in
+    let omega_pow_i = FF.FpA.of_constant plonk_vk.omega_pow_i in
+    let omega_pow_i_div_n = FF.FpA.of_constant plonk_vk.omega_pow_i_div_n in
+    let l_pi_commit =
+      Piop.custom_pi_lagrange ~zeta:acc.fs.zeta ~zh_eval:acc.state.zh_eval
+        ~qcp_wire_x:acc.proof.qcp_0_wire_x ~qcp_wire_y:acc.proof.qcp_0_wire_y
+        ~omega_pow_i ~omega_pow_i_div_n
+    in
+    let pi = Piop.add_fr pis l_pi_commit in
+    let linearized_opening =
+      Piop.opening_of_linearized_polynomial ~proof:acc.proof
+        ~alpha:acc.fs.alpha ~beta:acc.fs.beta ~gamma:acc.fs.gamma ~pi
+        ~alpha_2_l0:acc.state.alpha_2_l0
+    in
+    acc.state.pi <- pi ;
+    acc.state.linearized_opening <- linearized_opening) acc
+
+let zkp4_fast acc = plonk_acc_body_fast (fun acc ->
+    let lcm_x, lcm_y =
+      Piop.compute_commitment_linearized_polynomial_split_0 ~proof:acc.proof
+        ~vk:plonk_vk
+    in
+    acc.state.lcm_x <- lcm_x ;
+    acc.state.lcm_y <- lcm_y) acc
+
+let zkp5_fast acc = plonk_acc_body_fast (fun acc ->
+    let lcm_x, lcm_y =
+      Piop.compute_commitment_linearized_polynomial_split_1
+        ~lcm_x:acc.state.lcm_x ~lcm_y:acc.state.lcm_y ~proof:acc.proof
+        ~vk:plonk_vk ~beta:acc.fs.beta ~gamma:acc.fs.gamma ~alpha:acc.fs.alpha
+    in
+    acc.state.lcm_x <- lcm_x ;
+    acc.state.lcm_y <- lcm_y) acc
+
+let zkp6_fast acc = plonk_acc_body_fast (fun acc ->
+    let lcm_x, lcm_y =
+      Piop.compute_commitment_linearized_polynomial_split_2
+        ~lcm_x:acc.state.lcm_x ~lcm_y:acc.state.lcm_y ~proof:acc.proof
+        ~vk:plonk_vk ~beta:acc.fs.beta ~gamma:acc.fs.gamma ~alpha:acc.fs.alpha
+        ~zeta:acc.fs.zeta ~alpha_2_l0:acc.state.alpha_2_l0 ~hx:acc.state.hx
+        ~hy:acc.state.hy
+    in
+    acc.state.lcm_x <- lcm_x ;
+    acc.state.lcm_y <- lcm_y) acc
+
+let zkp7_fast acc = plonk_acc_body_fast (fun acc ->
+    let h =
+      Fiat_shamir.gamma_kzg_digest_part0 acc.fs ~proof:acc.proof ~vk:plonk_vk
+        ~linearized_cm_x:acc.state.lcm_x ~linearized_cm_y:acc.state.lcm_y
+        ~linearized_opening:acc.state.linearized_opening
+    in
+    acc.state.h_state <- h) acc
+
+let zkp8_fast acc = plonk_acc_body_fast (fun acc ->
+    Fiat_shamir.gamma_kzg_digest_part1 acc.fs ~proof:acc.proof
+      ~h_state:acc.state.h_state ;
+    Fiat_shamir.squeeze_gamma_kzg_from_digest acc.fs ;
+    let cm_x, cm_y, cm_opening =
+      Piop.fold_state_0 ~proof:acc.proof ~lcm_x:acc.state.lcm_x
+        ~lcm_y:acc.state.lcm_y ~lcm_opening:acc.state.linearized_opening
+        ~gamma_kzg:acc.fs.gamma_kzg
+    in
+    acc.state.cm_x <- cm_x ;
+    acc.state.cm_y <- cm_y ;
+    acc.state.cm_opening <- cm_opening) acc
+
+let zkp9_fast acc = plonk_acc_body_fast (fun acc ->
+    let cm_x, cm_y =
+      Piop.fold_state_1 ~proof:acc.proof ~vk:plonk_vk ~cm_x:acc.state.cm_x
+        ~cm_y:acc.state.cm_y ~gamma_kzg:acc.fs.gamma_kzg
+    in
+    acc.state.cm_x <- cm_x ;
+    acc.state.cm_y <- cm_y) acc
+
+let zkp10_fast acc = plonk_acc_body_fast (fun acc ->
+    let cm_x, cm_y =
+      Piop.fold_state_2 ~vk:plonk_vk ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
+        ~gamma_kzg:acc.fs.gamma_kzg
+    in
+    let kzg_random =
+      Fiat_shamir.squeeze_random_for_kzg acc.fs ~proof:acc.proof ~cm_x ~cm_y
+    in
+    acc.state.cm_x <- cm_x ;
+    acc.state.cm_y <- cm_y ;
+    acc.state.kzg_random <- kzg_random) acc
+
+let zkp11_fast acc = plonk_acc_body_fast (fun acc ->
+    let kzg_cm_x, kzg_cm_y, neg_fq_x, neg_fq_y =
+      Piop.prepare_pairing_0 ~vk:plonk_vk ~proof:acc.proof
+        ~random:acc.state.kzg_random ~cm_x:acc.state.cm_x ~cm_y:acc.state.cm_y
+        ~cm_opening:acc.state.cm_opening
+    in
+    acc.state.kzg_cm_x <- kzg_cm_x ;
+    acc.state.kzg_cm_y <- kzg_cm_y ;
+    acc.state.neg_fq_x <- neg_fq_x ;
+    acc.state.neg_fq_y <- neg_fq_y) acc
+
+(** Fast dispatch table for circuits 0-11. *)
+let zkp_fast_fns =
+  [| zkp0_fast; zkp1_fast; zkp2_fast; zkp3_fast; zkp4_fast; zkp5_fast
+   ; zkp6_fast; zkp7_fast; zkp8_fast; zkp9_fast; zkp10_fast; zkp11_fast |]
+
+(** Fast zkp12: inject acc as constant, skip hashing. *)
+let zkp12_fast (acc_const : Plonk_accumulator.t_const)
+    ~(shift_power : Step.Field.Constant.t) ~(c_fp12 : Fp12.Constant.t) :
+    Kzg_accumulator.t =
+  let acc = Plonk_accumulator.of_constant acc_const in
+  let shift_power_var = Step.Field.constant shift_power in
+  let c = Fp12.of_constant c_fp12 in
+  let kzg_cm_x, kzg_cm_y =
+    Piop.prepare_pairing_1 ~vk:plonk_vk ~proof:acc.proof
+      ~random:acc.state.kzg_random ~folded_cm_x:acc.state.kzg_cm_x
+      ~folded_cm_y:acc.state.kzg_cm_y ~zeta:acc.fs.zeta
+  in
+  let c_inv = Fp12.inverse c in
+  { proof =
+      { a_x = kzg_cm_x
+      ; a_y = kzg_cm_y
+      ; neg_b_x = acc.state.neg_fq_x
+      ; neg_b_y = acc.state.neg_fq_y
+      ; shift_power = shift_power_var
+      ; c
+      ; c_inv
+      ; pi0 = acc.state.pi0
+      ; pi1 = acc.state.pi1
+      }
+  ; state =
+      { f = c_inv
+      ; lines_hashes_digest = Kzg_accumulator.array_list_hasher_empty
+      }
+  }
+
+(** Fast zkp_lines: inject KZG acc as constant, skip input/output hashing. *)
+let zkp_lines_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
+    ~(lines_hashes : Step.Field.Constant.t array) :
+    Kzg_accumulator.t * Step.Field.t array * Fp12.Circuit.t array =
+  let ate = Kzg_accumulator.ate_loop_count in
+  let ate_len = Array.length ate in
+  let from_, to_ =
+    match circuit_index with
+    | 13 -> (1, ate_len - 46)
+    | 14 -> (ate_len - 46, ate_len - 26)
+    | 15 -> (ate_len - 26, ate_len - 6)
+    | 16 -> (ate_len - 6, ate_len)
+    | _ -> assert false
+  in
+  let data_dir = "src/lib/proof_conversion/plonk/data" in
+  let all_g2 = Plonk_lines.load_lines_from_json (data_dir ^ "/g2_lines.json") in
+  let all_tau = Plonk_lines.load_lines_from_json (data_dir ^ "/tau_lines.json") in
+  let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
+  let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
+  let kzg = Kzg_accumulator.of_constant kzg_const in
+  let lines_hashes_var =
+    Array.map lines_hashes ~f:Step.Field.constant
+  in
+  let a_cache =
+    Lines.AffineCache.make { G1.Circuit.x = kzg.proof.a_x; y = kzg.proof.a_y }
+  in
+  let b_cache =
+    Lines.AffineCache.make
+      { G1.Circuit.x = kzg.proof.neg_b_x; y = kzg.proof.neg_b_y }
+  in
+  let g_values = Queue.create () in
+  let line_cnt = ref 0 in
+  for i = from_ to to_ - 1 do
+    let idx = i - 1 in
+    let g_line = Lines.G2Line.of_constant g2_lines.(!line_cnt) in
+    let tau_line = Lines.G2Line.of_constant tau_lines.(!line_cnt) in
+    incr line_cnt ;
+    let g = Lines.psi g_line a_cache in
+    let g = Fp12.sparse_mul g (Lines.psi tau_line b_cache) in
+    let g =
+      if ate.(i) = 1 || ate.(i) = -1 then (
+        let g_line2 = Lines.G2Line.of_constant g2_lines.(!line_cnt) in
+        let tau_line2 = Lines.G2Line.of_constant tau_lines.(!line_cnt) in
+        incr line_cnt ;
+        let g = Fp12.sparse_mul g (Lines.psi g_line2 a_cache) in
+        Fp12.sparse_mul g (Lines.psi tau_line2 b_cache) )
+      else g
+    in
+    Queue.enqueue g_values g ;
+    lines_hashes_var.(idx) <- Accumulator_hash.hash_fp12 g
+  done ;
+  if circuit_index = 16 then (
+    let frob_g2_1, frob_g2_2 = Plonk_lines.frobenius_lines all_g2 in
+    let frob_tau_1, frob_tau_2 = Plonk_lines.frobenius_lines all_tau in
+    let g2_1 = Lines.G2Line.of_constant frob_g2_1 in
+    let tau_1 = Lines.G2Line.of_constant frob_tau_1 in
+    let g2_2 = Lines.G2Line.of_constant frob_g2_2 in
+    let tau_2 = Lines.G2Line.of_constant frob_tau_2 in
+    let g = Lines.psi g2_1 a_cache in
+    let g = Fp12.sparse_mul g (Lines.psi tau_1 b_cache) in
+    let g = Fp12.sparse_mul g (Lines.psi g2_2 a_cache) in
+    let g = Fp12.sparse_mul g (Lines.psi tau_2 b_cache) in
+    Queue.enqueue g_values g ;
+    lines_hashes_var.(ate_len - 1) <- Accumulator_hash.hash_fp12 g ) ;
+  kzg.state.lines_hashes_digest <-
+    Accumulator_hash.poseidon_hash lines_hashes_var ;
+  (kzg, lines_hashes_var, Queue.to_array g_values)
+
+(** Fast zkp_f_accum: inject KZG acc + g_chunk + hashes as constants. *)
+let zkp_f_accum_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
+    ~(g_chunk_const : Fp12.Constant.t array)
+    ~(flat_hashes : Step.Field.Constant.t array) : Kzg_accumulator.t =
+  let ate = Kzg_accumulator.ate_loop_count in
+  let from_i, to_i, _chunk_size, _lhs_size =
+    match circuit_index with
+    | 17 -> (1, 10, 9, 0)
+    | 18 -> (10, 21, 11, 9)
+    | 19 -> (21, 32, 11, 20)
+    | 20 -> (32, 43, 11, 31)
+    | 21 -> (43, 54, 11, 42)
+    | 22 -> (54, 65, 11, 53)
+    | _ -> assert false
+  in
+  let kzg = Kzg_accumulator.of_constant kzg_const in
+  let g_chunk = Array.map g_chunk_const ~f:Fp12.of_constant in
+  let f = ref kzg.state.f in
+  for i = from_i to to_i - 1 do
+    let idx = i - from_i in
+    f := Fp12.mul (Fp12.square !f) g_chunk.(idx) ;
+    if ate.(i) = 1 then f := Fp12.mul !f kzg.proof.c_inv
+    else if ate.(i) = -1 then f := Fp12.mul !f kzg.proof.c
+  done ;
+  kzg.state.f <- !f ;
+  (* Update lines_hashes_digest from flat_hashes *)
+  let flat_vars = Array.map flat_hashes ~f:Step.Field.constant in
+  let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
+  ignore (flat_vars : Step.Field.t array) ;
+  ignore (opening_hashes : Step.Field.t array) ;
+  kzg

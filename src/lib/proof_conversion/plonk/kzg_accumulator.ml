@@ -291,5 +291,9 @@ let typ : (t, t_const) Step.Typ.t =
                            (unit, _) Snarky_backendless.H_list.t ) ->
       { proof; state } )
 
+(** Inject a constant KZG accumulator as circuit variables.
+    No variable allocation overhead — uses [Cvar.constant]. *)
+let of_constant (c : t_const) : t = Step.constant typ c
+
 (** Witness a KzgAccumulator using the proper Typ.t. *)
 let witness () : t = Step.exists typ ~compute:(fun () -> default_const)

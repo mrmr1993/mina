@@ -670,6 +670,11 @@ let typ : (t, t_const) Step.Typ.t =
                            (unit, _) Snarky_backendless.H_list.t ) ->
       { proof; fs; state } )
 
+(** Inject a constant accumulator as circuit variables using [Cvar.constant].
+    No variable allocation, no type-check constraints — O(1) overhead.
+    Used by [compute-state] to avoid the cost of [Step.exists]. *)
+let of_constant (c : t_const) : t = Step.constant typ c
+
 (** Build Random_oracle_input.Chunked.t from Accumulator. *)
 let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   let fields = Queue.create () in

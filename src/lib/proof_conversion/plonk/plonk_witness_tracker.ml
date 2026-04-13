@@ -11,12 +11,22 @@ module Step = Pickles.Impls.Step
     circuit-level hash on constant inputs. *)
 let hash_accumulator_const (acc_const : Plonk_accumulator.t_const) :
     Step.Field.Constant.t =
-  Step.run_and_check_exn (fun () ->
-      let acc =
-        Step.exists Plonk_accumulator.typ ~compute:(fun () -> acc_const)
-      in
+  let result = ref Step.Field.Constant.zero in
+  Step.run_unchecked (fun () ->
+      let acc = Plonk_accumulator.of_constant acc_const in
       let h = Plonk_accumulator.hash_packed acc in
-      fun () -> Step.As_prover.read_var h )
+      Step.as_prover (fun () -> result := Step.As_prover.read_var h) ) ;
+  !result
+
+(** Compute the Poseidon hash of a KZG accumulator constant. *)
+let hash_kzg_accumulator_const (kzg_const : Kzg_accumulator.t_const) :
+    Step.Field.Constant.t =
+  let result = ref Step.Field.Constant.zero in
+  Step.run_unchecked (fun () ->
+      let kzg = Kzg_accumulator.of_constant kzg_const in
+      let h = Kzg_accumulator.hash_packed kzg in
+      Step.as_prover (fun () -> result := Step.As_prover.read_var h) ) ;
+  !result
 
 (** Run a circuit via run_unchecked with a witness handler.
     Returns the output hash. *)
