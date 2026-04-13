@@ -759,55 +759,44 @@ let run_internal_compute_aux_witness ~workdir =
   let system = W.detect_system ~workdir in
   ( match system with
   | W.Plonk _ ->
-      let input_path = Filename.concat workdir "input.json" in
-      let json = Yojson.Safe.from_file input_path in
-      let is_sp1 =
-        match Yojson.Safe.Util.member "proof" json with
-        | `Null ->
-            false
-        | pj -> (
-            match Yojson.Safe.Util.member "Plonk" pj with
-            | `Null ->
-                false
-            | _ ->
-                true )
-      in
-      let aux =
-        if is_sp1 then
-          let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
-          let aux_file = Filename.concat workdir "aux_witness.json" in
-          if Stdlib.Sys.file_exists aux_file then
-            let aj = Yojson.Safe.from_file aux_file in
-            Proof_conversion.Plonk_proof_json.parse_aux_witness aj
-          else
-            let mlo =
-              Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
-            in
-            let w27 = Proof_conversion.Bn254_params.w27 () in
-            let g_aux =
-              Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27
-                mlo w27
-            in
-            { Proof_conversion.Plonk_proof_json.shift_power =
-                Step.Field.Constant.of_int g_aux.shift_power
-            ; c_fp12 = g_aux.c
-            }
-        else
-          let _acc, aux =
-            Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
-          in
-          aux
-      in
-      let aux_json =
-        `Assoc
-          [ ( "shift_power"
-            , `String (Step.Field.Constant.to_string aux.shift_power) )
-          ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
-          ]
-      in
-      Yojson.Safe.to_file (Filename.concat workdir "aux_witness.json") aux_json
+      let aux_file = Filename.concat workdir "aux_witness.json" in
+      if Stdlib.Sys.file_exists aux_file then
+        Printf.eprintf "Aux witness already exists, skipping.\n%!"
+      else (
+        (* Read state 11 — contains kzg_cm_x/y and neg_fq_x/y from
+           circuits 0-11.  This avoids re-running those circuits. *)
+        let acc11 = W.read_plonk_state ~workdir ~n:11 in
+        (* Extract KZG A/B points from state 11 via prepare_pairing_1
+           (a few EC operations, fast). *)
+        let a_x, a_y, neg_b_x, neg_b_y =
+          Proof_conversion.Plonk_witness_tracker
+          .extract_kzg_points_from_state11 acc11
+        in
+        Printf.eprintf "  KZG points extracted from state 11.\n%!" ;
+        let mlo =
+          Proof_conversion.Plonk_witness_tracker.compute_mlo_from_points
+            ~a_x ~a_y ~neg_b_x ~neg_b_y
+        in
+        Printf.eprintf "  Miller loop computed.\n%!" ;
+        let w27 = Proof_conversion.Bn254_params.w27 () in
+        let g_aux =
+          Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27 mlo
+            w27
+        in
+        let aux : Proof_conversion.Plonk_proof_json.aux_witness =
+          { shift_power = Step.Field.Constant.of_int g_aux.shift_power
+          ; c_fp12 = g_aux.c
+          }
+        in
+        let aux_json =
+          `Assoc
+            [ ( "shift_power"
+              , `String (Step.Field.Constant.to_string aux.shift_power) )
+            ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
+            ]
+        in
+        Yojson.Safe.to_file aux_file aux_json )
   | W.Groth16 _ ->
-      (* For Groth16, aux was already computed by generate-witness *)
       () ) ;
   Printf.eprintf "Aux witness computed.\n%!"
 
@@ -2395,9 +2384,12 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     ; priority = 1
     ; status = Pending
     } ;
+  let aux_deps_d =
+    match system with "plonk" -> [| cs_start + 11 |] | _ -> [| gw_idx |]
+  in
   tasks.(aux_idx) <-
     { cmd = sprintf "compute-aux-witness %s" workdir
-    ; deps = [||]
+    ; deps = aux_deps_d
     ; priority = 1
     ; status = Pending
     } ;
@@ -2673,10 +2665,10 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
 
      Dependencies:
        generate-witness      : (none)
-       compute-aux-witness   : (none — reads from input files)
+       compute-aux-witness   : compute-state 11  (reads KZG points from state 11)
        compute-state 0       : generate-witness
        compute-state n>0     : compute-state n-1
-       compute-state 12      : compute-state 11, compute-aux-witness  (PLONK)
+       compute-state 12      : compute-aux-witness  (which transitively includes compute-state 11)
        prove-zkp n           : compute-state n
        compress layer=1, i   : prove-zkp 2i, prove-zkp 2i+1
        compress layer>1, i   : compress prev_layer 2i, compress prev_layer 2i+1 *)
@@ -2730,13 +2722,21 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
     ; priority = 1
     ; status = Pending
     } ;
-  (* compute-aux-witness: high priority, no deps — the expensive Miller
-     loop runs in parallel with early compute-state + prove-zkp *)
+  (* compute-aux-witness: depends on compute-state 11 (PLONK) so it can
+     read the accumulated KZG points instead of re-running circuits 0-11.
+     For Groth16, aux is computed in generate-witness so this is a no-op. *)
+  let aux_deps =
+    match system with
+    | "plonk" ->
+        [| cs_start + 11 |]
+    | _ ->
+        [| gw_idx |]
+  in
   tasks.(aux_idx) <-
     { cmd =
         sprintf "%s internal compute-aux-witness %s" self
           (Filename.quote workdir)
-    ; deps = [||]
+    ; deps = aux_deps
     ; priority = 1
     ; status = Pending
     } ;
