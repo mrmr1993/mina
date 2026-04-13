@@ -131,9 +131,9 @@ module Limb : sig
   (** Extract the [Circuit.Field.t] variable for use in gates. *)
   val to_field : t -> Circuit.Field.t
 
-  (** Add a constant bigint to a limb, producing a new limb whose
-      Cvar is [x + constant(c)] and whose cached bigint is [b + c]. *)
-  val add_const : t -> Bignum_bigint.t -> t
+  val add : t -> t -> t
+
+  val scale : t -> Bignum_bigint.t -> t
 
   (** Seal a compound Cvar into a simple variable, preserving the
       cached bigint.  Uses [seal] (Equal argument order: old, new). *)
@@ -148,6 +148,12 @@ module Limb : sig
 
   (** If the limb is a constant, return its bigint value. *)
   val to_constant : t -> Bignum_bigint.t option
+
+  val if_field : Circuit.Field.t -> then_:t -> else_:t -> t
+
+  val of_boolean : Circuit.Boolean.var -> t
+
+  val mask : t -> Circuit.Boolean.var -> t
 end = struct
   type t = { var : Circuit.Field.t; bigint : Bignum_bigint.t option }
 
@@ -187,10 +193,27 @@ end = struct
 
   let to_field t = t.var
 
-  let add_const t c =
-    { var = Circuit.Field.(t.var + constant (bignum_to_field_const c))
-    ; bigint = Option.map t.bigint ~f:(fun b -> Bignum_bigint.(b + c))
+  let add x y =
+    { var = Circuit.Field.(x.var + y.var)
+    ; bigint =
+        Option.map2 x.bigint y.bigint ~f:(fun x y -> Bignum_bigint.(x + y))
     }
+
+  let scale t c =
+    { var = Circuit.Field.(t.var * constant (bignum_to_field_const c))
+    ; bigint = Option.map t.bigint ~f:(fun b -> Bignum_bigint.(b * c))
+    }
+
+  let if_field (b : Circuit.Field.t) ~(then_ : t) ~(else_ : t) : t =
+    let var = seal Circuit.Field.((b * (then_.var - else_.var)) + else_.var) in
+    let bigint = ref None in
+    Circuit.as_prover (fun () ->
+        let b = Circuit.As_prover.read Circuit.Field.typ b in
+        if Circuit.Field.Constant.(equal one) b then bigint := then_.bigint
+        else if Circuit.Field.Constant.(equal zero) b then
+          bigint := else_.bigint
+        else failwith "Limb.if_field: Invalid value for boolean" ) ;
+    { var; bigint = !bigint }
 
   let seal t = { t with var = seal t.var }
 
@@ -200,6 +223,22 @@ end = struct
 
   let to_constant t =
     Option.bind (Circuit.Field.to_constant t.var) ~f:(fun _ -> t.bigint)
+
+  let of_boolean (b : Circuit.Boolean.var) =
+    let open Circuit in
+    let bigint = ref None in
+    as_prover (fun () ->
+        if As_prover.read Boolean.typ b then bigint := Some Bignum_bigint.one
+        else bigint := Some Bignum_bigint.zero ) ;
+    { var = (b :> Field.t); bigint = !bigint }
+
+  let mask (x : t) (b : Circuit.Boolean.var) =
+    let open Circuit in
+    let bigint = ref None in
+    as_prover (fun () ->
+        if As_prover.read Boolean.typ b then bigint := x.bigint
+        else bigint := Some Bignum_bigint.zero ) ;
+    { var = Circuit.Field.mul x.var (b :> Field.t); bigint = !bigint }
 end
 
 let witness_bit_slice (v : Limb.t) ~(start : int) ~(length : int) :
@@ -594,12 +633,12 @@ let weak_bound (x2 : Limb.t) ~(f : Bignum_bigint.t) : Limb.t =
     let bound =
       Bignum_bigint.(two_to_limb - shift_right f (Int.( * ) 2 limb_bits))
     in
-    Limb.add_const x2 bound
+    Limb.add x2 (Limb.of_constant bound)
   else
     let bound =
       Bignum_bigint.(limb_mask - shift_right f (Int.( * ) 2 limb_bits))
     in
-    Limb.add_const x2 bound
+    Limb.add x2 (Limb.of_constant bound)
 
 (** Assert that each Field3 in the list is almost-reduced modulo [f],
     meaning its high limb is bounded. *)
