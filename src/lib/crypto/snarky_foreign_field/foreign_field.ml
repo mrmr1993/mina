@@ -103,6 +103,88 @@ let to_var (x : Circuit.Field.t) : Circuit.Field.t =
       Circuit.assert_ (Equal (v, x)) ;
       v
 
+(* ------------------------------------------------------------------ *)
+(* Limb: a single 88-bit limb with cached bigint                       *)
+(* ------------------------------------------------------------------ *)
+
+module Limb : sig
+  (** An 88-bit limb of a foreign field element.  Carries the circuit
+      variable AND the corresponding [Bignum_bigint.t] value as auxiliary
+      data.  In prover mode the bigint is always available; during
+      constraint-system-only passes it is [None] and falls back to
+      [field_const_to_bignum].
+
+      Use [Circuit.exists Limb.typ ~compute] to witness,
+      [Circuit.As_prover.read Limb.typ] to read in prover context. *)
+  type t
+
+  (** Snarky Typ whose value is [Bignum_bigint.t].  The auxiliary channel
+      carries the bigint through to the var, so [exists typ ~compute]
+      produces a [t] with the bigint already cached. *)
+  val typ : (t, Bignum_bigint.t) Circuit.Typ.t
+
+  (** Build a constant limb.  Uses [Circuit.constant typ]. *)
+  val of_constant : Bignum_bigint.t -> t
+
+  (** Extract the [Circuit.Field.t] variable for use in gates. *)
+  val to_field : t -> Circuit.Field.t
+
+  (** Add a constant bigint to a limb, producing a new limb whose
+      Cvar is [x + constant(c)] and whose cached bigint is [b + c]. *)
+  val add_const : t -> Bignum_bigint.t -> t
+
+  (** Seal a compound Cvar into a simple variable, preserving the
+      cached bigint.  Uses [seal] (Equal argument order: old, new). *)
+  val seal : t -> t
+
+  (** Seal via [to_var] (Equal argument order: new, old). *)
+  val to_var : t -> t
+
+  (** Wrap a raw [Circuit.Field.t] as a limb with no cached bigint.
+      Use when the variable was witnessed outside [Limb.typ]. *)
+  val of_var : Circuit.Field.t -> t
+
+  (** If the limb is a constant, return its bigint value. *)
+  val to_constant : t -> Bignum_bigint.t option
+end = struct
+  type t = { var : Circuit.Field.t; bigint : Bignum_bigint.t option }
+
+  let typ : (t, Bignum_bigint.t) Circuit.Typ.t =
+    Circuit.Typ.Typ
+      { size_in_field_elements = 1
+      ; constraint_system_auxiliary = (fun () -> None)
+      ; value_to_fields = (fun b -> ([| bignum_to_field_const b |], Some b))
+      ; value_of_fields =
+          (fun (fields, aux) ->
+            match aux with
+            | Some b ->
+                b
+            | None ->
+                field_const_to_bignum fields.(0) )
+      ; var_to_fields = (fun t -> ([| t.var |], t.bigint))
+      ; var_of_fields = (fun (fields, bigint) -> { var = fields.(0); bigint })
+      ; check = (fun _ -> Circuit.make_checked (fun () -> ()))
+      }
+
+  let of_constant b = Circuit.constant typ b
+
+  let to_field t = t.var
+
+  let add_const t c =
+    { var = Circuit.Field.(t.var + constant (bignum_to_field_const c))
+    ; bigint = Option.map t.bigint ~f:(fun b -> Bignum_bigint.(b + c))
+    }
+
+  let seal t = { t with var = seal t.var }
+
+  let to_var t = { t with var = to_var t.var }
+
+  let of_var v = { var = v; bigint = None }
+
+  let to_constant t =
+    Option.bind (Circuit.Field.to_constant t.var) ~f:(fun _ -> t.bigint)
+end
+
 let witness_bit_slice (v : Circuit.Field.t) ~(start : int) ~(length : int) :
     Circuit.Field.t =
   Circuit.exists Circuit.Field.typ ~compute:(fun () ->
