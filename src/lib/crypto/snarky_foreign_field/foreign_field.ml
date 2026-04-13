@@ -279,22 +279,9 @@ module Field3 = struct
 
   type t = Limb.t * Limb.t * Limb.t
 
-  type limb_tuple = Limb.t * Limb.t * Limb.t
-
-  let of_limb_tuple : limb_tuple -> t = Fn.id
-
   let of_constant (x : Constant.t) : t =
     let l0, l1, l2 = Constant.split x in
     (Limb.of_constant l0, Limb.of_constant l1, Limb.of_constant l2)
-
-  let limb_tuple_of_constant (x : Constant.t) : limb_tuple =
-    let l0, l1, l2 = Constant.split x in
-    (Limb.of_constant l0, Limb.of_constant l1, Limb.of_constant l2)
-
-  let limb_tuple_is_constant ((l0, l1, l2) : limb_tuple) : bool =
-    Option.is_some (Limb.to_constant l0)
-    && Option.is_some (Limb.to_constant l1)
-    && Option.is_some (Limb.to_constant l2)
 
   let of_limbs ((l0, l1, l2) : Limb.t * Limb.t * Limb.t) : t = (l0, l1, l2)
 
@@ -536,8 +523,8 @@ let assert_one_of (x : Circuit.Field.t) (allowed : Circuit.Field.Constant.t list
 (* ------------------------------------------------------------------ *)
 
 (** Range check all three limbs of a Field3 to [0, 2^88). *)
-let multi_range_check ((x, y, z) : Field3.limb_tuple) : unit =
-  if Field3.is_constant @@ Field3.of_limb_tuple (x, y, z) then (
+let multi_range_check ((x, y, z) : Field3.t) : unit =
+  if Field3.is_constant (x, y, z) then (
     let check v name =
       let v_bignum = Option.value_exn (Limb.to_constant v) in
       if Bignum_bigint.(v_bignum >= two_to_limb) then
@@ -558,7 +545,7 @@ let () = Field3.check_ref := multi_range_check
 
 (** Range check a compact 2-limb value [xy] (176 bits) and a single
     limb [z] (88 bits). Returns the three individual limbs. *)
-let compact_multi_range_check (xy : Limb.t) (z : Limb.t) : Field3.limb_tuple =
+let compact_multi_range_check (xy : Limb.t) (z : Limb.t) : Field3.t =
   match (Limb.to_constant xy, Limb.to_constant z) with
   | Some xy_bignum, Some z_bignum ->
       if Bignum_bigint.(xy_bignum >= two_to_2limb) then
@@ -610,7 +597,7 @@ let weak_bound (x2 : Limb.t) ~(f : Bignum_bigint.t) : Limb.t =
 
 (** Assert that each Field3 in the list is almost-reduced modulo [f],
     meaning its high limb is bounded. *)
-let assert_almost_reduced (xs : Field3.limb_tuple list) ~(f : Bignum_bigint.t)
+let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
     ~(skip_mrc : bool) : unit =
   let bounds = ref [] in
   let flush_bounds () =
@@ -624,7 +611,7 @@ let assert_almost_reduced (xs : Field3.limb_tuple list) ~(f : Bignum_bigint.t)
   let mrc_count = ref 0 in
   List.iter xs ~f:(fun ((_, _, x2) as x) ->
       if not skip_mrc then (
-        let was_constant = Field3.limb_tuple_is_constant x in
+        let was_constant = Field3.is_constant x in
         multi_range_check x ;
         if not was_constant then (
           incr mrc_count ;
@@ -655,8 +642,8 @@ let sign_to_bigint = function
       Bignum_bigint.(neg one)
 
 (** Single foreign field addition/subtraction using ForeignFieldAdd gate. *)
-let single_add (x : Field3.limb_tuple) (y : Field3.limb_tuple) ~(sign : sign)
-    ~(f : Bignum_bigint.t) : Field3.limb_tuple * Circuit.Field.t =
+let single_add (x : Field3.t) (y : Field3.t) ~(sign : sign)
+    ~(f : Bignum_bigint.t) : Field3.t * Circuit.Field.t =
   let f0, f1, f2 = Field3.Constant.split f in
   let module T = struct
     type bi = Bignum_bigint.t
@@ -753,7 +740,7 @@ let single_add (x : Field3.limb_tuple) (y : Field3.limb_tuple) ~(sign : sign)
     [xs] has one more element than [signs]:
     result = xs[0] +/- xs[1] +/- xs[2] ... *)
 let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
-    Field3.limb_tuple =
+    Field3.t =
   assert (List.length xs = List.length signs + 1) ;
   if List.for_all xs ~f:Field3.is_constant then
     let x_bigs = List.map xs ~f:Field3.to_constant in
@@ -763,7 +750,7 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
         ~f:(fun acc xi sign_i -> Bignum_bigint.(acc + (s sign_i * xi)))
     in
     let result_mod = Bignum_bigint.(((result % f) + f) % f) in
-    Field3.limb_tuple_of_constant result_mod
+    Field3.of_constant result_mod
   else
     let xs =
       List.map xs ~f:(fun (l0, l1, l2) ->
@@ -803,10 +790,10 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
     !result
 
 let add (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
-  Field3.of_limb_tuple @@ sum [ x; y ] [ Add ] ~f
+  sum [ x; y ] [ Add ] ~f
 
 let sub (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
-  Field3.of_limb_tuple @@ sum [ x; y ] [ Sub ] ~f
+  sum [ x; y ] [ Sub ] ~f
 
 let negate (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
   sub (Field3.of_constant Bignum_bigint.zero) x ~f
@@ -818,7 +805,7 @@ let negate (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
 (** Multiply two Field3 values using ForeignFieldMul gate, without
     range-checking the result. Returns (quotient, remainder01, remainder2). *)
 let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
-    : Field3.limb_tuple * Limb.t * Limb.t =
+    : Field3.t * Limb.t * Limb.t =
   let f_ =
     Bignum_bigint.(pow (of_int 2) (of_int (Int.( * ) 3 limb_bits)) - f)
   in
@@ -1010,7 +997,7 @@ let mul (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
   else
     let q, r01, r2 = multiply_no_range_check a b ~f in
     multi_range_check q ;
-    Field3.of_limb_tuple (compact_multi_range_check r01 r2)
+    compact_multi_range_check r01 r2
 
 (** Assert that x * y = xy mod f (compact field2 form). *)
 type field2 = Circuit.Field.t * Circuit.Field.t
@@ -1106,12 +1093,12 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
       ( Circuit.Field.(constant Constant.one)
       , Circuit.Field.(constant Constant.zero) )
     in
-    assert_mul_field2 x (Field3.of_limb_tuple x_inv) one_field2 ~f ;
+    assert_mul_field2 x x_inv one_field2 ~f ;
     multi_range_check
       ( x_inv2_bound
       , Limb.of_constant Bignum_bigint.zero
       , Limb.of_constant Bignum_bigint.zero ) ;
-    Field3.of_limb_tuple x_inv
+    x_inv
 
 (** Compute x / y mod f. *)
 let div (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
@@ -1202,7 +1189,7 @@ module Sum = struct
   type t =
     { summands : Field3.t list
     ; ops : sign list
-    ; mutable result : Field3.limb_tuple option
+    ; mutable result : Field3.t option
     ; chained : bool
           (** When true, finish_for_mul_input skips the final Zero gate,
             allowing the FFAdd to chain directly into the next FFMul. *)
@@ -1234,7 +1221,7 @@ module Sum = struct
     else
       let r = sum t.summands t.ops ~f in
       t.result <- Some r ;
-      Field3.of_limb_tuple r
+      r
 
   (** Simple finish: FFAdd chain + Zero gate only.
       No range check, no generic-gate low-limb constraints.
@@ -1253,9 +1240,9 @@ module Sum = struct
             Bignum_bigint.(acc + (sign_to_bigint sign_i * xi)) )
       in
       let result_mod = Bignum_bigint.(((result % f) + f) % f) in
-      let r = Field3.limb_tuple_of_constant result_mod in
+      let r = Field3.of_constant result_mod in
       t.result <- Some r ;
-      Field3.of_limb_tuple r )
+      r )
     else
       let xs =
         List.map t.summands ~f:(fun (l0, l1, l2) ->
@@ -1272,7 +1259,7 @@ module Sum = struct
       Circuit.assert_
         (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ;
       t.result <- Some !result ;
-      Field3.of_limb_tuple !result
+      !result
 
   (** Materialize the sum for use as a multiplication input.
       Produces ForeignFieldAdd gates + Zero gate + Generic gates for
@@ -1296,9 +1283,9 @@ module Sum = struct
               Bignum_bigint.(acc + (sign_to_bigint sign_i * xi)) )
         in
         let result_mod = Bignum_bigint.(((result % f) + f) % f) in
-        let r = Field3.limb_tuple_of_constant result_mod in
+        let r = Field3.of_constant result_mod in
         t.result <- Some r ;
-        Field3.of_limb_tuple r )
+        r )
       else
         let xs =
           List.map xs ~f:(fun (l0, l1, l2) ->
@@ -1406,7 +1393,7 @@ module Sum = struct
         List.iteri (List.tl_exn xs) ~f:(fun i xi ->
             let sign_i = List.nth_exn signs i in
             let r, overflow = single_add !result xi ~sign:sign_i ~f in
-            let r0, _, _ = Field3.of_limb_tuple r in
+            let r0, _, _ = r in
             Circuit.assert_ (Equal (Limb.to_field r0, x0s.(i))) ;
             Circuit.assert_ (Equal (overflow, overflows.(i))) ;
             result := r ) ;
@@ -1415,7 +1402,7 @@ module Sum = struct
           Circuit.assert_
             (Raw { kind = Zero; values = [| r0; r1; r2 |]; coeffs = [||] }) ) ;
         t.result <- Some !result ;
-        Field3.of_limb_tuple !result
+        !result
 end
 
 (** Input type for assert_mul_sum: either a Sum accumulator or a
@@ -1611,7 +1598,7 @@ end = struct
       ?(skip_mrc = false) () : t list =
     let xs_raw = List.map xs ~f:FpU.to_field3 in
     assert_almost_reduced xs_raw ~f ~skip_mrc ;
-    List.map xs_raw ~f:(fun x -> of_field3_unsafe (Field3.of_limb_tuple x))
+    List.map xs_raw ~f:(fun x -> of_field3_unsafe x)
 
   let typ ~(f : Bignum_bigint.t) : (t, Field3.Constant.t) Circuit.Typ.t =
     let (Circuit.Typ.Typ base) = Field3.typ in
