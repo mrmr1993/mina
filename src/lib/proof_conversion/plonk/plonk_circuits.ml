@@ -848,34 +848,26 @@ let zkp_lines_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
     Accumulator_hash.poseidon_hash lines_hashes_var ;
   (kzg, lines_hashes_var, Queue.to_array g_values)
 
-(** Fast zkp_f_accum: inject KZG acc + g_chunk + hashes as constants. *)
-let zkp_f_accum_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
-    ~(g_chunk_const : Fp12.Constant.t array)
-    ~(flat_hashes : Step.Field.Constant.t array) : Kzg_accumulator.t =
+(** Fully native zkp_f_accum: no snarky, pure Bignum_bigint arithmetic.
+    Returns evolved KZG accumulator constant directly. *)
+let zkp_f_accum_native ~circuit_index (kzg_const : Kzg_accumulator.t_const)
+    ~(g_chunk_const : Fp12.Constant.t array) : Kzg_accumulator.t_const =
   let ate = Kzg_accumulator.ate_loop_count in
-  let from_i, to_i, _chunk_size, _lhs_size =
+  let from_i, to_i =
     match circuit_index with
-    | 17 -> (1, 10, 9, 0)
-    | 18 -> (10, 21, 11, 9)
-    | 19 -> (21, 32, 11, 20)
-    | 20 -> (32, 43, 11, 31)
-    | 21 -> (43, 54, 11, 42)
-    | 22 -> (54, 65, 11, 53)
+    | 17 -> (1, 10)
+    | 18 -> (10, 21)
+    | 19 -> (21, 32)
+    | 20 -> (32, 43)
+    | 21 -> (43, 54)
+    | 22 -> (54, 65)
     | _ -> assert false
   in
-  let kzg = Kzg_accumulator.of_constant kzg_const in
-  let g_chunk = Array.map g_chunk_const ~f:Fp12.of_constant in
-  let f = ref kzg.state.f in
+  let f = ref kzg_const.state.f in
   for i = from_i to to_i - 1 do
     let idx = i - from_i in
-    f := Fp12.mul (Fp12.square !f) g_chunk.(idx) ;
-    if ate.(i) = 1 then f := Fp12.mul !f kzg.proof.c_inv
-    else if ate.(i) = -1 then f := Fp12.mul !f kzg.proof.c
+    f := Fp_const.Fp12.mul (Fp_const.Fp12.square !f) g_chunk_const.(idx) ;
+    if ate.(i) = 1 then f := Fp_const.Fp12.mul !f kzg_const.proof.c_inv
+    else if ate.(i) = -1 then f := Fp_const.Fp12.mul !f kzg_const.proof.c
   done ;
-  kzg.state.f <- !f ;
-  (* Update lines_hashes_digest from flat_hashes *)
-  let flat_vars = Array.map flat_hashes ~f:Step.Field.constant in
-  let opening_hashes = Array.map g_chunk ~f:Accumulator_hash.hash_fp12 in
-  ignore (flat_vars : Step.Field.t array) ;
-  ignore (opening_hashes : Step.Field.t array) ;
-  kzg
+  { kzg_const with state = { kzg_const.state with f = !f } }

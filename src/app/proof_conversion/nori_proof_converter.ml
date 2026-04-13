@@ -912,7 +912,7 @@ let run_internal_compute_state ~workdir ~n =
           ~g_values:(Array.append cur_kzg_gv !result_gv) )
       else if n <= 22 then (
         (* Circuits 17-22: f-accumulation.
-           Fast path: inject KZG acc + g_chunk as constants. *)
+           Fully native: no run_unchecked, pure Bignum_bigint Fp12 arithmetic. *)
         let cur_kzg, _lh_prev, _gv_prev =
           W.read_plonk_kzg_state ~workdir ~n:(n - 1)
         in
@@ -933,29 +933,16 @@ let run_internal_compute_state ~workdir ~n =
         let g_chunk =
           Array.sub g_values_snapshot ~pos:lhs_size ~len:chunk_size
         in
-        let lhs_h = Array.sub lines_hashes_snapshot ~pos:0 ~len:lhs_size in
-        let rhs_start = lhs_size + chunk_size in
-        let rhs_h =
-          Array.sub lines_hashes_snapshot ~pos:rhs_start
-            ~len:(ate_loop_len - rhs_start)
+        let result_kzg =
+          Proof_conversion.Plonk_circuits.zkp_f_accum_native ~circuit_index:n
+            cur_kzg ~g_chunk_const:g_chunk
         in
-        let result_kzg = ref cur_kzg in
-        Step.run_unchecked (fun () ->
-            let kzg_var =
-              Proof_conversion.Plonk_circuits.zkp_f_accum_fast ~circuit_index:n
-                cur_kzg ~g_chunk_const:g_chunk
-                ~flat_hashes:(Array.append lhs_h rhs_h)
-            in
-            Step.as_prover (fun () ->
-                result_kzg :=
-                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                    kzg_var ) ) ;
         let oh =
           Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
-            !result_kzg
+            result_kzg
         in
         W.write_hash ~workdir ~n ~hash:oh ;
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:result_kzg
           ~lines_hashes:lines_hashes_snapshot ~g_values:g_values_snapshot )
       else (
         (* Circuit 23: final exponentiation.
