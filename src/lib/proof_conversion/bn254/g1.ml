@@ -79,7 +79,7 @@ let negate_point (pt : Circuit.t) : Circuit.t =
 let negate_constant_y = negate_point
 
 let read_fpa (v : FpA.t) : Bignum_bigint.t =
-  let l0, l1, l2 = FpA.to_field3 v in
+  let l0, l1, l2 = FF.Field3.vars (FpA.to_field3 v) in
   let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
   Bignum_bigint.(r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb))
 
@@ -209,14 +209,15 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
                     shift_right v FF.limb_bits land mask
                   else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
+    let w i = FF.Limb.of_var witnesses.(i) in
     let m : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(0), witnesses.(1), witnesses.(2))
+      FF.FpU.of_field3_unsafe (w 0, w 1, w 2)
     in
     let x3 : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(3), witnesses.(4), witnesses.(5))
+      FF.FpU.of_field3_unsafe (w 3, w 4, w 5)
     in
     let y3 : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(6), witnesses.(7), witnesses.(8))
+      FF.FpU.of_field3_unsafe (w 6, w 7, w 8)
     in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
@@ -230,7 +231,7 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
     let y3_f3 = FpA.to_field3 y3_a in
     (* Check x1 != x2: deltaX = x1 - x2 + f, check != 0, != f, != 2f *)
     let deltaX = FF.sub x1 x2 ~f:p in
-    let deltaX_0, deltaX_1, deltaX_2 = deltaX in
+    let deltaX_0, deltaX_1, deltaX_2 = FF.Field3.vars deltaX in
     let deltaX01 =
       FF.seal
         Step.Field.(
@@ -349,14 +350,15 @@ let double (pt : Circuit.t) : Circuit.t =
                     shift_right v FF.limb_bits land mask
                   else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
+    let w i = FF.Limb.of_var witnesses.(i) in
     let m : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(0), witnesses.(1), witnesses.(2))
+      FF.FpU.of_field3_unsafe (w 0, w 1, w 2)
     in
     let x3 : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(3), witnesses.(4), witnesses.(5))
+      FF.FpU.of_field3_unsafe (w 3, w 4, w 5)
     in
     let y3 : FF.FpU.t =
-      FF.FpU.of_field3_unsafe (witnesses.(6), witnesses.(7), witnesses.(8))
+      FF.FpU.of_field3_unsafe (w 6, w 7, w 8)
     in
     let m_a, x3_a, y3_a =
       match FpA.assert_almost_reduced [ m; x3; y3 ] ~f:p () with
@@ -423,7 +425,7 @@ let glv_decompose (s : FF.Field3.t) :
         v
     | None ->
         let sv =
-          let l0, l1, l2 = s in
+          let l0, l1, l2 = FF.Field3.vars s in
           let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
           Bignum_bigint.(
             r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb))
@@ -473,41 +475,21 @@ let glv_decompose (s : FF.Field3.t) :
   let s1_neg = witnesses.(3) in
   let s10 = witnesses.(4) in
   let s11 = witnesses.(5) in
-  let s0 : FF.Field3.t = (s00, s01, Step.Field.zero) in
-  let s1 : FF.Field3.t = (s10, s11, Step.Field.zero) in
+  let s0 : FF.Field3.t =
+    (FF.Limb.of_var s00, FF.Limb.of_var s01, FF.Limb.of_constant Bignum_bigint.zero) in
+  let s1 : FF.Field3.t =
+    (FF.Limb.of_var s10, FF.Limb.of_var s11, FF.Limb.of_constant Bignum_bigint.zero) in
   Step.assert_ (Boolean s0_neg) ;
   Step.assert_ (Boolean s1_neg) ;
   (* Prove s1*lambda = s - s0  (or s + s0 if s0 negative) *)
   let neg_lambda = FF.Field3.of_constant Bignum_bigint.((r - lambda) % r) in
   let lambda_f3 = FF.Field3.of_constant lambda in
   let lambda_sel =
-    let l0 =
-      FF.if_field s1_neg
-        ~then_:
-          (let l0, _, _ = neg_lambda in
-           l0 )
-        ~else_:
-          (let l0, _, _ = lambda_f3 in
-           l0 )
-    in
-    let l1 =
-      FF.if_field s1_neg
-        ~then_:
-          (let _, l1, _ = neg_lambda in
-           l1 )
-        ~else_:
-          (let _, l1, _ = lambda_f3 in
-           l1 )
-    in
-    let l2 =
-      FF.if_field s1_neg
-        ~then_:
-          (let _, _, l2 = neg_lambda in
-           l2 )
-        ~else_:
-          (let _, _, l2 = lambda_f3 in
-           l2 )
-    in
+    let nl0, nl1, nl2 = FF.Field3.vars neg_lambda in
+    let lf0, lf1, lf2 = FF.Field3.vars lambda_f3 in
+    let l0 = FF.Limb.of_var (FF.if_field s1_neg ~then_:nl0 ~else_:lf0) in
+    let l1 = FF.Limb.of_var (FF.if_field s1_neg ~then_:nl1 ~else_:lf1) in
+    let l2 = FF.Limb.of_var (FF.if_field s1_neg ~then_:nl2 ~else_:lf2) in
     (l0, l1, l2)
   in
   let rhs =
@@ -527,33 +509,11 @@ let glv_decompose (s : FF.Field3.t) :
       let s_minus_s0 =
         FF.Sum.finish_simple (FF.Sum.sub (FF.Sum.of_field3 s) s0) ~f:r
       in
-      let rhs0 =
-        FF.if_field s0_neg
-          ~then_:
-            (let l0, _, _ = s_plus_s0 in
-             l0 )
-          ~else_:
-            (let l0, _, _ = s_minus_s0 in
-             l0 )
-      in
-      let rhs1 =
-        FF.if_field s0_neg
-          ~then_:
-            (let _, l1, _ = s_plus_s0 in
-             l1 )
-          ~else_:
-            (let _, l1, _ = s_minus_s0 in
-             l1 )
-      in
-      let rhs2 =
-        FF.if_field s0_neg
-          ~then_:
-            (let _, _, l2 = s_plus_s0 in
-             l2 )
-          ~else_:
-            (let _, _, l2 = s_minus_s0 in
-             l2 )
-      in
+      let sp0, sp1, sp2 = FF.Field3.vars s_plus_s0 in
+      let sm0, sm1, sm2 = FF.Field3.vars s_minus_s0 in
+      let rhs0 = FF.Limb.of_var (FF.if_field s0_neg ~then_:sp0 ~else_:sm0) in
+      let rhs1 = FF.Limb.of_var (FF.if_field s0_neg ~then_:sp1 ~else_:sm1) in
+      let rhs2 = FF.Limb.of_var (FF.if_field s0_neg ~then_:sp2 ~else_:sm2) in
       FF.Sum.of_field3 (rhs0, rhs1, rhs2)
   in
   FF.assert_mul_sum (FF.Field3_input s1) (FF.Field3_input lambda_sel)
@@ -644,8 +604,9 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
 
 (** Slice a Field3 into chunks of [chunk_size] bits, with [max_bits] total.
     Matches o1js sliceField3 exactly. *)
-let slice_field3 ((x0, x1, x2) : FF.Field3.t) ~(max_bits : int)
+let slice_field3 (f3 : FF.Field3.t) ~(max_bits : int)
     ~(chunk_size : int) : Step.Field.t array =
+  let x0, x1, x2 = FF.Field3.vars f3 in
   let l = FF.limb_bits in
   (* first limb *)
   let result0 = slice_field x0 ~max_bits:(min l max_bits) ~chunk_size () in
@@ -765,11 +726,11 @@ let get_point_table (pt : Circuit.t) ~(window_size : int) : Circuit.t array =
 
 let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
   let neg_y = FpA.neg pt.y ~f:p in
-  let y0_n, y1_n, y2_n = FpA.to_field3 neg_y in
-  let y0_p, y1_p, y2_p = FpA.to_field3 pt.y in
-  let yl0 = FF.if_field cond ~then_:y0_n ~else_:y0_p in
-  let yl1 = FF.if_field cond ~then_:y1_n ~else_:y1_p in
-  let yl2 = FF.if_field cond ~then_:y2_n ~else_:y2_p in
+  let y0_n, y1_n, y2_n = FF.Field3.vars (FpA.to_field3 neg_y) in
+  let y0_p, y1_p, y2_p = FF.Field3.vars (FpA.to_field3 pt.y) in
+  let yl0 = FF.Limb.of_var (FF.if_field cond ~then_:y0_n ~else_:y0_p) in
+  let yl1 = FF.Limb.of_var (FF.if_field cond ~then_:y1_n ~else_:y1_p) in
+  let yl2 = FF.Limb.of_var (FF.if_field cond ~then_:y2_n ~else_:y2_p) in
   let y : FpA.t = FpA.of_field3_unsafe (yl0, yl1, yl2) in
   { x = pt.x; y }
 
@@ -817,7 +778,7 @@ let ia_final : Constant.t =
     cf. elliptic-curve.ts:211 *)
 let point_equals (pt : Circuit.t) (c : Constant.t) : Step.Boolean.var =
   let ff_equals (x : FpA.t) (cv : Bignum_bigint.t) : Step.Boolean.var =
-    let x0, x1, x2 = FpA.to_field3 x in
+    let x0, x1, x2 = FF.Field3.vars (FpA.to_field3 x) in
     let x01 =
       FF.seal
         Step.Field.(
@@ -879,14 +840,15 @@ let reduce_mrc_stack (xs : Step.Field.t array) : unit =
   let n = Array.length xs in
   let n_rem = n mod 3 in
   let n_full = (n - n_rem) / 3 in
+  let w v = FF.Limb.of_var v in
   for i = 0 to n_full - 1 do
-    FF.multi_range_check (xs.(3 * i), xs.((3 * i) + 1), xs.((3 * i) + 2))
+    FF.multi_range_check (w xs.(3 * i), w xs.((3 * i) + 1), w xs.((3 * i) + 2))
   done ;
   if n_rem > 0 then
     let remaining =
-      ( (if n_rem > 0 then xs.(3 * n_full) else Step.Field.zero)
-      , (if n_rem > 1 then xs.((3 * n_full) + 1) else Step.Field.zero)
-      , Step.Field.zero )
+      ( w (if n_rem > 0 then xs.(3 * n_full) else Step.Field.zero)
+      , w (if n_rem > 1 then xs.((3 * n_full) + 1) else Step.Field.zero)
+      , FF.Limb.of_constant Bignum_bigint.zero )
     in
     FF.multi_range_check remaining
 
@@ -939,7 +901,7 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
                 (FF.Field3.of_constant Bn254_params.glv_beta)
                 (FpA.to_field3 pt_j.x) ~f:p
             in
-            let _, _, beta_x2 = beta_x in
+            let _, _, beta_x2 = FF.Field3.vars beta_x in
             let bound =
               FF.bignum_to_field_const
                 Bignum_bigint.(

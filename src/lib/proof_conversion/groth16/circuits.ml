@@ -40,8 +40,8 @@ let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
   (* Flatten Fp12 to 36 native fields in toFields order *)
   let to_fields (x : Fp12.Circuit.t) : Step.Field.t array =
     let fp2 (a : Fp2.Circuit.t) =
-      let c0_0, c0_1, c0_2 = FF.FpA.to_field3 a.c0 in
-      let c1_0, c1_1, c1_2 = FF.FpA.to_field3 a.c1 in
+      let c0_0, c0_1, c0_2 = FF.Field3.vars (FF.FpA.to_field3 a.c0) in
+      let c1_0, c1_1, c1_2 = FF.Field3.vars (FF.FpA.to_field3 a.c1) in
       [| c0_0; c0_1; c0_2; c1_0; c1_1; c1_2 |]
     in
     let fp6 (a : Fp6.Circuit.t) =
@@ -66,10 +66,10 @@ let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
   let fp2_of idx =
     { Fp2.Circuit.c0 =
         FF.FpA.of_field3_unsafe
-          (fields.(idx), fields.(idx + 1), fields.(idx + 2))
+          (FF.Limb.of_var fields.(idx), FF.Limb.of_var fields.(idx + 1), FF.Limb.of_var fields.(idx + 2))
     ; c1 =
         FF.FpA.of_field3_unsafe
-          (fields.(idx + 3), fields.(idx + 4), fields.(idx + 5))
+          (FF.Limb.of_var fields.(idx + 3), FF.Limb.of_var fields.(idx + 4), FF.Limb.of_var fields.(idx + 5))
     }
   in
   let fp6_of idx =
@@ -85,8 +85,8 @@ let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
     into 176-bit fields (2 limbs fit in <255 bits), producing 3 packed
     fields instead of 6, saving one Poseidon absorption round. *)
 let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
-  let l0_x, l1_x, l2_x = FF.FpA.to_field3 pt.x in
-  let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
+  let l0_x, l1_x, l2_x = FF.Field3.vars (FF.FpA.to_field3 pt.x) in
+  let l0_y, l1_y, l2_y = FF.Field3.vars (FF.FpA.to_field3 pt.y) in
   let two_88 =
     Step.Field.constant
       (FF.bignum_to_field_const Bignum_bigint.(shift_left one 88))
@@ -109,7 +109,8 @@ let hash_packed_field3_array (pis : FF.Field3.t array) : Step.Field.t =
   let packed = Queue.create () in
   let cur = ref Step.Field.zero in
   let cur_size = ref 0 in
-  Array.iter pis ~f:(fun (l0, l1, l2) ->
+  Array.iter pis ~f:(fun f3 ->
+      let l0, l1, l2 = FF.Field3.vars f3 in
       Array.iter [| l0; l1; l2 |] ~f:(fun limb ->
           cur_size := !cur_size + 88 ;
           if !cur_size < 255 then cur := Step.Field.((!cur * two_88) + limb)

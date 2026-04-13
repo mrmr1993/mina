@@ -26,7 +26,7 @@ type byte = Step.Field.t
     Matches o1js ForeignField.toBits() + prepend 2 zeros + chunk to bytes +
     reverse. *)
 let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
-  let l0, l1, l2 = f3 in
+  let l0, l1, l2 = FF.Field3.vars f3 in
   let limb_size = 88 in
   let l2_bits = size_in_bits - (2 * limb_size) in
   (* Decompose each limb into bits.

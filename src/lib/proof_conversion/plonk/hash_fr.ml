@@ -92,7 +92,7 @@ let shr128 (digest_bytes : Step.Field.t array) : FF.FpA.t =
   in
   let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
   let limb1 = FF.seal (pack_limb ~pos:88 ~len:40) in
-  let f3 = (limb0, limb1, Step.Field.zero) in
+  let f3 = (FF.Limb.of_var limb0, FF.Limb.of_var limb1, FF.Limb.of_constant Bignum_bigint.zero) in
   assert_canonical_fr f3
 
 (** Shift left by 128 mod r: decompose SHA digest to 254 bits + top 2,
@@ -158,7 +158,7 @@ let shl_128_mod_r (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
   let limb1 = FF.seal (pack_limb ~pos:88 ~len:88) in
   let limb2 = FF.seal (pack_limb ~pos:176 ~len:78) in
-  let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
+  let x = FF.FpU.of_field3_unsafe (FF.Limb.of_var limb0, FF.Limb.of_var limb1, FF.Limb.of_var limb2) in
   let cond_field3 (b : Step.Boolean.var) (c : Bignum_bigint.t) : FF.Field3.t =
     let l0, l1, l2 = FF.Field3.Constant.split c in
     let bf = (b :> Step.Field.t) in
@@ -166,7 +166,7 @@ let shl_128_mod_r (digest_bytes : Step.Field.t array) : FF.FpA.t =
     let s0 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l0)) in
     let s1 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l1)) in
     let s2 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l2)) in
-    (s0, s1, s2)
+    (FF.Limb.of_var s0, FF.Limb.of_var s1, FF.Limb.of_var s2)
   in
   let a = cond_field3 !bit_255 two_254_mod_r in
   let b = cond_field3 !bit_256 two_255_mod_r in

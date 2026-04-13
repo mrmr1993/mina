@@ -92,7 +92,7 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
   let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
   let limb1 = FF.seal (pack_limb ~pos:88 ~len:88) in
   let limb2 = FF.seal (pack_limb ~pos:176 ~len:78) in
-  let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
+  let x = FF.FpU.of_field3_unsafe (FF.Limb.of_var limb0, FF.Limb.of_var limb1, FF.Limb.of_var limb2) in
 
   (* const a = Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
   (* Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)
