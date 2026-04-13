@@ -58,7 +58,7 @@ let hash_fp12_const (x : Fp12.Constant.t) : Step.Field.Constant.t =
   let bi_to_limbs bi =
     let open Bignum_bigint in
     let l0 = bi % FF.two_to_limb in
-    let l1 = (bi / FF.two_to_limb) % FF.two_to_limb in
+    let l1 = bi / FF.two_to_limb % FF.two_to_limb in
     let l2 = bi / FF.two_to_2limb in
     [| (to_field l0, l); (to_field l1, l); (to_field l2, l) |]
   in
@@ -68,7 +68,7 @@ let hash_fp12_const (x : Fp12.Constant.t) : Step.Field.Constant.t =
   let fp6_packed ((c0, c1, c2) : Fp6.Constant.t) =
     Array.concat [ fp2_packed c0; fp2_packed c1; fp2_packed c2 ]
   in
-  let (g, h) = x in
+  let g, h = x in
   let packeds = Array.concat [ fp6_packed g; fp6_packed h ] in
   let input : Step.Field.Constant.t Random_oracle_input.Chunked.t =
     { field_elements = [||]; packeds }

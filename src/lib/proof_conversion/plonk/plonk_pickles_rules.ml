@@ -326,26 +326,30 @@ let compile_circuit ~(n : int) =
         Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
   in
   let Pickles.Provers.[ prove ] = provers in
-  (prove, vk, (module Proof : Pickles.Proof_intf
-    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
-     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
+  ( prove
+  , vk
+  , (module Proof : Pickles.Proof_intf
+      with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+       and type statement = Step.Field.Constant.t * Step.Field.Constant.t ) )
 
 (** Prove circuit [n] using a pre-compiled prover.
     When [~skip_verify:true], skips the post-prove verification check
     (saves time in production when proofs are known-good).
     Returns (output_hash, proof). *)
-let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proof_intf
-    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
-     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
-    ?(skip_verify = false)
-    ~(input_hash : Step.Field.Constant.t)
+let prove_with_compiled ~(n : int) ~prover
+    ~(proof_module :
+       (module Pickles.Proof_intf
+          with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+           and type statement = Step.Field.Constant.t * Step.Field.Constant.t )
+       ) ?(skip_verify = false) ~(input_hash : Step.Field.Constant.t)
     ~(witness : Plonk_requests.witness) =
   let (module Proof) = proof_module in
   let handler = Plonk_requests.handler witness in
   let output_hash, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) input_hash)
+    Promise.block_on_async_exn (fun () ->
+        prover ?handler:(Some handler) input_hash )
   in
-  if not skip_verify then (
+  ( if not skip_verify then
     let verified =
       Promise.block_on_async_exn (fun () ->
           Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
@@ -394,8 +398,7 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
 (** Compile a single circuit and return the proof, VK, and output hash.
     Used for cross-verification with nori. *)
 let compile_prove_and_export ?(skip_verify = false) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Plonk_requests.witness) :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
     Step.Field.Constant.t
     * Pickles_types.Nat.N0.n Pickles.Proof.t
     * Pickles.Side_loaded.Verification_key.t =
@@ -421,7 +424,7 @@ let compile_prove_and_export ?(skip_verify = false) ~(n : int)
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  if not skip_verify then (
+  ( if not skip_verify then
     let verified =
       Promise.block_on_async_exn (fun () ->
           Proof.verify_promise [ ((input_hash, output_hash), proof) ] )

@@ -100,8 +100,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     in
     let output_hash, proof, vk =
       Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-        ~input_hash:!current_hash ~witness:w
+        ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, acc_after, _ =
       Proof_conversion.Plonk_pickles_rules.compile_and_prove_one_with_plonk_acc
@@ -122,8 +121,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   in
   let output_hash_12, proof_12, vk_12 =
     Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n:12
-      ~input_hash:!current_hash ~witness:w12
+      ~skip_verify:true ~n:12 ~input_hash:!current_hash ~witness:w12
   in
   let _, kzg_const, _ =
     Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
@@ -148,8 +146,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     in
     let output_hash, proof, vk =
       Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-        ~input_hash:!current_hash ~witness:w
+        ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, lh_after, gv, _ =
       Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
@@ -193,8 +190,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     in
     let output_hash, proof, vk =
       Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-        ~input_hash:!current_hash ~witness:w
+        ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, _ =
       Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
@@ -217,8 +213,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   in
   let output_hash_23, proof_23, vk_23 =
     Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n:23
-      ~input_hash:!current_hash ~witness:w23
+      ~skip_verify:true ~n:23 ~input_hash:!current_hash ~witness:w23
   in
   base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
   Printf.eprintf "All 24 base circuits proved.\n%!" ;
@@ -442,8 +437,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     in
     let output_hash, acc_after, lh_after, gv_after, proof, side_vk =
       Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true
-        ~vk:vk_const ~n ~input_hash:!current_hash ~witness
+        ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
     current_hash := output_hash ;
@@ -479,8 +473,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
        update line_hashes or g_values (f-update doesn't change them). *)
     let output_hash, acc_after, _lh, _gv, proof, side_vk =
       Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true
-        ~vk:vk_const ~n ~input_hash:!current_hash ~witness
+        ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
     current_hash := output_hash ;
@@ -498,9 +491,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_13, proof_13, vk_13 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~vk:vk_const ~n:13
-      ~input_hash:!current_hash ~witness:witness_13
+    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+      ~vk:vk_const ~n:13 ~input_hash:!current_hash ~witness:witness_13
   in
   base_proofs.(13) <- (!current_hash, output_hash_13, proof_13, vk_13) ;
   current_hash := output_hash_13 ;
@@ -514,9 +506,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_14, proof_14, vk_14 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~vk:vk_const ~n:14
-      ~input_hash:!current_hash ~witness:witness_14
+    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+      ~vk:vk_const ~n:14 ~input_hash:!current_hash ~witness:witness_14
   in
   base_proofs.(14) <- (!current_hash, output_hash_14, proof_14, vk_14) ;
   current_hash := output_hash_14 ;
@@ -536,9 +527,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_15, proof_15, vk_15 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~vk:vk_const ~n:15
-      ~input_hash:!current_hash ~witness:witness_15
+    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+      ~vk:vk_const ~n:15 ~input_hash:!current_hash ~witness:witness_15
   in
   base_proofs.(15) <- (!current_hash, output_hash_15, proof_15, vk_15) ;
   Printf.eprintf "All 16 base circuits proved.\n%!" ;
@@ -772,20 +762,20 @@ let run_internal_compute_aux_witness ~workdir =
       let aux_file = Filename.concat workdir "aux_witness.json" in
       if Stdlib.Sys.file_exists aux_file then
         Printf.eprintf "Aux witness already exists, skipping.\n%!"
-      else (
+      else
         (* Read state 11 — contains kzg_cm_x/y and neg_fq_x/y from
            circuits 0-11.  This avoids re-running those circuits. *)
         let acc11 = W.read_plonk_state ~workdir ~n:11 in
         (* Extract KZG A/B points from state 11 via prepare_pairing_1
            (a few EC operations, fast). *)
         let a_x, a_y, neg_b_x, neg_b_y =
-          Proof_conversion.Plonk_witness_tracker
-          .extract_kzg_points_from_state11 acc11
+          Proof_conversion.Plonk_witness_tracker.extract_kzg_points_from_state11
+            acc11
         in
         Printf.eprintf "  KZG points extracted from state 11.\n%!" ;
         let mlo =
-          Proof_conversion.Plonk_witness_tracker.compute_mlo_from_points
-            ~a_x ~a_y ~neg_b_x ~neg_b_y
+          Proof_conversion.Plonk_witness_tracker.compute_mlo_from_points ~a_x
+            ~a_y ~neg_b_x ~neg_b_y
         in
         Printf.eprintf "  Miller loop computed.\n%!" ;
         let w27 = Proof_conversion.Bn254_params.w27 () in
@@ -805,7 +795,7 @@ let run_internal_compute_aux_witness ~workdir =
             ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
             ]
         in
-        Yojson.Safe.to_file aux_file aux_json )
+        Yojson.Safe.to_file aux_file aux_json
   | W.Groth16 _ ->
       () ) ;
   Printf.eprintf "Aux witness computed.\n%!"
@@ -866,8 +856,7 @@ let run_internal_compute_state ~workdir ~n =
             in
             Step.as_prover (fun () ->
                 result12 :=
-                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ kzg
-            ) ) ;
+                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ kzg ) ) ;
         let kzg12 = !result12 in
         let oh12 =
           Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
@@ -1133,8 +1122,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-            ~input_hash ~witness:w
+            ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
         W.write_hash ~workdir ~n ~hash:output_hash )
@@ -1159,8 +1147,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n:12
-            ~input_hash ~witness:w
+            ~skip_verify:true ~n:12 ~input_hash ~witness:w
         in
         (* KZG state was already pre-computed by generate-witness. *)
         write_base_proof ~proof_out ~side_vk ;
@@ -1179,8 +1166,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-            ~input_hash ~witness:w
+            ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
         W.write_hash ~workdir ~n ~hash:output_hash )
@@ -1217,8 +1203,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n
-            ~input_hash ~witness:w
+            ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
         W.write_hash ~workdir ~n ~hash:output_hash )
@@ -1241,8 +1226,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~n:23
-            ~input_hash ~witness:w
+            ~skip_verify:true ~n:23 ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
         W.write_hash ~workdir ~n ~hash:output_hash ;
@@ -1277,8 +1261,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, acc_after, lh_after, gv_after, proof_out, side_vk =
           Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true
-            ~vk:vk_const ~n ~input_hash ~witness
+            ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
         W.write_proof_file
@@ -1323,8 +1306,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, acc_after, _lh, _gv, proof_out, side_vk =
           Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true
-            ~vk:vk_const ~n ~input_hash ~witness
+            ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
         W.write_proof_file
@@ -1384,8 +1366,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, proof_out, side_vk =
           Proof_conversion.Pickles_rules.compile_prove_and_export
-            ~skip_verify:true ~vk:vk_const
-            ~n ~input_hash ~witness
+            ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
         W.write_proof_file
@@ -1708,7 +1689,7 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
   if n = 0 then ()
   else if parallelism <= 1 then
     (* Sequential fallback *)
-    ( match worker_dispatch with
+    match worker_dispatch with
     | None ->
         Array.iter tasks ~f:(fun t ->
             run_cmd t.cmd ;
@@ -1722,7 +1703,7 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
             run_cmd
               (sprintf "%s internal dispatch-to-worker %s %s" self
                  (Filename.quote socket) (Filename.quote t.cmd) ) ;
-            t.status <- Done ) )
+            t.status <- Done )
   else
     (* Parallel mode *)
     let pid_to_task : (Pid.t, int) Hashtbl.t =
@@ -1760,12 +1741,12 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
             let self = Filename.quote Sys.argv.(0) in
             let full_cmd =
               sprintf "%s internal dispatch-to-worker %s %s" self
-                (Filename.quote worker) (Filename.quote tasks.(i).cmd)
+                (Filename.quote worker)
+                (Filename.quote tasks.(i).cmd)
             in
             (full_cmd, Some worker)
       in
-      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n
-        cmd ;
+      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
           let exit_code = Stdlib.Sys.command cmd in
@@ -1931,9 +1912,7 @@ let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
       let kzg, lines_hashes, g_values =
         W.read_plonk_kzg_state ~workdir ~n:prev
       in
-      let lhs_hashes =
-        Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1)
-      in
+      let lhs_hashes = Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1) in
       let g_chunk = [| g_values.(ate_loop_len - 1) |] in
       { Proof_conversion.Plonk_requests.empty_witness with
         kzg_acc = Some kzg
@@ -1977,8 +1956,7 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
       ; line_hashes = Some line_hashes
       ; b_lines =
           Some
-            (Array.map b_lines ~f:(fun (l : WT.Line.t) ->
-                 (l.lambda, l.neg_mu) ) )
+            (Array.map b_lines ~f:(fun (l : WT.Line.t) -> (l.lambda, l.neg_mu)))
       }
     else if n <= 12 then
       let idx = n - 7 in
@@ -2030,8 +2008,7 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   in
   let output_hash, proof_out =
     Proof_conversion.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
-      ~skip_verify
-      ~input_hash ~witness:w
+      ~skip_verify ~input_hash ~witness:w
   in
   let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
   W.write_proof_file
@@ -2080,10 +2057,8 @@ let parse_circuits_spec ~base_count spec =
           | _ ->
               failwith (sprintf "Bad --circuits component: %s" part) ) ;
     let base =
-      if Hash_set.is_empty base_set && not !layer1 && not !node then
-        None
-      else
-        Some base_set
+      if Hash_set.is_empty base_set && (not !layer1) && not !node then None
+      else Some base_set
     in
     (base, !layer1, !node)
 
@@ -2177,9 +2152,7 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
     Core_unix.socket ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ()
   in
   ( try Core_unix.bind socket ~addr:(ADDR_UNIX socket_path)
-    with exn ->
-      Core_unix.close socket ;
-      raise exn ) ;
+    with exn -> Core_unix.close socket ; raise exn ) ;
   Core_unix.listen socket ~backlog:16 ;
   Printf.eprintf "Prove daemon: listening on %s\n%!" socket_path ;
   let running = ref true in
@@ -2190,7 +2163,7 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
     ( try
         let line = In_channel.input_line_exn ic in
         let parts = String.split line ~on:' ' in
-        ( match parts with
+        match parts with
         | [ "shutdown" ] ->
             Out_channel.output_string oc "OK\n" ;
             Out_channel.flush oc ;
@@ -2198,16 +2171,17 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
         | [ "prove-zkp"; workdir; n_str ] ->
             let n = Int.of_string n_str in
             ( match base_provers.(n) with
-            | Some (prover, side_vk, proof_module) ->
+            | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
                 let provers_for_n =
                   (* Build a single-use array with the compiled prover at
                      index n — do_prove_zkp only accesses provers.(n). *)
-                  let a = Array.create ~len:(n + 1)
-                    (prover, side_vk, proof_module) in
+                  let a =
+                    Array.create ~len:(n + 1) (prover, side_vk, proof_module)
+                  in
                   a
                 in
-                ( match system with
+                match system with
                 | "plonk" ->
                     do_prove_zkp_plonk ~provers:provers_for_n ~workdir ~n
                       ~skip_verify
@@ -2219,8 +2193,7 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             | None ->
                 (* Circuit not pre-compiled — compile on demand *)
                 Printf.eprintf
-                  "  prove-zkp %d: not pre-compiled, compiling on demand\n%!"
-                  n ;
+                  "  prove-zkp %d: not pre-compiled, compiling on demand\n%!" n ;
                 run_internal_prove_zkp ~workdir ~n ) ;
             Out_channel.output_string oc "OK\n" ;
             Out_channel.flush oc
@@ -2232,14 +2205,13 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   (p, v)
               | None ->
                   Printf.eprintf
-                    "  compress: layer1 not pre-compiled, compiling on \
-                     demand\n\
+                    "  compress: layer1 not pre-compiled, compiling on demand\n\
                      %!" ;
                   let tag, (module L1P_), prove = TC.compile_layer1 () in
                   let vk =
                     Promise.block_on_async_exn (fun () ->
-                        Pickles.Side_loaded.Verification_key
-                        .of_compiled_promise tag )
+                        Pickles.Side_loaded.Verification_key.of_compiled_promise
+                          tag )
                   in
                   (prove, vk)
             in
@@ -2253,15 +2225,14 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   let tag, (module NP_), prove = TC.compile_node () in
                   let vk =
                     Promise.block_on_async_exn (fun () ->
-                        Pickles.Side_loaded.Verification_key
-                        .of_compiled_promise tag )
+                        Pickles.Side_loaded.Verification_key.of_compiled_promise
+                          tag )
                   in
                   (prove, vk)
             in
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
-              ~layer:(Int.of_string layer_s)
-              ~index:(Int.of_string index_s) ;
+              ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
             Out_channel.output_string oc "OK\n" ;
             Out_channel.flush oc
         | [ "compute-state"; workdir; n_str ] ->
@@ -2279,18 +2250,18 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
         | _ ->
             Out_channel.output_string oc
               (sprintf "ERROR bad command: %s\n" line) ;
-            Out_channel.flush oc )
-      with exn ->
+            Out_channel.flush oc
+      with exn -> (
         let msg = String.tr (Exn.to_string exn) ~target:'\n' ~replacement:' ' in
         Printf.eprintf "Prove daemon error: %s\n%!" msg ;
-        ( try
-            Out_channel.output_string oc (sprintf "ERROR %s\n" msg) ;
-            Out_channel.flush oc
-          with _ -> () ) ) ;
+        try
+          Out_channel.output_string oc (sprintf "ERROR %s\n" msg) ;
+          Out_channel.flush oc
+        with _ -> () ) ) ;
     Core_unix.close client_fd
   done ;
   Core_unix.close socket ;
-  ( try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> () ) ;
+  (try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> ()) ;
   Printf.eprintf "Prove daemon: shutdown.\n%!"
 
 (** Send a command to a worker daemon via Unix socket.
@@ -2370,8 +2341,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     next_pow2 1
   in
   if padded_count > base_count then
-    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count
-      padded_count ;
+    Printf.eprintf "Padding %d → %d for binary tree\n%!" base_count padded_count ;
   let compression_counts =
     Array.init max_layer ~f:(fun i ->
         let layer = i + 1 in
@@ -2387,13 +2357,10 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
   let aux_idx = 1 in
   let cs_start = 2 in
   let prove_start = 2 + base_count in
-  let compress_start = 2 + 2 * base_count in
-  let aux_needed_at =
-    match system with "plonk" -> Some 12 | _ -> None
-  in
-  Printf.eprintf
-    "Building DAG: %d tasks, dispatching to %d workers\n%!" total_tasks
-    n_workers ;
+  let compress_start = 2 + (2 * base_count) in
+  let aux_needed_at = match system with "plonk" -> Some 12 | _ -> None in
+  Printf.eprintf "Building DAG: %d tasks, dispatching to %d workers\n%!"
+    total_tasks n_workers ;
   let tasks =
     Array.create ~len:total_tasks
       { cmd = ""; deps = [||]; priority = 0; status = Pending }
@@ -2461,8 +2428,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
           [| prev_start + left_child; prev_start + right_child |]
       in
       tasks.(!task_idx) <-
-        { cmd =
-            sprintf "compress %s %d %d %d" workdir base_count layer index
+        { cmd = sprintf "compress %s %d %d %d" workdir base_count layer index
         ; deps
         ; priority = 0
         ; status = Pending
@@ -2503,16 +2469,15 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
           Filename.concat socket_dir (sprintf "worker.%d.sock" i)
         in
         (* Clean up stale socket/ready files *)
-        ( try Stdlib.Sys.remove socket_path with _ -> () ) ;
-        ( try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> () ) ;
+        (try Stdlib.Sys.remove socket_path with _ -> ()) ;
+        (try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> ()) ;
         match Core_unix.fork () with
         | `In_the_child ->
             run_internal_prove_daemon ~socket_path ~system ~vk_path
               ~circuits_spec ~skip_verify ;
             Stdlib.exit 0
         | `In_the_parent pid ->
-            Printf.eprintf "  Worker %d started (pid %d)\n%!" i
-              (Pid.to_int pid) ;
+            Printf.eprintf "  Worker %d started (pid %d)\n%!" i (Pid.to_int pid) ;
             pid )
   in
   (* Wait for all workers to be ready *)
@@ -2520,8 +2485,8 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
     Array.for_all
       (Array.init count ~f:(fun i ->
            Stdlib.Sys.file_exists
-             (Filename.concat socket_dir
-                (sprintf "worker.%d.sock.ready" i) ) ) )
+             (Filename.concat socket_dir (sprintf "worker.%d.sock.ready" i)) )
+      )
       ~f:Fn.id
   in
   Printf.eprintf "Waiting for %d workers to compile circuits...\n%!" count ;
@@ -2532,10 +2497,9 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
   if background then
     (* Print PIDs and exit *)
     Array.iteri pids ~f:(fun i pid ->
-        Printf.eprintf "  worker.%d: pid %d, socket %s\n%!" i
-          (Pid.to_int pid)
+        Printf.eprintf "  worker.%d: pid %d, socket %s\n%!" i (Pid.to_int pid)
           (Filename.concat socket_dir (sprintf "worker.%d.sock" i)) )
-  else (
+  else
     (* Foreground: wait for SIGINT, then shut down *)
     let interrupted = ref false in
     let handle_signal _ = interrupted := true in
@@ -2553,18 +2517,19 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
     Array.iter pids ~f:(fun pid ->
         try ignore (Core_unix.waitpid pid : Core.Unix.Exit_or_signal.t)
         with _ -> () ) ;
-    Printf.eprintf "All workers shut down.\n%!" )
+    Printf.eprintf "All workers shut down.\n%!"
 
 (** Stop all workers in a socket directory. *)
 let run_stop_workers ~socket_dir =
   let entries = Stdlib.Sys.readdir socket_dir in
   Array.iter entries ~f:(fun name ->
-      if String.is_suffix name ~suffix:".sock"
-         && not (String.is_suffix name ~suffix:".sock.ready")
+      if
+        String.is_suffix name ~suffix:".sock"
+        && not (String.is_suffix name ~suffix:".sock.ready")
       then (
         Printf.eprintf "Stopping %s...\n%!" name ;
-        shutdown_compress_daemon
-          ~socket_path:(Filename.concat socket_dir name) ) ) ;
+        shutdown_compress_daemon ~socket_path:(Filename.concat socket_dir name)
+        ) ) ;
   Printf.eprintf "All workers stopped.\n%!"
 
 (** Collect final output from workdir. *)
@@ -2748,11 +2713,7 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
      read the accumulated KZG points instead of re-running circuits 0-11.
      For Groth16, aux is computed in generate-witness so this is a no-op. *)
   let aux_deps =
-    match system with
-    | "plonk" ->
-        [| cs_start + 11 |]
-    | _ ->
-        [| gw_idx |]
+    match system with "plonk" -> [| cs_start + 11 |] | _ -> [| gw_idx |]
   in
   tasks.(aux_idx) <-
     { cmd =
@@ -2966,7 +2927,8 @@ let () =
         ~circuits_spec:None ~skip_verify:false
   | [| _; "internal"; "dispatch-to-worker"; socket_path; command |] ->
       run_internal_dispatch_to_worker ~socket_path ~command
-  | _ when Array.length argv >= 2 && String.equal argv.(1) "sp1ToPlonkDaemonised"
+  | _
+    when Array.length argv >= 2 && String.equal argv.(1) "sp1ToPlonkDaemonised"
     ->
       let input_path = argv.(2) in
       let worker_sockets =
@@ -2991,8 +2953,9 @@ let () =
       in
       run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"plonk"
         ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
-  | _ when Array.length argv >= 3
-           && String.equal argv.(1) "risc0ToGroth16Daemonised" ->
+  | _
+    when Array.length argv >= 3
+         && String.equal argv.(1) "risc0ToGroth16Daemonised" ->
       let proof_path = argv.(2) in
       let vk_p = argv.(3) in
       let worker_sockets =
@@ -3008,18 +2971,18 @@ let () =
         discover_workers ~socket_dir:dir
       in
       run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"groth16"
-        ~base_count:16 ~max_layer:4 ~input_path:proof_path
-        ~vk_path:(Some vk_p)
+        ~base_count:16 ~max_layer:4 ~input_path:proof_path ~vk_path:(Some vk_p)
   | _ when Array.length argv >= 2 && String.equal argv.(1) "start-workers" ->
       let args = Array.to_list argv in
       let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg =
-          function
+        function
         | "--system" :: s :: rest ->
             parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
               rest
         | "--count" :: n :: rest ->
-            parse ~system ~count:(Some (Int.of_string n)) ~socket_dir ~vk_p
-              ~circuits ~sv ~bg rest
+            parse ~system
+              ~count:(Some (Int.of_string n))
+              ~socket_dir ~vk_p ~circuits ~sv ~bg rest
         | "--socket-dir" :: d :: rest ->
             parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg
               rest
@@ -3038,8 +3001,13 @@ let () =
         | [] ->
             (system, count, socket_dir, vk_p, circuits, sv, bg)
       in
-      let system, count, socket_dir, vk_p, circuits_spec, skip_verify,
-          background =
+      let ( system
+          , count
+          , socket_dir
+          , vk_p
+          , circuits_spec
+          , skip_verify
+          , background ) =
         parse ~system:None ~count:None ~socket_dir:None ~vk_p:None
           ~circuits:None ~sv:false ~bg:false args
       in

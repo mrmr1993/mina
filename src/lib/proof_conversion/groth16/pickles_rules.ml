@@ -58,25 +58,29 @@ let compile_circuit ~(vk : Vk_constants.t) ~(n : int) =
         Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
   in
   let Pickles.Provers.[ prove ] = provers in
-  (prove, side_vk, (module Proof : Pickles.Proof_intf
-    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
-     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
+  ( prove
+  , side_vk
+  , (module Proof : Pickles.Proof_intf
+      with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+       and type statement = Step.Field.Constant.t * Step.Field.Constant.t ) )
 
 (** Prove circuit [n] using a pre-compiled prover.
     When [~skip_verify:true], skips the post-prove verification check.
     Returns (output_hash, proof). *)
-let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proof_intf
-    with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
-     and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
-    ?(skip_verify = false)
-    ~(input_hash : Step.Field.Constant.t)
+let prove_with_compiled ~(n : int) ~prover
+    ~(proof_module :
+       (module Pickles.Proof_intf
+          with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
+           and type statement = Step.Field.Constant.t * Step.Field.Constant.t )
+       ) ?(skip_verify = false) ~(input_hash : Step.Field.Constant.t)
     ~(witness : Groth16_requests.witness) =
   let (module Proof) = proof_module in
   let handler = Groth16_requests.handler witness in
   let output_hash, _aux, proof =
-    Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) input_hash)
+    Promise.block_on_async_exn (fun () ->
+        prover ?handler:(Some handler) input_hash )
   in
-  if not skip_verify then (
+  ( if not skip_verify then
     let verified =
       Promise.block_on_async_exn (fun () ->
           Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
@@ -85,7 +89,8 @@ let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proo
     | Ok () ->
         ()
     | Error e ->
-        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e))
+  ) ;
   (output_hash, proof)
 
 (** Compile and prove a single circuit.
@@ -241,7 +246,7 @@ let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  if not skip_verify then (
+  ( if not skip_verify then
     let verified =
       Promise.block_on_async_exn (fun () ->
           Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
@@ -250,16 +255,16 @@ let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
     | Ok () ->
         ()
     | Error e ->
-        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e))
+  ) ;
   (output_hash, proof, side_vk)
 
 (** Compile and prove a single circuit (0-12), returning the accumulator,
     line_hashes, g_values, and VK via auxiliary_output for chaining +
     tree compression. *)
 let compile_prove_and_export_with_acc ?(skip_verify = false)
-    ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
-    :
+    ~(vk : Vk_constants.t) ~(n : int) ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Groth16_requests.witness) :
     Step.Field.Constant.t
     * Accumulator.Constant.t
     * Step.Field.Constant.t array
@@ -289,7 +294,7 @@ let compile_prove_and_export_with_acc ?(skip_verify = false)
   let output_hash, ((acc_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  if not skip_verify then (
+  ( if not skip_verify then
     let verified =
       Promise.block_on_async_exn (fun () ->
           Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
@@ -298,5 +303,6 @@ let compile_prove_and_export_with_acc ?(skip_verify = false)
     | Ok () ->
         ()
     | Error e ->
-        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e))
+  ) ;
   (output_hash, acc_after, lh_after, gv_after, proof, side_vk)

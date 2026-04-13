@@ -8,9 +8,8 @@ module Step = Pickles.Impls.Step
 
 (** Convert a circuit-level Chunked input to constants.
     Works when all Cvars are [Cvar.constant] (as from [of_constant]). *)
-let chunked_input_to_const
-    (input : Step.Field.t Random_oracle_input.Chunked.t) :
-    Step.Field.Constant.t Random_oracle_input.Chunked.t =
+let chunked_input_to_const (input : Step.Field.t Random_oracle_input.Chunked.t)
+    : Step.Field.Constant.t Random_oracle_input.Chunked.t =
   let read x = Option.value_exn (Step.Field.to_constant x) in
   { field_elements = Array.map input.field_elements ~f:read
   ; packeds = Array.map input.packeds ~f:(fun (x, n) -> (read x, n))
@@ -43,8 +42,11 @@ let extract_kzg_points_from_state11 (acc11 : Plonk_accumulator.t_const) :
     Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t =
   let module FF = Snarky_foreign_field.Foreign_field in
   let result =
-    ref (Bignum_bigint.zero, Bignum_bigint.zero, Bignum_bigint.zero,
-         Bignum_bigint.zero)
+    ref
+      ( Bignum_bigint.zero
+      , Bignum_bigint.zero
+      , Bignum_bigint.zero
+      , Bignum_bigint.zero )
   in
   Snarky_backendless.Snark0.set_eval_constraints false ;
   Step.run_unchecked (fun () ->
@@ -55,19 +57,17 @@ let extract_kzg_points_from_state11 (acc11 : Plonk_accumulator.t_const) :
           ~folded_cm_y:acc.state.kzg_cm_y ~zeta:acc.fs.zeta
       in
       Step.as_prover (fun () ->
-          let read f =
-            Step.As_prover.read (FF.FpA.typ ~f:Bn254_params.p) f
-          in
-          result := (read ax, read ay,
-                     read acc.state.neg_fq_x, read acc.state.neg_fq_y) ) ) ;
+          let read f = Step.As_prover.read (FF.FpA.typ ~f:Bn254_params.p) f in
+          result :=
+            (read ax, read ay, read acc.state.neg_fq_x, read acc.state.neg_fq_y) ) ) ;
   Snarky_backendless.Snark0.set_eval_constraints true ;
   !result
 
 (** Compute KZG Miller loop output from pre-extracted A/B points.
     Calls the Rust FFI pairing computation. *)
 let compute_mlo_from_points ~(a_x : Bignum_bigint.t) ~(a_y : Bignum_bigint.t)
-    ~(neg_b_x : Bignum_bigint.t) ~(neg_b_y : Bignum_bigint.t) :
-    Fp12.Constant.t =
+    ~(neg_b_x : Bignum_bigint.t) ~(neg_b_y : Bignum_bigint.t) : Fp12.Constant.t
+    =
   let module WT = Witness_tracker in
   let module BI = Bignum_bigint in
   let g2 : WT.G2.t =

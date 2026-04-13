@@ -16,7 +16,7 @@ let fp_add a b = BI.((a + b) % p)
 
 let fp_sub a b = BI.((a - b + p) % p)
 
-let fp_mul a b = BI.((a * b) % p)
+let fp_mul a b = BI.(a * b % p)
 
 let fp_neg a = if BI.(equal a zero) then BI.zero else BI.(p - a)
 
@@ -30,7 +30,7 @@ let fp_inv a =
       (g, y, BI.(x - (q * y)))
   in
   let _g, x, _y = ext_gcd a p in
-  BI.((x % p + p) % p)
+  BI.(((x % p) + p) % p)
 
 (* ==== Fp2 = Fp[u] / (u^2 + 1) ==== *)
 
@@ -131,9 +131,7 @@ module Fp6 = struct
     let c1 =
       Fp2.sub (Fp2.mul (Fp2.add a0 a1) (Fp2.add b0 b1)) (Fp2.add v0 v1)
     in
-    let c2 =
-      Fp2.add (Fp2.sub (Fp2.mul (Fp2.add a0 a2) b0) v0) v1
-    in
+    let c2 = Fp2.add (Fp2.sub (Fp2.mul (Fp2.add a0 a2) b0) v0) v1 in
     (c0, c1, c2)
 
   let inv ((a0, a1, a2) : t) : t =
@@ -143,10 +141,7 @@ module Fp6 = struct
     let c0 = Fp2.mul a0 t0 in
     let c1 = Fp2.mul a2 t1 in
     let c2 = Fp2.mul a1 t2 in
-    let det =
-      Fp2.add c0
-        (Fp2.mul_by_non_residue (Fp2.add c1 c2))
-    in
+    let det = Fp2.add c0 (Fp2.mul_by_non_residue (Fp2.add c1 c2)) in
     let inv_det = Fp2.inv det in
     (Fp2.mul t0 inv_det, Fp2.mul t1 inv_det, Fp2.mul t2 inv_det)
 end
@@ -200,7 +195,9 @@ module Fp12 = struct
       let r10, r11, _ = rhs1 in
       (Fp2.add r0 r10, r11, Fp2.zero)
     in
-    let c1 = Fp6.sub (Fp6.mul_by_sparse (Fp6.add a0 a1) t2_fp6) (Fp6.add t0 t1) in
+    let c1 =
+      Fp6.sub (Fp6.mul_by_sparse (Fp6.add a0 a1) t2_fp6) (Fp6.add t0 t1)
+    in
     (c0, c1)
 
   (** Frobenius endomorphisms using gamma constants from Bn254_params. *)
