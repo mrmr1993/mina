@@ -1050,44 +1050,46 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
   if Field3.is_constant x then
     let x_big = Field3.to_constant x in
     match bignum_mod_inverse x_big ~f with
-    | Some x_inv ->
-        Field3.of_constant x_inv
-    | None ->
-        failwith "inv: inverse does not exist"
+    | Some x_inv -> Field3.of_constant x_inv
+    | None -> failwith "inv: inverse does not exist"
   else
     let x0, x1, x2 = x in
-    let w i =
-      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+    let prover_inv =
+      Circuit.exists (Circuit.Typ.prover_value ()) ~compute:(fun () ->
           let xv0 = field_const_to_bignum (Circuit.As_prover.read_var x0) in
           let xv1 = field_const_to_bignum (Circuit.As_prover.read_var x1) in
           let xv2 = field_const_to_bignum (Circuit.As_prover.read_var x2) in
           let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
           let x_inv =
             match bignum_mod_inverse x_big ~f with
-            | Some v ->
-                v
-            | None ->
-                Bignum_bigint.zero
+            | Some v -> v
+            | None -> Bignum_bigint.zero
           in
-          let l0, l1, l2 = Field3.Constant.split x_inv in
-          bignum_to_field_const [| l0; l1; l2 |].(i) )
+          Field3.Constant.split x_inv)
+    in
+    let w i =
+      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+          let l0, l1, l2 =
+            Circuit.As_prover.read (Circuit.Typ.prover_value ()) prover_inv
+          in
+          bignum_to_field_const [| l0; l1; l2 |].(i))
     in
     let v0 = w 0 in
     let v1 = w 1 in
     let v2 = w 2 in
     let x_inv = (v0, v1, v2) in
-    multi_range_check x_inv ;
+    multi_range_check x_inv;
     let _, _, x_inv2 = x_inv in
     let x_inv2_bound = weak_bound x_inv2 ~f in
     let one_field2 : field2 =
-      ( Circuit.Field.(constant Constant.one)
-      , Circuit.Field.(constant Constant.zero) )
+      ( Circuit.Field.(constant Constant.one),
+        Circuit.Field.(constant Constant.zero) )
     in
-    assert_mul_field2 x x_inv one_field2 ~f ;
+    assert_mul_field2 x x_inv one_field2 ~f;
     multi_range_check
-      ( x_inv2_bound
-      , Circuit.Field.constant Circuit.Field.Constant.zero
-      , Circuit.Field.constant Circuit.Field.Constant.zero ) ;
+      ( x_inv2_bound,
+        Circuit.Field.constant Circuit.Field.Constant.zero,
+        Circuit.Field.constant Circuit.Field.Constant.zero );
     x_inv
 
 (** Compute x / y mod f. *)
