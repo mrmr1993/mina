@@ -89,7 +89,7 @@ module Field3 = struct
         ((l0, l1, l2) : Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t) :
         Bignum_bigint.t =
       let open Bignum_bigint in
-      l0 + (l1 * two_to_limb) + (l2 * two_to_2limb)
+      l0 + shift_left l1 limb_bits + shift_left l2 (Int.( * ) 2 limb_bits)
 
     let of_bigint (x : Bignum_bigint.t) : t = x
 
@@ -569,9 +569,9 @@ let single_add (x : Field3.t) (y : Field3.t) ~(sign : sign)
       else Bignum_bigint.zero
     in
     let l2_mask = Bignum_bigint.(two_to_2limb - one) in
-    let x01 = Bignum_bigint.(xv0 + (xv1 * two_to_limb)) in
-    let y01 = Bignum_bigint.(yv0 + (yv1 * two_to_limb)) in
-    let f01 = Bignum_bigint.(f0 + (f1 * two_to_limb)) in
+    let x01 = Bignum_bigint.(xv0 + shift_left xv1 limb_bits) in
+    let y01 = Bignum_bigint.(yv0 + shift_left yv1 limb_bits) in
+    let f01 = Bignum_bigint.(f0 + shift_left f1 limb_bits) in
     let r01 = Bignum_bigint.(x01 + (s * y01) - (overflow * f01)) in
     let carry = Bignum_bigint.(shift_right r01 (Int.( * ) 2 limb_bits)) in
     let r01_masked = Bignum_bigint.(r01 land l2_mask) in
@@ -744,7 +744,7 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
         let r01 =
           Bignum_bigint.(
             (r land limb_mask)
-            + (shift_right r limb_bits land limb_mask * two_to_limb))
+            + shift_left (shift_right r limb_bits land limb_mask) limb_bits)
         in
         let p0 = Bignum_bigint.((av0 * bv0) + (q0 * f_0)) in
         let p1 =
@@ -759,10 +759,10 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
         let p1_shifted = Bignum_bigint.(shift_right p1 limb_bits) in
         let p110 = Bignum_bigint.(p1_shifted land limb_mask) in
         let p111 = Bignum_bigint.(shift_right p1_shifted limb_bits) in
-        let _p11 = Bignum_bigint.(p110 + (p111 * two_to_limb)) in
+        let _p11 = Bignum_bigint.(p110 + shift_left p111 limb_bits) in
         let c0 =
           Bignum_bigint.(
-            shift_right (p0 + (p10 * two_to_limb) - r01) (Int.( * ) 2 limb_bits))
+            shift_right (p0 + shift_left p10 limb_bits - r01) (Int.( * ) 2 limb_bits))
         in
         let c1 = Bignum_bigint.(shift_right (p2 - r2 + _p11 + c0) limb_bits) in
         let c1_00 = bit_slice c1 ~start:0 ~length:12 in
@@ -1237,7 +1237,8 @@ module Sum = struct
               let rl v = field_const_to_bignum (Circuit.As_prover.read_var v) in
               ref
                 Bignum_bigint.(
-                  rl l0 + (rl l1 * two_to_limb) + (rl l2 * two_to_2limb)) )
+                  rl l0 + shift_left (rl l1) limb_bits
+                  + shift_left (rl l2) (Int.( * ) 2 limb_bits)) )
         in
         let x0s = Array.create ~len:n Circuit.Field.zero in
         let overflows = Array.create ~len:n Circuit.Field.zero in
@@ -1265,7 +1266,8 @@ module Sum = struct
                         field_const_to_bignum (Circuit.As_prover.read_var v)
                       in
                       Bignum_bigint.(
-                        rl l0 + (rl l1 * two_to_limb) + (rl l2 * two_to_2limb))
+                        rl l0 + shift_left (rl l1) limb_bits
+                        + shift_left (rl l2) (Int.( * ) 2 limb_bits))
                     in
                     let x_new = Bignum_bigint.(x_full + (sign_bi * xi_full)) in
                     let overflow =

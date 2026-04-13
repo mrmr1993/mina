@@ -212,9 +212,9 @@ let compile_and_prove_all ~(vk : Vk_constants.t)
 (** Compile and prove a single circuit, returning proof + VK for tree
     compression.  Used for circuits that don't need accumulator chaining
     (13-15). *)
-let compile_prove_and_export ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
-    :
+let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
+    ~(n : int) ~(input_hash : Step.Field.Constant.t)
+    ~(witness : Groth16_requests.witness) :
     Step.Field.Constant.t
     * Pickles_types.Nat.N0.n Pickles.Proof.t
     * Pickles.Side_loaded.Verification_key.t =
@@ -241,21 +241,23 @@ let compile_prove_and_export ~(vk : Vk_constants.t) ~(n : int)
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  let verified =
-    Promise.block_on_async_exn (fun () ->
-        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
-  in
-  ( match verified with
-  | Ok () ->
-      ()
-  | Error e ->
-      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  if not skip_verify then (
+    let verified =
+      Promise.block_on_async_exn (fun () ->
+          Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+    in
+    match verified with
+    | Ok () ->
+        ()
+    | Error e ->
+        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof, side_vk)
 
 (** Compile and prove a single circuit (0-12), returning the accumulator,
     line_hashes, g_values, and VK via auxiliary_output for chaining +
     tree compression. *)
-let compile_prove_and_export_with_acc ~(vk : Vk_constants.t) ~(n : int)
+let compile_prove_and_export_with_acc ?(skip_verify = false)
+    ~(vk : Vk_constants.t) ~(n : int)
     ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
     :
     Step.Field.Constant.t
@@ -287,13 +289,14 @@ let compile_prove_and_export_with_acc ~(vk : Vk_constants.t) ~(n : int)
   let output_hash, ((acc_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  let verified =
-    Promise.block_on_async_exn (fun () ->
-        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
-  in
-  ( match verified with
-  | Ok () ->
-      ()
-  | Error e ->
-      failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  if not skip_verify then (
+    let verified =
+      Promise.block_on_async_exn (fun () ->
+          Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+    in
+    match verified with
+    | Ok () ->
+        ()
+    | Error e ->
+        failwith (sprintf "zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, acc_after, lh_after, gv_after, proof, side_vk)

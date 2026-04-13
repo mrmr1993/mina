@@ -393,7 +393,8 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
 
 (** Compile a single circuit and return the proof, VK, and output hash.
     Used for cross-verification with nori. *)
-let compile_prove_and_export ~(n : int) ~(input_hash : Step.Field.Constant.t)
+let compile_prove_and_export ?(skip_verify = false) ~(n : int)
+    ~(input_hash : Step.Field.Constant.t)
     ~(witness : Plonk_requests.witness) :
     Step.Field.Constant.t
     * Pickles_types.Nat.N0.n Pickles.Proof.t
@@ -420,16 +421,17 @@ let compile_prove_and_export ~(n : int) ~(input_hash : Step.Field.Constant.t)
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
-  let verified =
-    Promise.block_on_async_exn (fun () ->
-        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
-  in
-  ( match verified with
-  | Ok () ->
-      ()
-  | Error e ->
-      failwith
-        (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  if not skip_verify then (
+    let verified =
+      Promise.block_on_async_exn (fun () ->
+          Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+    in
+    match verified with
+    | Ok () ->
+        ()
+    | Error e ->
+        failwith
+          (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof, vk)
 
 (** Prove all 24 PLONK circuits in sequence with accumulator chaining.

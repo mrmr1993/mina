@@ -99,7 +99,8 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
         ~input_hash:!current_hash ~witness:w
     in
     let _, acc_after, _ =
@@ -120,7 +121,8 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     }
   in
   let output_hash_12, proof_12, vk_12 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:12
+    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n:12
       ~input_hash:!current_hash ~witness:w12
   in
   let _, kzg_const, _ =
@@ -145,7 +147,8 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
         ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, lh_after, gv, _ =
@@ -189,7 +192,8 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
         ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, _ =
@@ -212,7 +216,8 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     }
   in
   let output_hash_23, proof_23, vk_23 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:23
+    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n:23
       ~input_hash:!current_hash ~witness:w23
   in
   base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
@@ -437,6 +442,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     in
     let output_hash, acc_after, lh_after, gv_after, proof, side_vk =
       Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~skip_verify:true
         ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
@@ -473,6 +479,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
        update line_hashes or g_values (f-update doesn't change them). *)
     let output_hash, acc_after, _lh, _gv, proof, side_vk =
       Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~skip_verify:true
         ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
@@ -491,7 +498,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_13, proof_13, vk_13 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~vk:vk_const ~n:13
+    Proof_conversion.Pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~vk:vk_const ~n:13
       ~input_hash:!current_hash ~witness:witness_13
   in
   base_proofs.(13) <- (!current_hash, output_hash_13, proof_13, vk_13) ;
@@ -506,7 +514,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_14, proof_14, vk_14 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~vk:vk_const ~n:14
+    Proof_conversion.Pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~vk:vk_const ~n:14
       ~input_hash:!current_hash ~witness:witness_14
   in
   base_proofs.(14) <- (!current_hash, output_hash_14, proof_14, vk_14) ;
@@ -527,7 +536,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_15, proof_15, vk_15 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~vk:vk_const ~n:15
+    Proof_conversion.Pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~vk:vk_const ~n:15
       ~input_hash:!current_hash ~witness:witness_15
   in
   base_proofs.(15) <- (!current_hash, output_hash_15, proof_15, vk_15) ;
@@ -1122,7 +1132,8 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
             ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1147,7 +1158,8 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:12
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n:12
             ~input_hash ~witness:w
         in
         (* KZG state was already pre-computed by generate-witness. *)
@@ -1166,7 +1178,8 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
             ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1203,7 +1216,8 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n
             ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1226,7 +1240,8 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:23
+          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~n:23
             ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1262,6 +1277,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, acc_after, lh_after, gv_after, proof_out, side_vk =
           Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~skip_verify:true
             ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -1307,6 +1323,7 @@ let run_internal_prove_zkp ~workdir ~n =
         in
         let output_hash, acc_after, _lh, _gv, proof_out, side_vk =
           Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+            ~skip_verify:true
             ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -1366,7 +1383,8 @@ let run_internal_prove_zkp ~workdir ~n =
               Proof_conversion.Groth16_requests.empty_witness
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Pickles_rules.compile_prove_and_export ~vk:vk_const
+          Proof_conversion.Pickles_rules.compile_prove_and_export
+            ~skip_verify:true ~vk:vk_const
             ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
