@@ -239,3 +239,21 @@ module Fp12 = struct
     let t6 = Fp2.mul (conj b2) g.(4) in
     ((t1, t3, t5), (t2, t4, t6))
 end
+
+(** Native line evaluation for pairing computation. *)
+module Lines = struct
+  type affine_cache = { x_over_y : BI.t; y_inv : BI.t }
+
+  let make_affine_cache ~(x : BI.t) ~(y : BI.t) : affine_cache =
+    let y_inv = fp_inv y in
+    let x_neg = fp_neg x in
+    let x_over_y = fp_mul x_neg y_inv in
+    { x_over_y; y_inv }
+
+  (** Evaluate a line into a sparse Fp12:
+      c0 = (1,0,0), c1 = (lambda*x_over_y, neg_mu*y_inv, 0) *)
+  let psi ~(lambda : Fp2.t) ~(neg_mu : Fp2.t) (cache : affine_cache) : Fp12.t =
+    let h0 = Fp2.mul_by_fp lambda cache.x_over_y in
+    let h1 = Fp2.mul_by_fp neg_mu cache.y_inv in
+    ((Fp2.one, Fp2.zero, Fp2.zero), (h0, h1, Fp2.zero))
+end

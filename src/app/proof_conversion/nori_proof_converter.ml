@@ -881,35 +881,22 @@ let run_internal_compute_state ~workdir ~n =
           ~g_values:[||] )
       else if n <= 16 then (
         (* Circuits 13-16: KZG line circuits.
-           Fast path: inject KZG acc + lines_hashes as constants. *)
+           Fully native: no run_unchecked, pure Bignum_bigint arithmetic. *)
         let cur_kzg, cur_kzg_lh, cur_kzg_gv =
           W.read_plonk_kzg_state ~workdir ~n:(n - 1)
         in
-        let result_kzg = ref cur_kzg in
-        let result_lh = ref cur_kzg_lh in
-        let result_gv = ref [||] in
-        Step.run_unchecked (fun () ->
-            let kzg_var, lh_vars, gv_arr =
-              Proof_conversion.Plonk_circuits.zkp_lines_fast ~circuit_index:n
-                cur_kzg ~lines_hashes:cur_kzg_lh
-            in
-            Step.as_prover (fun () ->
-                result_kzg :=
-                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ
-                    kzg_var ;
-                result_lh :=
-                  Array.map lh_vars ~f:Step.As_prover.read_var ;
-                result_gv :=
-                  Array.map gv_arr ~f:(fun g ->
-                      Step.As_prover.read Proof_conversion.Fp12.typ g ) ) ) ;
+        let result_kzg, result_lh, result_gv =
+          Proof_conversion.Plonk_circuits.zkp_lines_native ~circuit_index:n
+            cur_kzg ~lines_hashes:cur_kzg_lh
+        in
         let oh =
           Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
-            !result_kzg
+            result_kzg
         in
         W.write_hash ~workdir ~n ~hash:oh ;
-        W.write_plonk_kzg_state ~workdir ~n ~kzg:!result_kzg
-          ~lines_hashes:!result_lh
-          ~g_values:(Array.append cur_kzg_gv !result_gv) )
+        W.write_plonk_kzg_state ~workdir ~n ~kzg:result_kzg
+          ~lines_hashes:result_lh
+          ~g_values:(Array.append cur_kzg_gv result_gv) )
       else if n <= 22 then (
         (* Circuits 17-22: f-accumulation.
            Fully native: no run_unchecked, pure Bignum_bigint Fp12 arithmetic. *)

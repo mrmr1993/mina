@@ -48,3 +48,36 @@ let hash_fp12 (x : Fp12.Circuit.t) : Step.Field.t =
 (** Combine multiple hashes into a single hash. *)
 let combine_hashes (hashes : Step.Field.t list) : Step.Field.t =
   poseidon_hash (Array.of_list hashes)
+
+(** Native Poseidon hash of a constant Fp12 value, matching
+    [hash_fp12] but without circuit overhead. *)
+let hash_fp12_const (x : Fp12.Constant.t) : Step.Field.Constant.t =
+  let module FF = Snarky_foreign_field.Foreign_field in
+  let l = 88 in
+  let to_field bi = FF.bignum_to_field_const bi in
+  let bi_to_limbs bi =
+    let open Bignum_bigint in
+    let l0 = bi % FF.two_to_limb in
+    let l1 = (bi / FF.two_to_limb) % FF.two_to_limb in
+    let l2 = bi / FF.two_to_2limb in
+    [| (to_field l0, l); (to_field l1, l); (to_field l2, l) |]
+  in
+  let fp2_packed ((c0, c1) : Fp2.Constant.t) =
+    Array.concat [ bi_to_limbs c0; bi_to_limbs c1 ]
+  in
+  let fp6_packed ((c0, c1, c2) : Fp6.Constant.t) =
+    Array.concat [ fp2_packed c0; fp2_packed c1; fp2_packed c2 ]
+  in
+  let (g, h) = x in
+  let packeds = Array.concat [ fp6_packed g; fp6_packed h ] in
+  let input : Step.Field.Constant.t Random_oracle_input.Chunked.t =
+    { field_elements = [||]; packeds }
+  in
+  let packed = Random_oracle.pack_input input in
+  Random_oracle.hash packed
+
+(** Native Poseidon hash of a constant field array, matching
+    [poseidon_hash] but on constants. *)
+let poseidon_hash_const (fields : Step.Field.Constant.t array) :
+    Step.Field.Constant.t =
+  Random_oracle.hash fields

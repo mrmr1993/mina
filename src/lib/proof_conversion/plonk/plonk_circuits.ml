@@ -780,6 +780,99 @@ let zkp12_fast (acc_const : Plonk_accumulator.t_const)
       }
   }
 
+(** Fully native zkp_lines: no snarky, pure Bignum_bigint arithmetic.
+    Returns evolved KZG constant, updated lines_hashes, and g_values as
+    Fp12.Constant.t. *)
+let zkp_lines_native ~circuit_index (kzg_const : Kzg_accumulator.t_const)
+    ~(lines_hashes : Step.Field.Constant.t array) :
+    Kzg_accumulator.t_const * Step.Field.Constant.t array
+    * Fp12.Constant.t array =
+  let ate = Kzg_accumulator.ate_loop_count in
+  let ate_len = Array.length ate in
+  let from_, to_ =
+    match circuit_index with
+    | 13 -> (1, ate_len - 46)
+    | 14 -> (ate_len - 46, ate_len - 26)
+    | 15 -> (ate_len - 26, ate_len - 6)
+    | 16 -> (ate_len - 6, ate_len)
+    | _ -> assert false
+  in
+  let data_dir = "src/lib/proof_conversion/plonk/data" in
+  let all_g2 = Plonk_lines.load_lines_from_json (data_dir ^ "/g2_lines.json") in
+  let all_tau =
+    Plonk_lines.load_lines_from_json (data_dir ^ "/tau_lines.json")
+  in
+  let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
+  let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
+  let a_cache =
+    Fp_const.Lines.make_affine_cache ~x:kzg_const.proof.a_x
+      ~y:kzg_const.proof.a_y
+  in
+  let b_cache =
+    Fp_const.Lines.make_affine_cache ~x:kzg_const.proof.neg_b_x
+      ~y:kzg_const.proof.neg_b_y
+  in
+  let g_values = Queue.create () in
+  let lh = Array.copy lines_hashes in
+  let line_cnt = ref 0 in
+  for i = from_ to to_ - 1 do
+    let idx = i - 1 in
+    let g2_lambda, g2_neg_mu = g2_lines.(!line_cnt) in
+    let tau_lambda, tau_neg_mu = tau_lines.(!line_cnt) in
+    incr line_cnt ;
+    let g =
+      Fp_const.Lines.psi ~lambda:g2_lambda ~neg_mu:g2_neg_mu a_cache
+    in
+    let g =
+      Fp_const.Fp12.sparse_mul g
+        (Fp_const.Lines.psi ~lambda:tau_lambda ~neg_mu:tau_neg_mu b_cache)
+    in
+    let g =
+      if ate.(i) = 1 || ate.(i) = -1 then (
+        let g2_lambda2, g2_neg_mu2 = g2_lines.(!line_cnt) in
+        let tau_lambda2, tau_neg_mu2 = tau_lines.(!line_cnt) in
+        incr line_cnt ;
+        let g =
+          Fp_const.Fp12.sparse_mul g
+            (Fp_const.Lines.psi ~lambda:g2_lambda2 ~neg_mu:g2_neg_mu2 a_cache)
+        in
+        Fp_const.Fp12.sparse_mul g
+          (Fp_const.Lines.psi ~lambda:tau_lambda2 ~neg_mu:tau_neg_mu2 b_cache) )
+      else g
+    in
+    Queue.enqueue g_values g ;
+    lh.(idx) <- Accumulator_hash.hash_fp12_const g
+  done ;
+  if circuit_index = 16 then (
+    let frob_g2_1, frob_g2_2 = Plonk_lines.frobenius_lines all_g2 in
+    let frob_tau_1, frob_tau_2 = Plonk_lines.frobenius_lines all_tau in
+    let g2_1_l, g2_1_m = frob_g2_1 in
+    let tau_1_l, tau_1_m = frob_tau_1 in
+    let g2_2_l, g2_2_m = frob_g2_2 in
+    let tau_2_l, tau_2_m = frob_tau_2 in
+    let g = Fp_const.Lines.psi ~lambda:g2_1_l ~neg_mu:g2_1_m a_cache in
+    let g =
+      Fp_const.Fp12.sparse_mul g
+        (Fp_const.Lines.psi ~lambda:tau_1_l ~neg_mu:tau_1_m b_cache)
+    in
+    let g =
+      Fp_const.Fp12.sparse_mul g
+        (Fp_const.Lines.psi ~lambda:g2_2_l ~neg_mu:g2_2_m a_cache)
+    in
+    let g =
+      Fp_const.Fp12.sparse_mul g
+        (Fp_const.Lines.psi ~lambda:tau_2_l ~neg_mu:tau_2_m b_cache)
+    in
+    Queue.enqueue g_values g ;
+    lh.(ate_len - 1) <- Accumulator_hash.hash_fp12_const g ) ;
+  let lines_hashes_digest = Accumulator_hash.poseidon_hash_const lh in
+  let kzg_out =
+    { kzg_const with
+      state = { kzg_const.state with lines_hashes_digest }
+    }
+  in
+  (kzg_out, lh, Queue.to_array g_values)
+
 (** Fast zkp_lines: inject KZG acc as constant, skip input/output hashing. *)
 let zkp_lines_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
     ~(lines_hashes : Step.Field.Constant.t array) :
