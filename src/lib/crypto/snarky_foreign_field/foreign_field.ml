@@ -802,12 +802,35 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
   let f_0, f_1, f_2 = Field3.Constant.split f_ in
   let f2 = Bignum_bigint.(shift_right f (Int.( * ) 2 limb_bits)) in
   let f2_bound = Bignum_bigint.(two_to_limb - f2 - one) in
-  let cache = ref None in
-  let get_cached () =
-    match !cache with
-    | Some v ->
-        v
-    | None ->
+  let module T = struct
+    type t = {
+      r01 : Bignum_bigint.t;
+      r2 : Bignum_bigint.t;
+      q0 : Bignum_bigint.t;
+      q1 : Bignum_bigint.t;
+      q2 : Bignum_bigint.t;
+      q2_bound : Bignum_bigint.t;
+      p10 : Bignum_bigint.t;
+      p110 : Bignum_bigint.t;
+      p111 : Bignum_bigint.t;
+      c0 : Bignum_bigint.t;
+      c1_00 : Bignum_bigint.t;
+      c1_12 : Bignum_bigint.t;
+      c1_24 : Bignum_bigint.t;
+      c1_36 : Bignum_bigint.t;
+      c1_48 : Bignum_bigint.t;
+      c1_60 : Bignum_bigint.t;
+      c1_72 : Bignum_bigint.t;
+      c1_84 : Bignum_bigint.t;
+      c1_86 : Bignum_bigint.t;
+      c1_88 : Bignum_bigint.t;
+      c1_90 : Bignum_bigint.t;
+    }
+
+    let typ : (_, t) Circuit.Typ.t = Circuit.Typ.prover_value ()
+  end in
+  let witness =
+    Circuit.exists T.typ ~compute:(fun () ->
         let a0, a1, a2 = a in
         let b0, b1, b2 = b in
         let av0 = field_const_to_bignum (Circuit.As_prover.read_var a0) in
@@ -844,7 +867,9 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
         let _p11 = Bignum_bigint.(p110 + shift_left p111 limb_bits) in
         let c0 =
           Bignum_bigint.(
-            shift_right (p0 + shift_left p10 limb_bits - r01) (Int.( * ) 2 limb_bits))
+            shift_right
+              (p0 + shift_left p10 limb_bits - r01)
+              (Int.( * ) 2 limb_bits))
         in
         let c1 = Bignum_bigint.(shift_right (p2 - r2 + _p11 + c0) limb_bits) in
         let c1_00 = bit_slice c1 ~start:0 ~length:12 in
@@ -859,141 +884,94 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
         let c1_88 = bit_slice c1 ~start:88 ~length:2 in
         let c1_90 = bit_slice c1 ~start:90 ~length:1 in
         let q2_bound = Bignum_bigint.(q2 + f2_bound) in
-        let v =
-          ( r01
-          , r2
-          , q0
-          , q1
-          , q2
-          , q2_bound
-          , p10
-          , p110
-          , p111
-          , c0
-          , c1_00
-          , c1_12
-          , c1_24
-          , c1_36
-          , c1_48
-          , c1_60
-          , c1_72
-          , c1_84
-          , c1_86
-          , c1_88
-          , c1_90 )
-        in
-        cache := Some v ;
-        v
+        {
+          T.r01;
+          r2;
+          q0;
+          q1;
+          q2;
+          q2_bound;
+          p10;
+          p110;
+          p111;
+          c0;
+          c1_00;
+          c1_12;
+          c1_24;
+          c1_36;
+          c1_48;
+          c1_60;
+          c1_72;
+          c1_84;
+          c1_86;
+          c1_88;
+          c1_90;
+        })
   in
-  let w i =
-    Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-        let ( r01
-            , r2
-            , q0
-            , q1
-            , q2
-            , q2_bound
-            , p10
-            , p110
-            , p111
-            , c0
-            , c1_00
-            , c1_12
-            , c1_24
-            , c1_36
-            , c1_48
-            , c1_60
-            , c1_72
-            , c1_84
-            , c1_86
-            , c1_88
-            , c1_90 ) =
-          get_cached ()
-        in
-        let vals =
-          [| r01
-           ; r2
-           ; q0
-           ; q1
-           ; q2
-           ; q2_bound
-           ; p10
-           ; p110
-           ; p111
-           ; c0
-           ; c1_00
-           ; c1_12
-           ; c1_24
-           ; c1_36
-           ; c1_48
-           ; c1_60
-           ; c1_72
-           ; c1_84
-           ; c1_86
-           ; c1_88
-           ; c1_90
-          |]
-        in
-        bignum_to_field_const vals.(i) )
+  let w f =
+    let open Circuit in
+    exists Field.typ ~compute:(fun () ->
+        bignum_to_field_const (f (As_prover.read T.typ witness)))
   in
-  let r01 = w 0 in
-  let r2 = w 1 in
-  let q0 = w 2 in
-  let q1 = w 3 in
-  let q2 = w 4 in
-  let q2_bound = w 5 in
-  let p10 = w 6 in
-  let p110 = w 7 in
-  let p111 = w 8 in
-  let c0 = w 9 in
-  let c1_00 = w 10 in
-  let c1_12 = w 11 in
-  let c1_24 = w 12 in
-  let c1_36 = w 13 in
-  let c1_48 = w 14 in
-  let c1_60 = w 15 in
-  let c1_72 = w 16 in
-  let c1_84 = w 17 in
-  let c1_86 = w 18 in
-  let c1_88 = w 19 in
-  let c1_90 = w 20 in
+  let r01 = w (fun x -> x.T.r01) in
+  let r2 = w (fun x -> x.T.r2) in
+  let q0 = w (fun x -> x.T.q0) in
+  let q1 = w (fun x -> x.T.q1) in
+  let q2 = w (fun x -> x.T.q2) in
+  let q2_bound = w (fun x -> x.T.q2_bound) in
+  let p10 = w (fun x -> x.T.p10) in
+  let p110 = w (fun x -> x.T.p110) in
+  let p111 = w (fun x -> x.T.p111) in
+  let c0 = w (fun x -> x.T.c0) in
+  let c1_00 = w (fun x -> x.T.c1_00) in
+  let c1_12 = w (fun x -> x.T.c1_12) in
+  let c1_24 = w (fun x -> x.T.c1_24) in
+  let c1_36 = w (fun x -> x.T.c1_36) in
+  let c1_48 = w (fun x -> x.T.c1_48) in
+  let c1_60 = w (fun x -> x.T.c1_60) in
+  let c1_72 = w (fun x -> x.T.c1_72) in
+  let c1_84 = w (fun x -> x.T.c1_84) in
+  let c1_86 = w (fun x -> x.T.c1_86) in
+  let c1_88 = w (fun x -> x.T.c1_88) in
+  let c1_90 = w (fun x -> x.T.c1_90) in
   let a0, a1, a2 = a in
   let b0, b1, b2 = b in
   Circuit.assert_
     (ForeignFieldMul
-       { left_input0 = a0
-       ; left_input1 = a1
-       ; left_input2 = a2
-       ; right_input0 = b0
-       ; right_input1 = b1
-       ; right_input2 = b2
-       ; remainder01 = r01
-       ; remainder2 = r2
-       ; quotient0 = q0
-       ; quotient1 = q1
-       ; quotient2 = q2
-       ; quotient_hi_bound = q2_bound
-       ; product1_lo = p10
-       ; product1_hi_0 = p110
-       ; product1_hi_1 = p111
-       ; carry0 = c0
-       ; carry1_0 = c1_00
-       ; carry1_12 = c1_12
-       ; carry1_24 = c1_24
-       ; carry1_36 = c1_36
-       ; carry1_48 = c1_48
-       ; carry1_60 = c1_60
-       ; carry1_72 = c1_72
-       ; carry1_84 = c1_84
-       ; carry1_86 = c1_86
-       ; carry1_88 = c1_88
-       ; carry1_90 = c1_90
-       ; foreign_field_modulus2 = bignum_to_field_const f2
-       ; neg_foreign_field_modulus0 = bignum_to_field_const f_0
-       ; neg_foreign_field_modulus1 = bignum_to_field_const f_1
-       ; neg_foreign_field_modulus2 = bignum_to_field_const f_2
-       } ) ;
-  multi_range_check (p10, p110, q2_bound) ;
+       {
+         left_input0 = a0;
+         left_input1 = a1;
+         left_input2 = a2;
+         right_input0 = b0;
+         right_input1 = b1;
+         right_input2 = b2;
+         remainder01 = r01;
+         remainder2 = r2;
+         quotient0 = q0;
+         quotient1 = q1;
+         quotient2 = q2;
+         quotient_hi_bound = q2_bound;
+         product1_lo = p10;
+         product1_hi_0 = p110;
+         product1_hi_1 = p111;
+         carry0 = c0;
+         carry1_0 = c1_00;
+         carry1_12 = c1_12;
+         carry1_24 = c1_24;
+         carry1_36 = c1_36;
+         carry1_48 = c1_48;
+         carry1_60 = c1_60;
+         carry1_72 = c1_72;
+         carry1_84 = c1_84;
+         carry1_86 = c1_86;
+         carry1_88 = c1_88;
+         carry1_90 = c1_90;
+         foreign_field_modulus2 = bignum_to_field_const f2;
+         neg_foreign_field_modulus0 = bignum_to_field_const f_0;
+         neg_foreign_field_modulus1 = bignum_to_field_const f_1;
+         neg_foreign_field_modulus2 = bignum_to_field_const f_2;
+       });
+  multi_range_check (p10, p110, q2_bound);
   ((q0, q1, q2), r01, r2)
 
 (** Multiply two Field3 values mod f, returning the result as Field3. *)
