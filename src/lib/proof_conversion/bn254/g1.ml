@@ -875,22 +875,22 @@ let provable_if (type var value) (typ : (var, value) Step.Typ.t)
   t.var_of_fields (result_fields, !aux)
 
 (** Batch range-check weak bounds, matching nori's reduceMrcStack. *)
-let reduce_mrc_stack (xs : Step.Field.t array) : unit =
+let reduce_mrc_stack (xs : FF.Limb.t array) : unit =
   let n = Array.length xs in
   let n_rem = n mod 3 in
   let n_full = (n - n_rem) / 3 in
   for i = 0 to n_full - 1 do
-    FF.multi_range_check
-      (Tuple3.map ~f:FF.Limb.unsafe_create
-         (xs.(3 * i), xs.((3 * i) + 1), xs.((3 * i) + 2)) )
+    FF.multi_range_check (xs.(3 * i), xs.((3 * i) + 1), xs.((3 * i) + 2))
   done ;
   if n_rem > 0 then
     let remaining =
-      ( (if n_rem > 0 then xs.(3 * n_full) else Step.Field.zero)
-      , (if n_rem > 1 then xs.((3 * n_full) + 1) else Step.Field.zero)
-      , Step.Field.zero )
+      ( ( if n_rem > 0 then xs.(3 * n_full)
+        else FF.Limb.of_constant Bignum_bigint.zero )
+      , ( if n_rem > 1 then xs.((3 * n_full) + 1)
+        else FF.Limb.of_constant Bignum_bigint.zero )
+      , FF.Limb.of_constant Bignum_bigint.zero )
     in
-    FF.multi_range_check (Tuple3.map ~f:FF.Limb.unsafe_create remaining)
+    FF.multi_range_check remaining
 
 (* --- Multi-scalar multiplication (matching nori multiScalarMul) --------- *)
 
@@ -943,13 +943,10 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
             in
             let _, _, beta_x2 = beta_x in
             let bound =
-              FF.bignum_to_field_const
-                Bignum_bigint.(
-                  FF.two_to_limb
-                  - shift_right p (Int.( * ) 2 FF.limb_bits)
-                  - one)
+              Bignum_bigint.(
+                FF.two_to_limb - shift_right p (Int.( * ) 2 FF.limb_bits) - one)
             in
-            let weak = Step.Field.(FF.Limb.to_field beta_x2 + constant bound) in
+            let weak = FF.Limb.(add beta_x2 (of_constant bound)) in
             Queue.enqueue mrc_stack weak ;
             let beta_x_a = FpA.of_field3_unsafe beta_x in
             { Circuit.x = beta_x_a; y = pt_j.y } )
