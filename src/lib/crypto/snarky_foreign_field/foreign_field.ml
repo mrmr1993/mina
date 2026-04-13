@@ -62,6 +62,47 @@ let bit_slice (x : Bignum_bigint.t) ~(start : int) ~(length : int) :
   Bignum_bigint.(
     shift_right x start land (pow (of_int 2) (of_int length) - one))
 
+(* ------------------------------------------------------------------ *)
+(* Seal and to_var                                                     *)
+(* ------------------------------------------------------------------ *)
+
+(** Seal a circuit variable — materializes compound Cvars into fresh
+    variables. *)
+let seal (x : Circuit.Field.t) : Circuit.Field.t =
+  match Circuit.Field.to_constant_and_terms x with
+  | Some _, [] | None, [] ->
+      x
+  | None, [ (c, _) ] when Circuit.Field.Constant.(equal c one) ->
+      x
+  | Some c, [ (s, _) ]
+    when Circuit.Field.Constant.(equal c zero)
+         && Circuit.Field.Constant.(equal s one) ->
+      x
+  | _ ->
+      let v =
+        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+            Circuit.As_prover.read_var x )
+      in
+      Circuit.assert_ (Equal (x, v)) ;
+      v
+
+(** Convert to a simple variable, sealing if compound. *)
+let to_var (x : Circuit.Field.t) : Circuit.Field.t =
+  match Circuit.Field.to_constant_and_terms x with
+  | None, [ (c, _) ] when Circuit.Field.Constant.(equal c one) ->
+      x
+  | Some c, [ (s, _) ]
+    when Circuit.Field.Constant.(equal c zero)
+         && Circuit.Field.Constant.(equal s one) ->
+      x
+  | _ ->
+      let v =
+        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+            Circuit.As_prover.read_var x )
+      in
+      Circuit.assert_ (Equal (v, x)) ;
+      v
+
 let witness_bit_slice (v : Circuit.Field.t) ~(start : int) ~(length : int) :
     Circuit.Field.t =
   Circuit.exists Circuit.Field.typ ~compute:(fun () ->
@@ -286,47 +327,6 @@ let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
        ; v2c18
        ; v2c19
        } )
-
-(* ------------------------------------------------------------------ *)
-(* Seal and to_var                                                     *)
-(* ------------------------------------------------------------------ *)
-
-(** Seal a circuit variable — materializes compound Cvars into fresh
-    variables. *)
-let seal (x : Circuit.Field.t) : Circuit.Field.t =
-  match Circuit.Field.to_constant_and_terms x with
-  | Some _, [] | None, [] ->
-      x
-  | None, [ (c, _) ] when Circuit.Field.Constant.(equal c one) ->
-      x
-  | Some c, [ (s, _) ]
-    when Circuit.Field.Constant.(equal c zero)
-         && Circuit.Field.Constant.(equal s one) ->
-      x
-  | _ ->
-      let v =
-        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-            Circuit.As_prover.read_var x )
-      in
-      Circuit.assert_ (Equal (x, v)) ;
-      v
-
-(** Convert to a simple variable, sealing if compound. *)
-let to_var (x : Circuit.Field.t) : Circuit.Field.t =
-  match Circuit.Field.to_constant_and_terms x with
-  | None, [ (c, _) ] when Circuit.Field.Constant.(equal c one) ->
-      x
-  | Some c, [ (s, _) ]
-    when Circuit.Field.Constant.(equal c zero)
-         && Circuit.Field.Constant.(equal s one) ->
-      x
-  | _ ->
-      let v =
-        Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-            Circuit.As_prover.read_var x )
-      in
-      Circuit.assert_ (Equal (v, x)) ;
-      v
 
 (** Emit a Generic gate: ql*left + qr*right + qo*out + qm*left*right + qc = 0. *)
 let generic ~(ql : Circuit.Field.Constant.t) ~(qr : Circuit.Field.Constant.t)
