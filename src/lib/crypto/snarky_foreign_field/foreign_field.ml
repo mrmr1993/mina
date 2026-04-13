@@ -648,7 +648,7 @@ let sign_to_bigint = function
       Bignum_bigint.(neg one)
 
 (** Single foreign field addition/subtraction using ForeignFieldAdd gate. *)
-let single_add (x : Field3.limb_tuple) (y : Field3.t) ~(sign : sign)
+let single_add (x : Field3.limb_tuple) (y : Field3.limb_tuple) ~(sign : sign)
     ~(f : Bignum_bigint.t) : Field3.limb_tuple * Circuit.Field.t =
   let f0, f1, f2 = Field3.Constant.split f in
   let module T = struct
@@ -665,9 +665,9 @@ let single_add (x : Field3.limb_tuple) (y : Field3.t) ~(sign : sign)
         let xv0 = Circuit.As_prover.read Limb.typ x0 in
         let xv1 = Circuit.As_prover.read Limb.typ x1 in
         let xv2 = Circuit.As_prover.read Limb.typ x2 in
-        let yv0 = field_const_to_bignum (Circuit.As_prover.read_var y0) in
-        let yv1 = field_const_to_bignum (Circuit.As_prover.read_var y1) in
-        let yv2 = field_const_to_bignum (Circuit.As_prover.read_var y2) in
+        let yv0 = Circuit.As_prover.read Limb.typ y0 in
+        let yv1 = Circuit.As_prover.read Limb.typ y1 in
+        let yv2 = Circuit.As_prover.read Limb.typ y2 in
         let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
         let y_big = Field3.Constant.combine (yv0, yv1, yv2) in
         let s = sign_to_bigint sign in
@@ -730,9 +730,9 @@ let single_add (x : Field3.limb_tuple) (y : Field3.t) ~(sign : sign)
        { left_input_lo = Limb.to_field x0
        ; left_input_mi = Limb.to_field x1
        ; left_input_hi = Limb.to_field x2
-       ; right_input_lo = y0
-       ; right_input_mi = y1
-       ; right_input_hi = y2
+       ; right_input_lo = Limb.to_field y0
+       ; right_input_mi = Limb.to_field y1
+       ; right_input_hi = Limb.to_field y2
        ; field_overflow = overflow
        ; carry
        ; foreign_field_modulus0 = bignum_to_field_const f0
@@ -760,12 +760,15 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
   else
     let xs =
       List.map xs ~f:(fun (l0, l1, l2) ->
-          let v0 = to_var l0 in
-          let v1 = to_var l1 in
-          let v2 = to_var l2 in
+          let l0 = Limb.unsafe_create l0 in
+          let l1 = Limb.unsafe_create l1 in
+          let l2 = Limb.unsafe_create l2 in
+          let v0 = Limb.to_var l0 in
+          let v1 = Limb.to_var l1 in
+          let v2 = Limb.to_var l2 in
           (v0, v1, v2) )
     in
-    let result = ref (Tuple3.map ~f:Limb.unsafe_create @@ List.hd_exn xs) in
+    let result = ref (List.hd_exn xs) in
     List.iter2_exn (List.tl_exn xs) signs ~f:(fun xi sign_i ->
         let r, _overflow = single_add !result xi ~sign:sign_i ~f in
         result := r ) ;
@@ -1254,12 +1257,15 @@ module Sum = struct
     else
       let xs =
         List.map t.summands ~f:(fun (l0, l1, l2) ->
-            let l0 = to_var l0 in
-            let l1 = to_var l1 in
-            let l2 = to_var l2 in
+            let l0 = Limb.unsafe_create l0 in
+            let l1 = Limb.unsafe_create l1 in
+            let l2 = Limb.unsafe_create l2 in
+            let l0 = Limb.to_var l0 in
+            let l1 = Limb.to_var l1 in
+            let l2 = Limb.to_var l2 in
             (l0, l1, l2) )
       in
-      let result = ref (Tuple3.map ~f:Limb.unsafe_create (List.hd_exn xs)) in
+      let result = ref (List.hd_exn xs) in
       List.iter2_exn (List.tl_exn xs) t.ops ~f:(fun xi sign_i ->
           let r, _overflow = single_add !result xi ~sign:sign_i ~f in
           result := r ) ;
@@ -1297,9 +1303,12 @@ module Sum = struct
       else
         let xs =
           List.map xs ~f:(fun (l0, l1, l2) ->
-              let l0 = to_var l0 in
-              let l1 = to_var l1 in
-              let l2 = to_var l2 in
+              let l0 = Limb.unsafe_create l0 in
+              let l1 = Limb.unsafe_create l1 in
+              let l2 = Limb.unsafe_create l2 in
+              let l0 = Limb.to_var l0 in
+              let l1 = Limb.to_var l1 in
+              let l2 = Limb.to_var l2 in
               (l0, l1, l2) )
         in
         let f0 = Bignum_bigint.(f land limb_mask) in
@@ -1310,7 +1319,7 @@ module Sum = struct
         let x0 =
           ref
             (let l0, _, _ = List.hd_exn xs in
-             l0 )
+             Limb.to_field l0 )
         in
         (* Track the full accumulated value across iterations, matching
            o1js's Unconstrained.witness(xRef). Overflow depends on the
@@ -1318,7 +1327,7 @@ module Sum = struct
         let x_full_ref =
           Circuit.exists (Circuit.Typ.prover_value ()) ~compute:(fun () ->
               let l0, l1, l2 = List.hd_exn xs in
-              let rl v = field_const_to_bignum (Circuit.As_prover.read_var v) in
+              let rl = Circuit.As_prover.read Limb.typ in
               ref
                 Bignum_bigint.(
                   rl l0
@@ -1347,9 +1356,7 @@ module Sum = struct
                     in
                     let xi_full =
                       let l0, l1, l2 = xi in
-                      let rl v =
-                        field_const_to_bignum (Circuit.As_prover.read_var v)
-                      in
+                      let rl v = Circuit.As_prover.read Limb.typ v in
                       Bignum_bigint.(
                         rl l0
                         + shift_left (rl l1) limb_bits
@@ -1367,9 +1374,7 @@ module Sum = struct
                     let x0_new =
                       Bignum_bigint.(
                         x0v
-                        + sign_bi
-                          * field_const_to_bignum
-                              (Circuit.As_prover.read_var xi0)
+                        + (sign_bi * Circuit.As_prover.read Limb.typ xi0)
                         - (overflow * f0))
                     in
                     let carry = Bignum_bigint.(shift_right x0_new limb_bits) in
@@ -1392,7 +1397,7 @@ module Sum = struct
             let x0_expr =
               Circuit.Field.(
                 !x0
-                + (xi0 * constant sign_field)
+                + (Limb.to_field xi0 * constant sign_field)
                 - (overflow * constant f0_field)
                 - (carry * constant two_l_field))
             in
@@ -1401,7 +1406,7 @@ module Sum = struct
         (* ForeignFieldAdd chain — assert equality via wiring.
            The assertEqual calls produce half-generics that pair with
            each other and with the toVar half-generic above. *)
-        let result = ref (Tuple3.map ~f:Limb.unsafe_create (List.hd_exn xs)) in
+        let result = ref (List.hd_exn xs) in
         List.iteri (List.tl_exn xs) ~f:(fun i xi ->
             let sign_i = List.nth_exn signs i in
             let r, overflow = single_add !result xi ~sign:sign_i ~f in
