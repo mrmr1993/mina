@@ -1832,7 +1832,7 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
 
 (** Prove base circuit [n] using a pre-compiled prover (PLONK).
     Reads state from workdir, writes proof + VK. *)
-let do_prove_zkp_plonk ~provers ~workdir ~n =
+let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
   Printf.eprintf "Daemon proving plonk zkp%d in %s\n%!" n workdir ;
   let prover, side_vk, proof_module = provers.(n) in
   let prev = n - 1 in
@@ -1925,7 +1925,7 @@ let do_prove_zkp_plonk ~provers ~workdir ~n =
   in
   let output_hash, proof_out =
     Proof_conversion.Plonk_pickles_rules.prove_with_compiled ~n ~prover
-      ~proof_module ~input_hash ~witness:w
+      ~proof_module ~skip_verify ~input_hash ~witness:w
   in
   write_base_proof ~proof_out ;
   W.write_hash ~workdir ~n ~hash:output_hash ;
@@ -1933,7 +1933,7 @@ let do_prove_zkp_plonk ~provers ~workdir ~n =
 
 (** Prove base circuit [n] using a pre-compiled prover (Groth16).
     Reads state from workdir, writes proof + VK. *)
-let do_prove_zkp_groth16 ~provers ~workdir ~n =
+let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   Printf.eprintf "Daemon proving groth16 zkp%d in %s\n%!" n workdir ;
   let prover, side_vk, proof_module = provers.(n) in
   let prev = n - 1 in
@@ -2012,6 +2012,7 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n =
   in
   let output_hash, proof_out =
     Proof_conversion.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
+      ~skip_verify
       ~input_hash ~witness:w
   in
   let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -2072,7 +2073,8 @@ let parse_circuits_spec ~base_count spec =
     then serves prove-zkp, compress, compute-state, generate-witness, and
     compute-aux-witness requests over a Unix domain socket.
     Circuits not pre-compiled are compiled on demand (slower but saves RAM). *)
-let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec =
+let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
+    ~skip_verify =
   Printf.eprintf "Prove daemon: compiling circuits for %s...\n%!" system ;
   let base_count =
     match system with "plonk" -> 24 | "groth16" -> 16 | _ -> assert false
@@ -2190,8 +2192,10 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec =
                 ( match system with
                 | "plonk" ->
                     do_prove_zkp_plonk ~provers:provers_for_n ~workdir ~n
+                      ~skip_verify
                 | "groth16" ->
                     do_prove_zkp_groth16 ~provers:provers_for_n ~workdir ~n
+                      ~skip_verify
                 | _ ->
                     assert false )
             | None ->
@@ -2473,7 +2477,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
 
 (** Start N worker daemons. *)
 let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
-    ~background =
+    ~skip_verify ~background =
   Core_unix.mkdir_p socket_dir ;
   let pids =
     Array.init count ~f:(fun i ->
@@ -2486,7 +2490,7 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
         match Core_unix.fork () with
         | `In_the_child ->
             run_internal_prove_daemon ~socket_path ~system ~vk_path
-              ~circuits_spec ;
+              ~circuits_spec ~skip_verify ;
             Stdlib.exit 0
         | `In_the_parent pid ->
             Printf.eprintf "  Worker %d started (pid %d)\n%!" i
@@ -2930,7 +2934,7 @@ let () =
       run_internal_collect_output ~workdir
   | [| _; "internal"; "prove-daemon"; socket_path; "--system"; system |] ->
       run_internal_prove_daemon ~socket_path ~system ~vk_path:None
-        ~circuits_spec:None
+        ~circuits_spec:None ~skip_verify:false
   | [| _
      ; "internal"
      ; "prove-daemon"
@@ -2941,7 +2945,7 @@ let () =
      ; vk_p
     |] ->
       run_internal_prove_daemon ~socket_path ~system ~vk_path:(Some vk_p)
-        ~circuits_spec:None
+        ~circuits_spec:None ~skip_verify:false
   | [| _; "internal"; "dispatch-to-worker"; socket_path; command |] ->
       run_internal_dispatch_to_worker ~socket_path ~command
   | _ when Array.length argv >= 2 && String.equal argv.(1) "sp1ToPlonkDaemonised"
@@ -2990,28 +2994,36 @@ let () =
         ~vk_path:(Some vk_p)
   | _ when Array.length argv >= 2 && String.equal argv.(1) "start-workers" ->
       let args = Array.to_list argv in
-      let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg = function
+      let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg =
+          function
         | "--system" :: s :: rest ->
-            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~bg rest
+            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
+              rest
         | "--count" :: n :: rest ->
             parse ~system ~count:(Some (Int.of_string n)) ~socket_dir ~vk_p
-              ~circuits ~bg rest
+              ~circuits ~sv ~bg rest
         | "--socket-dir" :: d :: rest ->
-            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~bg rest
+            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg
+              rest
         | "--vk-path" :: p :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~sv ~bg
+              rest
         | "--circuits" :: c :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~sv ~bg
+              rest
         | "--background" :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg:true rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg:true rest
+        | "--skip-verify" :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv:true ~bg rest
         | _ :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg rest
         | [] ->
-            (system, count, socket_dir, vk_p, circuits, bg)
+            (system, count, socket_dir, vk_p, circuits, sv, bg)
       in
-      let system, count, socket_dir, vk_p, circuits_spec, background =
+      let system, count, socket_dir, vk_p, circuits_spec, skip_verify,
+          background =
         parse ~system:None ~count:None ~socket_dir:None ~vk_p:None
-          ~circuits:None ~bg:false args
+          ~circuits:None ~sv:false ~bg:false args
       in
       let system =
         Option.value_exn system ~message:"start-workers requires --system"
@@ -3024,7 +3036,7 @@ let () =
           ~message:"start-workers requires --socket-dir"
       in
       run_start_workers ~system ~count ~socket_dir ~vk_path:vk_p ~circuits_spec
-        ~background
+        ~skip_verify ~background
   | _ when Array.length argv >= 2 && String.equal argv.(1) "stop-workers" ->
       let rec find_socket_dir = function
         | "--socket-dir" :: d :: _ ->

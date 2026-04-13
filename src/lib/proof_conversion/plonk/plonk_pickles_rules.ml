@@ -331,10 +331,13 @@ let compile_circuit ~(n : int) =
      and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
 
 (** Prove circuit [n] using a pre-compiled prover.
+    When [~skip_verify:true], skips the post-prove verification check
+    (saves time in production when proofs are known-good).
     Returns (output_hash, proof). *)
 let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proof_intf
     with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
      and type statement = Step.Field.Constant.t * Step.Field.Constant.t))
+    ?(skip_verify = false)
     ~(input_hash : Step.Field.Constant.t)
     ~(witness : Plonk_requests.witness) =
   let (module Proof) = proof_module in
@@ -342,16 +345,17 @@ let prove_with_compiled ~(n : int) ~prover ~(proof_module : (module Pickles.Proo
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prover ?handler:(Some handler) input_hash)
   in
-  let verified =
-    Promise.block_on_async_exn (fun () ->
-        Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
-  in
-  ( match verified with
-  | Ok () ->
-      ()
-  | Error e ->
-      failwith
-        (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
+  if not skip_verify then (
+    let verified =
+      Promise.block_on_async_exn (fun () ->
+          Proof.verify_promise [ ((input_hash, output_hash), proof) ] )
+    in
+    match verified with
+    | Ok () ->
+        ()
+    | Error e ->
+        failwith
+          (sprintf "plonk-zkp%d verify failed: %s" n (Error.to_string_hum e)) ) ;
   (output_hash, proof)
 
 let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
