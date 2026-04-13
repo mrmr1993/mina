@@ -57,8 +57,12 @@ let sub (a : Circuit.t) (b : Circuit.t) : Circuit.t =
 let sum (inputs : Circuit.t list) (ops : FF.sign list) : Circuit.t =
   let c0s = List.map inputs ~f:(fun x -> FpA.to_field3 x.c0) in
   let c1s = List.map inputs ~f:(fun x -> FpA.to_field3 x.c1) in
-  let c0 = FF.FpU.of_field3_unsafe (FF.sum c0s ops ~f:p) in
-  let c1 = FF.FpU.of_field3_unsafe (FF.sum c1s ops ~f:p) in
+  let c0 =
+    FF.FpU.of_field3_unsafe (FF.Field3.of_limb_tuple (FF.sum c0s ops ~f:p))
+  in
+  let c1 =
+    FF.FpU.of_field3_unsafe (FF.Field3.of_limb_tuple (FF.sum c1s ops ~f:p))
+  in
   from_unreduced c0 c1
 
 (** Read a 3-limb foreign field element as a [Bignum_bigint]. *)
