@@ -797,7 +797,7 @@ let negate (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
 (** Multiply two Field3 values using ForeignFieldMul gate, without
     range-checking the result. Returns (quotient, remainder01, remainder2). *)
 let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
-    : Field3.t * Circuit.Field.t * Circuit.Field.t =
+    : Field3.limb_tuple * Circuit.Field.t * Circuit.Field.t =
   let f_ =
     Bignum_bigint.(pow (of_int 2) (of_int (Int.( * ) 3 limb_bits)) - f)
   in
@@ -915,11 +915,15 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
     exists Field.typ ~compute:(fun () ->
         bignum_to_field_const (f (As_prover.read T.typ witness)))
   in
+  let w_limb f =
+    let open Circuit in
+    exists Limb.typ ~compute:(fun () -> f (As_prover.read T.typ witness))
+  in
   let r01 = w (fun x -> x.T.r01) in
   let r2 = w (fun x -> x.T.r2) in
-  let q0 = w (fun x -> x.T.q0) in
-  let q1 = w (fun x -> x.T.q1) in
-  let q2 = w (fun x -> x.T.q2) in
+  let q0 = w_limb (fun x -> x.T.q0) in
+  let q1 = w_limb (fun x -> x.T.q1) in
+  let q2 = w_limb (fun x -> x.T.q2) in
   let q2_bound = w (fun x -> x.T.q2_bound) in
   let p10 = w (fun x -> x.T.p10) in
   let p110 = w (fun x -> x.T.p110) in
@@ -949,9 +953,9 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
          right_input2 = b2;
          remainder01 = r01;
          remainder2 = r2;
-         quotient0 = q0;
-         quotient1 = q1;
-         quotient2 = q2;
+         quotient0 = Limb.to_field q0;
+         quotient1 = Limb.to_field q1;
+         quotient2 = Limb.to_field q2;
          quotient_hi_bound = q2_bound;
          product1_lo = p10;
          product1_hi_0 = p110;
@@ -986,7 +990,7 @@ let mul (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     Field3.of_constant Bignum_bigint.(ab % f)
   else
     let q, r01, r2 = multiply_no_range_check a b ~f in
-    multi_range_check q ;
+    multi_range_check (Field3.of_limb_tuple q) ;
     compact_multi_range_check r01 r2
 
 (** Assert that x * y = xy mod f (compact field2 form). *)
@@ -995,7 +999,7 @@ type field2 = Circuit.Field.t * Circuit.Field.t
 let assert_mul_field2 (x : Field3.t) (y : Field3.t) (xy : field2)
     ~(f : Bignum_bigint.t) : unit =
   let q, r01, r2 = multiply_no_range_check x y ~f in
-  multi_range_check q ;
+  multi_range_check (Field3.of_limb_tuple q) ;
   let xy01, xy2 = xy in
   Circuit.assert_ (Equal (r01, xy01)) ;
   Circuit.assert_ (Equal (r2, xy2))
@@ -1013,7 +1017,7 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
   else
     let xy0, xy1, xy2 = xy in
     let q, r01, r2 = multiply_no_range_check x y ~f in
-    multi_range_check q ;
+    multi_range_check (Field3.of_limb_tuple q) ;
     let xy01 =
       Circuit.Field.(xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
     in
