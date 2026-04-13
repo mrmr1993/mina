@@ -194,11 +194,10 @@ end = struct
     Option.bind (Circuit.Field.to_constant t.var) ~f:(fun _ -> t.bigint)
 end
 
-let witness_bit_slice (v : Circuit.Field.t) ~(start : int) ~(length : int) :
+let witness_bit_slice (v : Limb.t) ~(start : int) ~(length : int) :
     Circuit.Field.t =
   Circuit.exists Circuit.Field.typ ~compute:(fun () ->
-      let v_const = Circuit.As_prover.read_var v in
-      let v_bignum = field_const_to_bignum v_const in
+      let v_bignum = Circuit.As_prover.read Limb.typ v in
       bignum_to_field_const (bit_slice v_bignum ~start ~length) )
 
 (* ------------------------------------------------------------------ *)
@@ -317,7 +316,7 @@ end
 
 (** Range check a single 88-bit limb using RangeCheck0 gate.
     Returns the top two 12-bit plookup chunks (bits 64-87). *)
-let range_check0 (v0 : Circuit.Field.t) ~(compact : bool) :
+let range_check0 (v0 : Limb.t) ~(compact : bool) :
     Circuit.Field.t * Circuit.Field.t =
   let ws = witness_bit_slice v0 in
   let v0c0 = ws ~start:14 ~length:2 in
@@ -336,7 +335,7 @@ let range_check0 (v0 : Circuit.Field.t) ~(compact : bool) :
   let v0p0 = ws ~start:76 ~length:12 in
   Circuit.assert_
     (RangeCheck0
-       { v0
+       { v0 = Limb.to_field v0
        ; v0p0
        ; v0p1
        ; v0p2
@@ -360,7 +359,7 @@ let range_check0 (v0 : Circuit.Field.t) ~(compact : bool) :
 (** Range check using RangeCheck1 gate. Combines three limbs'
     plookup chunks into one gate. *)
 let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
-    ~(y64 : Circuit.Field.t) ~(y76 : Circuit.Field.t) ~(z : Circuit.Field.t)
+    ~(y64 : Circuit.Field.t) ~(y76 : Circuit.Field.t) ~(z : Limb.t)
     ~(yz : Circuit.Field.t) : unit =
   let ws = witness_bit_slice z in
   (* Current row: MSB-first crumbs and plookups, matching o1js rangeCheck1Helper *)
@@ -391,7 +390,7 @@ let range_check1 ~(x64 : Circuit.Field.t) ~(x76 : Circuit.Field.t)
   let v2c19 = ws ~start:0 ~length:2 in
   Circuit.assert_
     (RangeCheck1
-       { v2 = z
+       { v2 = Limb.to_field z
        ; v12 = yz
        ; v2c0
        ; v2p0
@@ -518,9 +517,12 @@ let multi_range_check ((x, y, z) : Field3.t) : unit =
     in
     check x "x" ; check y "y" ; check z "z" )
   else
-    let x = to_var x in
-    let y = to_var y in
-    let z = to_var z in
+    let x = Limb.unsafe_create x in
+    let y = Limb.unsafe_create y in
+    let z = Limb.unsafe_create z in
+    let x = Limb.to_var x in
+    let y = Limb.to_var y in
+    let z = Limb.to_var z in
     let zero = to_var (Circuit.Field.constant Circuit.Field.Constant.zero) in
     let x64, x76 = range_check0 x ~compact:false in
     let y64, y76 = range_check0 y ~compact:false in
@@ -556,9 +558,9 @@ let compact_multi_range_check (xy : Limb.t) (z : Limb.t) : Field3.limb_tuple =
             let xy_bignum = As_prover.read Limb.typ xy in
             Bignum_bigint.(shift_right xy_bignum limb_bits) )
       in
-      let z64, z76 = range_check0 (Limb.to_field z) ~compact:false in
-      let x64, x76 = range_check0 (Limb.to_field x) ~compact:true in
-      range_check1 ~x64:z64 ~x76:z76 ~y64:x64 ~y76:x76 ~z:(Limb.to_field y)
+      let z64, z76 = range_check0 z ~compact:false in
+      let x64, x76 = range_check0 x ~compact:true in
+      range_check1 ~x64:z64 ~x76:z76 ~y64:x64 ~y76:x76 ~z:y
         ~yz:(Limb.to_field xy) ;
       (x, y, z)
 
