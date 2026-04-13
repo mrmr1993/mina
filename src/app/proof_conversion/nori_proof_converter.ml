@@ -1715,20 +1715,49 @@ type dag_task =
   ; mutable status : task_status
   }
 
-let run_dag ~parallelism (tasks : dag_task array) =
+(** Run a DAG of tasks with bounded parallelism.
+    When [~worker_dispatch] is provided, tasks are dispatched to workers
+    from the pool.  Each task's [cmd] is the inner command (e.g.
+    "prove-zkp /tmp/w 3"); the scheduler wraps it with the
+    dispatch-to-worker invocation using whichever worker is next free.
+    Without [~worker_dispatch], tasks are forked as shell commands. *)
+let run_dag ~parallelism ?(worker_dispatch : string array option)
+    (tasks : dag_task array) =
   let n = Array.length tasks in
   if n = 0 then ()
   else if parallelism <= 1 then
-    (* Sequential fallback: topological order is guaranteed by deps pointing
-       to lower indices only. *)
-    Array.iter tasks ~f:(fun t ->
-        run_cmd t.cmd ;
-        t.status <- Done )
+    (* Sequential fallback *)
+    ( match worker_dispatch with
+    | None ->
+        Array.iter tasks ~f:(fun t ->
+            run_cmd t.cmd ;
+            t.status <- Done )
+    | Some workers ->
+        let self = Filename.quote Sys.argv.(0) in
+        let next_worker = ref 0 in
+        Array.iter tasks ~f:(fun t ->
+            let socket = workers.(!next_worker mod Array.length workers) in
+            incr next_worker ;
+            run_cmd
+              (sprintf "%s internal dispatch-to-worker %s %s" self
+                 (Filename.quote socket) (Filename.quote t.cmd) ) ;
+            t.status <- Done ) )
   else
-    (* pid_to_task maps a child PID to its task index *)
+    (* Parallel mode *)
     let pid_to_task : (Pid.t, int) Hashtbl.t =
       Hashtbl.create (module Pid) ~size:parallelism
     in
+    (* Worker pool: tracks which workers are free.
+       Only used when worker_dispatch is Some. *)
+    let free_workers : string Queue.t = Queue.create () in
+    let pid_to_worker : (Pid.t, string) Hashtbl.t =
+      Hashtbl.create (module Pid) ~size:parallelism
+    in
+    ( match worker_dispatch with
+    | Some workers ->
+        Array.iter workers ~f:(fun w -> Queue.enqueue free_workers w)
+    | None ->
+        () ) ;
     let running = ref 0 in
     let completed = ref 0 in
     let failures = ref [] in
@@ -1741,7 +1770,19 @@ let run_dag ~parallelism (tasks : dag_task array) =
           false
     in
     let start_task i =
-      let cmd = tasks.(i).cmd in
+      let cmd, worker_used =
+        match worker_dispatch with
+        | None ->
+            (tasks.(i).cmd, None)
+        | Some _ ->
+            let worker = Queue.dequeue_exn free_workers in
+            let self = Filename.quote Sys.argv.(0) in
+            let full_cmd =
+              sprintf "%s internal dispatch-to-worker %s %s" self
+                (Filename.quote worker) (Filename.quote tasks.(i).cmd)
+            in
+            (full_cmd, Some worker)
+      in
       Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n
         cmd ;
       match Core_unix.fork () with
@@ -1751,13 +1792,22 @@ let run_dag ~parallelism (tasks : dag_task array) =
       | `In_the_parent pid ->
           tasks.(i).status <- Running pid ;
           Hashtbl.set pid_to_task ~key:pid ~data:i ;
+          Option.iter worker_used ~f:(fun w ->
+              Hashtbl.set pid_to_worker ~key:pid ~data:w ) ;
           incr running
+    in
+    let can_start () =
+      match worker_dispatch with
+      | None ->
+          !running < parallelism
+      | Some _ ->
+          !running < parallelism && not (Queue.is_empty free_workers)
     in
     (* Fill slots with ready tasks, highest priority first.
        Among equal-priority tasks, preserve index order. *)
     let fill_slots () =
       let found = ref true in
-      while !running < parallelism && !found do
+      while can_start () && !found do
         let best = ref (-1) in
         let best_pri = ref Int.min_value in
         for i = 0 to n - 1 do
@@ -1776,6 +1826,12 @@ let run_dag ~parallelism (tasks : dag_task array) =
       match Hashtbl.find pid_to_task pid with
       | Some task_idx ->
           Hashtbl.remove pid_to_task pid ;
+          (* Return worker to free pool *)
+          ( match Hashtbl.find_and_remove pid_to_worker pid with
+          | Some w ->
+              Queue.enqueue free_workers w
+          | None ->
+              () ) ;
           decr running ;
           ( match status with
           | Ok () ->
@@ -2294,7 +2350,6 @@ let discover_workers ~socket_dir =
     workers via socket instead of forking subprocesses. *)
 let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     ~max_layer ~input_path ~vk_path =
-  let self = Filename.quote Sys.argv.(0) in
   let n_workers = Array.length worker_sockets in
   if n_workers = 0 then failwith "No workers found" ;
   Printf.eprintf "Daemonised pipeline: %d workers, system=%s\n%!" n_workers
@@ -2309,6 +2364,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
   in
   Printf.eprintf "Working directory: %s\n%!" workdir ;
   (* init-workdir (local, fast) *)
+  let self = Filename.quote Sys.argv.(0) in
   let init_cmd =
     match vk_path with
     | Some vk ->
@@ -2357,28 +2413,20 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     Array.create ~len:total_tasks
       { cmd = ""; deps = [||]; priority = 0; status = Pending }
   in
-  (* All tasks dispatch to workers via the thin client.
-     Round-robin assignment across workers. *)
-  let worker_cmd i command =
-    let socket = worker_sockets.(i % n_workers) in
-    sprintf "%s internal dispatch-to-worker %s %s" self
-      (Filename.quote socket) (Filename.quote command)
-  in
-  (* generate-witness *)
+  (* Tasks store inner commands (no worker assignment).
+     The DAG scheduler assigns workers dynamically via ~worker_dispatch. *)
   tasks.(gw_idx) <-
-    { cmd = worker_cmd 0 (sprintf "generate-witness %s" workdir)
+    { cmd = sprintf "generate-witness %s" workdir
     ; deps = [||]
     ; priority = 1
     ; status = Pending
     } ;
-  (* compute-aux-witness *)
   tasks.(aux_idx) <-
-    { cmd = worker_cmd 1 (sprintf "compute-aux-witness %s" workdir)
+    { cmd = sprintf "compute-aux-witness %s" workdir
     ; deps = [||]
     ; priority = 1
     ; status = Pending
     } ;
-  (* compute-state: sequential chain *)
   for n = 0 to base_count - 1 do
     let deps =
       if n = 0 then [| gw_idx |]
@@ -2390,18 +2438,17 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
             [| cs_start + n - 1 |]
     in
     tasks.(cs_start + n) <-
-      { cmd = worker_cmd n (sprintf "compute-state %s %d" workdir n)
+      { cmd = sprintf "compute-state %s %d" workdir n
       ; deps
-      ; priority = 1
+      ; priority = 2
       ; status = Pending
       }
   done ;
-  (* prove-zkp: each depends on its compute-state *)
   for n = 0 to base_count - 1 do
     tasks.(prove_start + n) <-
-      { cmd = worker_cmd n (sprintf "prove-zkp %s %d" workdir n)
+      { cmd = sprintf "prove-zkp %s %d" workdir n
       ; deps = [| cs_start + n |]
-      ; priority = 0
+      ; priority = 1
       ; status = Pending
       }
   done ;
@@ -2425,20 +2472,18 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
           let prev_start = layer_start.(layer - 1) in
           [| prev_start + left_child; prev_start + right_child |]
       in
-      let compress_task_num = !task_idx - compress_start in
       tasks.(!task_idx) <-
         { cmd =
-            worker_cmd compress_task_num
-              (sprintf "compress %s %d %d %d" workdir base_count layer index)
+            sprintf "compress %s %d %d %d" workdir base_count layer index
         ; deps
-        ; priority = 2
+        ; priority = 0
         ; status = Pending
         } ;
       incr task_idx
     done
   done ;
   assert (!task_idx = total_tasks) ;
-  run_dag ~parallelism:n_workers tasks ;
+  run_dag ~parallelism:n_workers ~worker_dispatch:worker_sockets tasks ;
   (* Collect output (local) *)
   run_cmd
     (sprintf "%s internal collect-output %s" self (Filename.quote workdir)) ;
