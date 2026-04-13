@@ -340,27 +340,16 @@ module Field3 = struct
       automatically applies multi_range_check to ensure each limb is
       in [0, 2^88). *)
   let typ : (t, Constant.t) Circuit.Typ.t =
-    Circuit.Typ.Typ
-      { size_in_field_elements = 3
-      ; constraint_system_auxiliary = (fun () -> ())
-      ; value_to_fields =
-          (fun x ->
-            let l0, l1, l2 = Constant.split x in
-            ( [| bignum_to_field_const l0
-               ; bignum_to_field_const l1
-               ; bignum_to_field_const l2
-              |]
-            , () ) )
-      ; value_of_fields =
-          (fun (fields, ()) ->
-            let l0 = field_const_to_bignum fields.(0) in
-            let l1 = field_const_to_bignum fields.(1) in
-            let l2 = field_const_to_bignum fields.(2) in
-            Constant.combine (l0, l1, l2) )
-      ; var_to_fields = (fun (l0, l1, l2) -> ([| l0; l1; l2 |], ()))
-      ; var_of_fields =
-          (fun (fields, ()) -> (fields.(0), fields.(1), fields.(2)))
-      ; check =
+    let (Typ typ) =
+      Circuit.Typ.tuple3 Limb.typ Limb.typ Limb.typ
+      |> Circuit.Typ.transport ~there:Constant.split ~back:Constant.combine
+      |> Circuit.Typ.transport_var
+           ~there:(Tuple3.map ~f:Limb.unsafe_create)
+           ~back:(Tuple3.map ~f:Limb.to_field)
+    in
+    Typ
+      { typ with
+        check =
           (fun (l0, l1, l2) ->
             Circuit.make_checked (fun () -> !check_ref (l0, l1, l2)) )
       }
