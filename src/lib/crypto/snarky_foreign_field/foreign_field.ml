@@ -153,10 +153,18 @@ end = struct
 
   let unsafe_create var =
     let open Circuit in
-    let bigint = ref None in
-    as_prover (fun () ->
-        bigint := Some (field_const_to_bignum (As_prover.read Field.typ var)) ) ;
-    { var; bigint = !bigint }
+    let bigint =
+      match Circuit.Field.to_constant var with
+      | Some x ->
+          Some (field_const_to_bignum x)
+      | None ->
+          let bigint = ref None in
+          as_prover (fun () ->
+              bigint :=
+                Some (field_const_to_bignum (As_prover.read Field.typ var)) ) ;
+          !bigint
+    in
+    { var; bigint }
 
   let typ : (t, Bignum_bigint.t) Circuit.Typ.t =
     Circuit.Typ.Typ
@@ -507,19 +515,17 @@ let assert_one_of (x : Circuit.Field.t) (allowed : Circuit.Field.Constant.t list
 
 (** Range check all three limbs of a Field3 to [0, 2^88). *)
 let multi_range_check ((x, y, z) : Field3.t) : unit =
-  if Field3.is_constant (x, y, z) then (
+  let x = Limb.unsafe_create x in
+  let y = Limb.unsafe_create y in
+  let z = Limb.unsafe_create z in
+  if Field3.is_constant @@ Field3.of_limb_tuple (x, y, z) then (
     let check v name =
-      let v_bignum =
-        field_const_to_bignum (Option.value_exn (Circuit.Field.to_constant v))
-      in
+      let v_bignum = Option.value_exn (Limb.to_constant v) in
       if Bignum_bigint.(v_bignum >= two_to_limb) then
         failwith (sprintf "multi_range_check: %s >= 2^%d" name limb_bits)
     in
     check x "x" ; check y "y" ; check z "z" )
   else
-    let x = Limb.unsafe_create x in
-    let y = Limb.unsafe_create y in
-    let z = Limb.unsafe_create z in
     let x = Limb.to_var x in
     let y = Limb.to_var y in
     let z = Limb.to_var z in
