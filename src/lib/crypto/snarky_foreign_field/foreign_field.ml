@@ -518,10 +518,7 @@ let assert_one_of (x : Circuit.Field.t) (allowed : Circuit.Field.Constant.t list
 (* ------------------------------------------------------------------ *)
 
 (** Range check all three limbs of a Field3 to [0, 2^88). *)
-let multi_range_check ((x, y, z) : Field3.t) : unit =
-  let x = Limb.unsafe_create x in
-  let y = Limb.unsafe_create y in
-  let z = Limb.unsafe_create z in
+let multi_range_check ((x, y, z) : Field3.limb_tuple) : unit =
   if Field3.is_constant @@ Field3.of_limb_tuple (x, y, z) then (
     let check v name =
       let v_bignum = Option.value_exn (Limb.to_constant v) in
@@ -539,7 +536,13 @@ let multi_range_check ((x, y, z) : Field3.t) : unit =
     range_check1 ~x64 ~x76 ~y64 ~y76 ~z ~yz:zero
 
 (* Initialize the Field3.typ check function now that multi_range_check exists *)
-let () = Field3.check_ref := multi_range_check
+let () =
+  Field3.check_ref :=
+    fun (x, y, z) ->
+      let x = Limb.unsafe_create x in
+      let y = Limb.unsafe_create y in
+      let z = Limb.unsafe_create z in
+      multi_range_check (x, y, z)
 
 (** Range check a compact 2-limb value [xy] (176 bits) and a single
     limb [z] (88 bits). Returns the three individual limbs. *)
@@ -601,7 +604,7 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   let flush_bounds () =
     match !bounds with
     | [ b1; b2; b3 ] ->
-        multi_range_check (b1, b2, b3) ;
+        multi_range_check (Tuple3.map ~f:Limb.unsafe_create (b1, b2, b3)) ;
         bounds := []
     | _ ->
         ()
@@ -610,7 +613,7 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   List.iter xs ~f:(fun ((_, _, x2) as x) ->
       if not skip_mrc then (
         let was_constant = Field3.is_constant x in
-        multi_range_check x ;
+        multi_range_check (Tuple3.map ~f:Limb.unsafe_create x) ;
         if not was_constant then (
           incr mrc_count ;
           check_abort (sprintf "after_mrc%d" !mrc_count) ) ) ;
@@ -619,12 +622,14 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   match !bounds with
   | [ b1 ] ->
       multi_range_check
-        ( b1
-        , Circuit.Field.constant Circuit.Field.Constant.zero
-        , Circuit.Field.constant Circuit.Field.Constant.zero )
+        ( Limb.unsafe_create b1
+        , Limb.of_constant Bignum_bigint.zero
+        , Limb.of_constant Bignum_bigint.zero )
   | [ b1; b2 ] ->
       multi_range_check
-        (b1, b2, Circuit.Field.constant Circuit.Field.Constant.zero)
+        ( Limb.unsafe_create b1
+        , Limb.unsafe_create b2
+        , Limb.of_constant Bignum_bigint.zero )
   | _ ->
       ()
 
@@ -782,8 +787,7 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
           let v = Circuit.As_prover.read Limb.typ r2 in
           Bignum_bigint.(v land limb_mask) )
     in
-    multi_range_check
-      (Limb.to_field r0_trunc, Limb.to_field r1_trunc, Limb.to_field r2_trunc) ;
+    multi_range_check (r0_trunc, r1_trunc, r2_trunc) ;
     Circuit.assert_ (Equal (Limb.to_field r0, Limb.to_field r0_trunc)) ;
     Circuit.assert_ (Equal (Limb.to_field r1, Limb.to_field r1_trunc)) ;
     Circuit.assert_ (Equal (Limb.to_field r2, Limb.to_field r2_trunc)) ;
@@ -931,9 +935,9 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
   let q0 = w_limb (fun x -> x.T.q0) in
   let q1 = w_limb (fun x -> x.T.q1) in
   let q2 = w_limb (fun x -> x.T.q2) in
-  let q2_bound = w (fun x -> x.T.q2_bound) in
-  let p10 = w (fun x -> x.T.p10) in
-  let p110 = w (fun x -> x.T.p110) in
+  let q2_bound = w_limb (fun x -> x.T.q2_bound) in
+  let p10 = w_limb (fun x -> x.T.p10) in
+  let p110 = w_limb (fun x -> x.T.p110) in
   let p111 = w (fun x -> x.T.p111) in
   let c0 = w (fun x -> x.T.c0) in
   let c1_00 = w (fun x -> x.T.c1_00) in
@@ -962,9 +966,9 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
        ; quotient0 = Limb.to_field q0
        ; quotient1 = Limb.to_field q1
        ; quotient2 = Limb.to_field q2
-       ; quotient_hi_bound = q2_bound
-       ; product1_lo = p10
-       ; product1_hi_0 = p110
+       ; quotient_hi_bound = Limb.to_field q2_bound
+       ; product1_lo = Limb.to_field p10
+       ; product1_hi_0 = Limb.to_field p110
        ; product1_hi_1 = p111
        ; carry0 = c0
        ; carry1_0 = c1_00
@@ -996,7 +1000,7 @@ let mul (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     Field3.of_constant Bignum_bigint.(ab % f)
   else
     let q, r01, r2 = multiply_no_range_check a b ~f in
-    multi_range_check (Field3.of_limb_tuple q) ;
+    multi_range_check q ;
     Field3.of_limb_tuple (compact_multi_range_check r01 r2)
 
 (** Assert that x * y = xy mod f (compact field2 form). *)
@@ -1005,7 +1009,7 @@ type field2 = Circuit.Field.t * Circuit.Field.t
 let assert_mul_field2 (x : Field3.t) (y : Field3.t) (xy : field2)
     ~(f : Bignum_bigint.t) : unit =
   let q, r01, r2 = multiply_no_range_check x y ~f in
-  multi_range_check (Field3.of_limb_tuple q) ;
+  multi_range_check q ;
   let xy01, xy2 = xy in
   Circuit.assert_ (Equal (Limb.to_field r01, xy01)) ;
   Circuit.assert_ (Equal (Limb.to_field r2, xy2))
@@ -1023,7 +1027,7 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
   else
     let xy0, xy1, xy2 = xy in
     let q, r01, r2 = multiply_no_range_check x y ~f in
-    multi_range_check (Field3.of_limb_tuple q) ;
+    multi_range_check q ;
     let xy01 =
       Circuit.Field.(xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
     in
@@ -1078,11 +1082,11 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
           Field3.Constant.split x_inv )
     in
     let w i =
-      Circuit.exists Circuit.Field.typ ~compute:(fun () ->
+      Circuit.exists Limb.typ ~compute:(fun () ->
           let l0, l1, l2 =
             Circuit.As_prover.read (Circuit.Typ.prover_value ()) prover_inv
           in
-          bignum_to_field_const [| l0; l1; l2 |].(i) )
+          [| l0; l1; l2 |].(i) )
     in
     let v0 = w 0 in
     let v1 = w 1 in
@@ -1090,17 +1094,17 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     let x_inv = (v0, v1, v2) in
     multi_range_check x_inv ;
     let _, _, x_inv2 = x_inv in
-    let x_inv2_bound = weak_bound x_inv2 ~f in
+    let x_inv2_bound = weak_bound (Limb.to_field x_inv2) ~f in
     let one_field2 : field2 =
       ( Circuit.Field.(constant Constant.one)
       , Circuit.Field.(constant Constant.zero) )
     in
-    assert_mul_field2 x x_inv one_field2 ~f ;
+    assert_mul_field2 x (Field3.of_limb_tuple x_inv) one_field2 ~f ;
     multi_range_check
-      ( x_inv2_bound
-      , Circuit.Field.constant Circuit.Field.Constant.zero
-      , Circuit.Field.constant Circuit.Field.Constant.zero ) ;
-    x_inv
+      ( Limb.unsafe_create @@ x_inv2_bound
+      , Limb.of_constant Bignum_bigint.zero
+      , Limb.of_constant Bignum_bigint.zero ) ;
+    Field3.of_limb_tuple x_inv
 
 (** Compute x / y mod f. *)
 let div (x : Field3.t) (y : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
@@ -1613,12 +1617,13 @@ end = struct
         check =
           (fun (l0, l1, l2) ->
             Circuit.make_checked (fun () ->
-                multi_range_check (l0, l1, l2) ;
+                multi_range_check
+                  (Tuple3.map ~f:Limb.unsafe_create (l0, l1, l2)) ;
                 let bound = weak_bound l2 ~f in
                 multi_range_check
-                  ( bound
-                  , Circuit.Field.constant Circuit.Field.Constant.zero
-                  , Circuit.Field.constant Circuit.Field.Constant.zero ) ) )
+                  ( Limb.unsafe_create bound
+                  , Limb.of_constant Bigint.zero
+                  , Limb.of_constant Bigint.zero ) ) )
       }
 end
 
@@ -1655,7 +1660,8 @@ module FpC = struct
         check =
           (fun x ->
             Circuit.make_checked (fun () ->
-                multi_range_check (FpA.to_field3 x) ;
+                multi_range_check
+                  (Tuple3.map ~f:Limb.unsafe_create (FpA.to_field3 x)) ;
                 assert_less_than (FpA.to_field3 x) ~bound:f ) )
       }
     |> Circuit.Typ.transport_var

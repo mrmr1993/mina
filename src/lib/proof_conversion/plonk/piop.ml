@@ -93,7 +93,7 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
   in
   (* Nori: Provable.witness(FrC.provable, ...) does MRC + assertLessThan *)
   let inv_f3 = FF.FpU.to_field3 inv_fpu in
-  FF.multi_range_check inv_f3 ;
+  FF.multi_range_check (Tuple3.map ~f:FF.Limb.unsafe_create inv_f3) ;
   FF.assert_less_than inv_f3 ~bound:r ;
   let inv = FF.FpA.of_field3_unsafe inv_f3 in
   let product =

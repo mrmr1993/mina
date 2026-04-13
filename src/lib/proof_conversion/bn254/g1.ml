@@ -880,7 +880,9 @@ let reduce_mrc_stack (xs : Step.Field.t array) : unit =
   let n_rem = n mod 3 in
   let n_full = (n - n_rem) / 3 in
   for i = 0 to n_full - 1 do
-    FF.multi_range_check (xs.(3 * i), xs.((3 * i) + 1), xs.((3 * i) + 2))
+    FF.multi_range_check
+      (Tuple3.map ~f:FF.Limb.unsafe_create
+         (xs.(3 * i), xs.((3 * i) + 1), xs.((3 * i) + 2)) )
   done ;
   if n_rem > 0 then
     let remaining =
@@ -888,7 +890,7 @@ let reduce_mrc_stack (xs : Step.Field.t array) : unit =
       , (if n_rem > 1 then xs.((3 * n_full) + 1) else Step.Field.zero)
       , Step.Field.zero )
     in
-    FF.multi_range_check remaining
+    FF.multi_range_check (Tuple3.map ~f:FF.Limb.unsafe_create remaining)
 
 (* --- Multi-scalar multiplication (matching nori multiScalarMul) --------- *)
 
