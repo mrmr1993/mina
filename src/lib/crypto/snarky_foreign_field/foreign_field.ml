@@ -583,18 +583,18 @@ let compact_multi_range_check (xy : Limb.t) (z : Limb.t) : Field3.limb_tuple =
 
 (** Compute a bound value for the high limb that proves x < f
     (or x <= f depending on the modulus structure). *)
-let weak_bound (x2 : Circuit.Field.t) ~(f : Bignum_bigint.t) : Circuit.Field.t =
+let weak_bound (x2 : Limb.t) ~(f : Bignum_bigint.t) : Limb.t =
   let l2_mask = Bignum_bigint.(two_to_2limb - one) in
   if Bignum_bigint.(f land l2_mask = zero) then
     let bound =
       Bignum_bigint.(two_to_limb - shift_right f (Int.( * ) 2 limb_bits))
     in
-    Circuit.Field.(x2 + constant (bignum_to_field_const bound))
+    Limb.add_const x2 bound
   else
     let bound =
       Bignum_bigint.(limb_mask - shift_right f (Int.( * ) 2 limb_bits))
     in
-    Circuit.Field.(x2 + constant (bignum_to_field_const bound))
+    Limb.add_const x2 bound
 
 (** Assert that each Field3 in the list is almost-reduced modulo [f],
     meaning its high limb is bounded. *)
@@ -604,7 +604,7 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   let flush_bounds () =
     match !bounds with
     | [ b1; b2; b3 ] ->
-        multi_range_check (Tuple3.map ~f:Limb.unsafe_create (b1, b2, b3)) ;
+        multi_range_check (b1, b2, b3) ;
         bounds := []
     | _ ->
         ()
@@ -617,19 +617,17 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
         if not was_constant then (
           incr mrc_count ;
           check_abort (sprintf "after_mrc%d" !mrc_count) ) ) ;
+      let x2 = Limb.unsafe_create x2 in
       bounds := !bounds @ [ weak_bound x2 ~f ] ;
       if List.length !bounds = 3 then flush_bounds () ) ;
   match !bounds with
   | [ b1 ] ->
       multi_range_check
-        ( Limb.unsafe_create b1
+        ( b1
         , Limb.of_constant Bignum_bigint.zero
         , Limb.of_constant Bignum_bigint.zero )
   | [ b1; b2 ] ->
-      multi_range_check
-        ( Limb.unsafe_create b1
-        , Limb.unsafe_create b2
-        , Limb.of_constant Bignum_bigint.zero )
+      multi_range_check (b1, b2, Limb.of_constant Bignum_bigint.zero)
   | _ ->
       ()
 
@@ -1094,14 +1092,14 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     let x_inv = (v0, v1, v2) in
     multi_range_check x_inv ;
     let _, _, x_inv2 = x_inv in
-    let x_inv2_bound = weak_bound (Limb.to_field x_inv2) ~f in
+    let x_inv2_bound = weak_bound x_inv2 ~f in
     let one_field2 : field2 =
       ( Circuit.Field.(constant Constant.one)
       , Circuit.Field.(constant Constant.zero) )
     in
     assert_mul_field2 x (Field3.of_limb_tuple x_inv) one_field2 ~f ;
     multi_range_check
-      ( Limb.unsafe_create @@ x_inv2_bound
+      ( x_inv2_bound
       , Limb.of_constant Bignum_bigint.zero
       , Limb.of_constant Bignum_bigint.zero ) ;
     Field3.of_limb_tuple x_inv
@@ -1619,9 +1617,10 @@ end = struct
             Circuit.make_checked (fun () ->
                 multi_range_check
                   (Tuple3.map ~f:Limb.unsafe_create (l0, l1, l2)) ;
+                let l2 = Limb.unsafe_create l2 in
                 let bound = weak_bound l2 ~f in
                 multi_range_check
-                  ( Limb.unsafe_create bound
+                  ( bound
                   , Limb.of_constant Bigint.zero
                   , Limb.of_constant Bigint.zero ) ) )
       }
