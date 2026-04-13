@@ -6,27 +6,35 @@
 open! Core_kernel
 module Step = Pickles.Impls.Step
 
+(** Convert a circuit-level Chunked input to constants.
+    Works when all Cvars are [Cvar.constant] (as from [of_constant]). *)
+let chunked_input_to_const
+    (input : Step.Field.t Random_oracle_input.Chunked.t) :
+    Step.Field.Constant.t Random_oracle_input.Chunked.t =
+  let read x = Option.value_exn (Step.Field.to_constant x) in
+  { field_elements = Array.map input.field_elements ~f:read
+  ; packeds = Array.map input.packeds ~f:(fun (x, n) -> (read x, n))
+  }
+
 (** Compute the Poseidon hash of an accumulator constant, matching
-    in-circuit hash_packed. Uses run_and_check to evaluate the
-    circuit-level hash on constant inputs. *)
+    in-circuit hash_packed.  Uses native Poseidon (no snarky overhead). *)
 let hash_accumulator_const (acc_const : Plonk_accumulator.t_const) :
     Step.Field.Constant.t =
-  let result = ref Step.Field.Constant.zero in
-  Step.run_unchecked (fun () ->
-      let acc = Plonk_accumulator.of_constant acc_const in
-      let h = Plonk_accumulator.hash_packed acc in
-      Step.as_prover (fun () -> result := Step.As_prover.read_var h) ) ;
-  !result
+  let acc = Plonk_accumulator.of_constant acc_const in
+  let input = Plonk_accumulator.to_input acc in
+  let input_const = chunked_input_to_const input in
+  let packed = Random_oracle.pack_input input_const in
+  Random_oracle.hash packed
 
-(** Compute the Poseidon hash of a KZG accumulator constant. *)
+(** Compute the Poseidon hash of a KZG accumulator constant.
+    Uses native Poseidon (no snarky overhead). *)
 let hash_kzg_accumulator_const (kzg_const : Kzg_accumulator.t_const) :
     Step.Field.Constant.t =
-  let result = ref Step.Field.Constant.zero in
-  Step.run_unchecked (fun () ->
-      let kzg = Kzg_accumulator.of_constant kzg_const in
-      let h = Kzg_accumulator.hash_packed kzg in
-      Step.as_prover (fun () -> result := Step.As_prover.read_var h) ) ;
-  !result
+  let kzg = Kzg_accumulator.of_constant kzg_const in
+  let input = Kzg_accumulator.to_input kzg in
+  let input_const = chunked_input_to_const input in
+  let packed = Random_oracle.pack_input input_const in
+  Random_oracle.hash packed
 
 (** Run a circuit via run_unchecked with a witness handler.
     Returns the output hash. *)
