@@ -118,6 +118,8 @@ module Limb : sig
       [Circuit.As_prover.read Limb.typ] to read in prover context. *)
   type t
 
+  val unsafe_create : Circuit.Field.t -> t
+
   (** Snarky Typ whose value is [Bignum_bigint.t].  The auxiliary channel
       carries the bigint through to the var, so [exists typ ~compute]
       produces a [t] with the bigint already cached. *)
@@ -148,6 +150,13 @@ module Limb : sig
   val to_constant : t -> Bignum_bigint.t option
 end = struct
   type t = { var : Circuit.Field.t; bigint : Bignum_bigint.t option }
+
+  let unsafe_create var =
+    let open Circuit in
+    let bigint = ref None in
+    as_prover (fun () ->
+        bigint := Some (field_const_to_bignum (As_prover.read Field.typ var)) ) ;
+    { var; bigint = !bigint }
 
   let typ : (t, Bignum_bigint.t) Circuit.Typ.t =
     Circuit.Typ.Typ
