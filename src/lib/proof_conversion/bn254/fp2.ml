@@ -86,10 +86,10 @@ let mul (a : Circuit.t) (b : Circuit.t) : Circuit.t =
   let module Step = Pickles.Impls.Step in
   let c1 =
     Step.exists FF.FpU.typ ~compute:(fun () ->
-        let a0 = read_field3 (FF.Field3.vars (FpA.to_field3 a.c0)) in
-        let a1 = read_field3 (FF.Field3.vars (FpA.to_field3 a.c1)) in
-        let b0 = read_field3 (FF.Field3.vars (FpA.to_field3 b.c0)) in
-        let b1 = read_field3 (FF.Field3.vars (FpA.to_field3 b.c1)) in
+        let a0 = read_field3 (FpA.to_field3 a.c0) in
+        let a1 = read_field3 (FpA.to_field3 a.c1) in
+        let b0 = read_field3 (FpA.to_field3 b.c0) in
+        let b1 = read_field3 (FpA.to_field3 b.c1) in
         Bignum_bigint.(((a0 * b1) + (a1 * b0)) % p) )
   in
   let lhs_x =
@@ -117,8 +117,8 @@ let square (a : Circuit.t) : Circuit.t =
   let c0, c1 =
     let c =
       Step.exists (Step.Typ.tuple2 FF.FpU.typ FF.FpU.typ) ~compute:(fun () ->
-          let a0 = read_field3 (FF.Field3.vars (FpA.to_field3 a.c0)) in
-          let a1 = read_field3 (FF.Field3.vars (FpA.to_field3 a.c1)) in
+          let a0 = read_field3 (FpA.to_field3 a.c0) in
+          let a1 = read_field3 (FpA.to_field3 a.c1) in
           Bignum_bigint.
             ( ((((a0 * a0) - (a1 * a1)) % p) + p) % p
             , ((a0 * a1 * of_int 2 % p) + p) % p ) )

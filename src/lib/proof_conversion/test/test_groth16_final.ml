@@ -42,7 +42,7 @@ let () =
         (* Extract all FpA fields from the accumulator *)
         let q = Queue.create () in
         let add_fpa x =
-          let l0, l1, l2 = FF.Field3.vars (FF.FpA.to_field3 x) in
+          let l0, l1, l2 = FF.FpA.to_field3 x in
           Queue.enqueue q l0 ; Queue.enqueue q l1 ; Queue.enqueue q l2
         in
         let add_g1 (g : Proof_conversion.G1.Circuit.t) =

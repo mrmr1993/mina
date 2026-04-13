@@ -681,7 +681,7 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   let packeds = Queue.create () in
   let l = 88 in
   let add_fpa (x : FF.FpA.t) =
-    let l0, l1, l2 = FF.Field3.vars (FF.FpA.to_field3 x) in
+    let l0, l1, l2 = FF.FpA.to_field3 x in
     Queue.enqueue packeds (l0, l) ;
     Queue.enqueue packeds (l1, l) ;
     Queue.enqueue packeds (l2, l)

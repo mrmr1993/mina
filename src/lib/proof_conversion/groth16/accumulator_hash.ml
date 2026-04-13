@@ -18,11 +18,7 @@ let poseidon_hash (fields : Step.Field.t array) : Step.Field.t =
 (** Hash a list of Field3 values using Poseidon.
     Each Field3 contributes 3 field elements (its limbs). *)
 let hash_field3_list (xs : FF.Field3.t list) : Step.Field.t =
-  let fields =
-    List.concat_map xs ~f:(fun f3 ->
-        let l0, l1, l2 = FF.Field3.vars f3 in
-        [ l0; l1; l2 ] )
-  in
+  let fields = List.concat_map xs ~f:(fun (l0, l1, l2) -> [ l0; l1; l2 ]) in
   poseidon_hash (Array.of_list fields)
 
 (** Hash an Fp12 value using packed Poseidon.
@@ -30,7 +26,7 @@ let hash_field3_list (xs : FF.Field3.t list) : Step.Field.t =
 let hash_fp12 (x : Fp12.Circuit.t) : Step.Field.t =
   let l = 88 in
   let field3_packed (f3 : FF.Field3.t) =
-    let l0, l1, l2 = FF.Field3.vars f3 in
+    let l0, l1, l2 = f3 in
     [| (l0, l); (l1, l); (l2, l) |]
   in
   let fp2_packed (fp2 : Fp2.Circuit.t) =

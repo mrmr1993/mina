@@ -61,7 +61,7 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
   let inv_limbs =
     Array.init 3 ~f:(fun limb_idx ->
         Step.exists Step.Field.typ ~compute:(fun () ->
-            let l0, l1, l2 = FF.Field3.vars (FF.FpA.to_field3 x) in
+            let l0, l1, l2 = FF.FpA.to_field3 x in
             let lv0 = FF.field_const_to_bignum (Step.As_prover.read_var l0) in
             let lv1 = FF.field_const_to_bignum (Step.As_prover.read_var l1) in
             let lv2 = FF.field_const_to_bignum (Step.As_prover.read_var l2) in
@@ -89,7 +89,7 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
             FF.bignum_to_field_const v ) )
   in
   let inv_fpu =
-    FF.FpU.of_field3_unsafe (FF.Limb.of_var inv_limbs.(0), FF.Limb.of_var inv_limbs.(1), FF.Limb.of_var inv_limbs.(2))
+    FF.FpU.of_field3_unsafe (inv_limbs.(0), inv_limbs.(1), inv_limbs.(2))
   in
   (* Nori: Provable.witness(FrC.provable, ...) does MRC + assertLessThan *)
   let inv_f3 = FF.FpU.to_field3 inv_fpu in
