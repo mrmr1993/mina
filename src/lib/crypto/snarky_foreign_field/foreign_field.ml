@@ -255,6 +255,11 @@ module Field3 = struct
     let l0, l1, l2 = Constant.split x in
     (Limb.of_constant l0, Limb.of_constant l1, Limb.of_constant l2)
 
+  let limb_tuple_is_constant ((l0, l1, l2) : limb_tuple) : bool =
+    Option.is_some (Limb.to_constant l0)
+    && Option.is_some (Limb.to_constant l1)
+    && Option.is_some (Limb.to_constant l2)
+
   let of_limbs
       ((l0, l1, l2) : Circuit.Field.t * Circuit.Field.t * Circuit.Field.t) : t =
     (l0, l1, l2)
@@ -598,7 +603,7 @@ let weak_bound (x2 : Limb.t) ~(f : Bignum_bigint.t) : Limb.t =
 
 (** Assert that each Field3 in the list is almost-reduced modulo [f],
     meaning its high limb is bounded. *)
-let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
+let assert_almost_reduced (xs : Field3.limb_tuple list) ~(f : Bignum_bigint.t)
     ~(skip_mrc : bool) : unit =
   let bounds = ref [] in
   let flush_bounds () =
@@ -612,12 +617,11 @@ let assert_almost_reduced (xs : Field3.t list) ~(f : Bignum_bigint.t)
   let mrc_count = ref 0 in
   List.iter xs ~f:(fun ((_, _, x2) as x) ->
       if not skip_mrc then (
-        let was_constant = Field3.is_constant x in
-        multi_range_check (Tuple3.map ~f:Limb.unsafe_create x) ;
+        let was_constant = Field3.limb_tuple_is_constant x in
+        multi_range_check x ;
         if not was_constant then (
           incr mrc_count ;
           check_abort (sprintf "after_mrc%d" !mrc_count) ) ) ;
-      let x2 = Limb.unsafe_create x2 in
       bounds := !bounds @ [ weak_bound x2 ~f ] ;
       if List.length !bounds = 3 then flush_bounds () ) ;
   match !bounds with
@@ -1604,9 +1608,12 @@ end = struct
 
   let assert_almost_reduced (xs : FpU.t list) ~(f : Bignum_bigint.t)
       ?(skip_mrc = false) () : t list =
-    let xs_raw = List.map xs ~f:FpU.to_field3 in
+    let xs_raw =
+      List.map xs ~f:(fun x ->
+          Tuple3.map ~f:Limb.unsafe_create (FpU.to_field3 x) )
+    in
     assert_almost_reduced xs_raw ~f ~skip_mrc ;
-    List.map xs_raw ~f:of_field3_unsafe
+    List.map xs_raw ~f:(fun x -> of_field3_unsafe (Field3.of_limb_tuple x))
 
   let typ ~(f : Bignum_bigint.t) : (t, Field3.Constant.t) Circuit.Typ.t =
     let (Circuit.Typ.Typ base) = Field3.typ in
