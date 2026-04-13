@@ -36,8 +36,8 @@ let () =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
-        ~input_hash:!current_hash ~witness:w
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+        ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     (* Also get acc for chaining *)
     let _, acc_after, _ =
@@ -58,8 +58,8 @@ let () =
     }
   in
   let output_hash_12, proof_12, vk_12 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:12
-      ~input_hash:!current_hash ~witness:w12
+    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      ~skip_verify:false ~n:12 ~input_hash:!current_hash ~witness:w12
   in
   let _, kzg_const, _ =
     Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
@@ -83,8 +83,8 @@ let () =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
-        ~input_hash:!current_hash ~witness:w
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+        ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, lh_after, gv, _ =
       Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
@@ -127,8 +127,8 @@ let () =
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n
-        ~input_hash:!current_hash ~witness:w
+      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+        ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, _ =
       Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
@@ -150,8 +150,8 @@ let () =
     }
   in
   let output_hash_23, proof_23, vk_23 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export ~n:23
-      ~input_hash:!current_hash ~witness:w23
+    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      ~skip_verify:false ~n:23 ~input_hash:!current_hash ~witness:w23
   in
   base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
   Printf.eprintf "All 24 base circuits proved!\n%!" ;
