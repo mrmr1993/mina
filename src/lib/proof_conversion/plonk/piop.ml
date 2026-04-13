@@ -62,9 +62,9 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
     let inv =
       Step.exists (Step.Typ.prover_value ()) ~compute:(fun () ->
           let l0, l1, l2 = FF.FpA.to_field3 x in
-          let lv0 = FF.field_const_to_bignum (Step.As_prover.read_var l0) in
-          let lv1 = FF.field_const_to_bignum (Step.As_prover.read_var l1) in
-          let lv2 = FF.field_const_to_bignum (Step.As_prover.read_var l2) in
+          let lv0 = Step.As_prover.read FF.Limb.typ l0 in
+          let lv1 = Step.As_prover.read FF.Limb.typ l1 in
+          let lv2 = Step.As_prover.read FF.Limb.typ l2 in
           let xv = FF.Field3.Constant.combine (lv0, lv1, lv2) in
           let inv_v =
             match FF.bignum_mod_inverse xv ~f:r with
@@ -76,7 +76,7 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
           FF.Field3.Constant.split inv_v )
     in
     Array.init 3 ~f:(fun limb_idx ->
-        Step.exists Step.Field.typ ~compute:(fun () ->
+        Step.exists FF.Limb.typ ~compute:(fun () ->
             let l0_v, l1_v, l2_v =
               Step.As_prover.read (Step.Typ.prover_value ()) inv
             in
@@ -91,14 +91,14 @@ let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
               | _ ->
                   assert false
             in
-            FF.bignum_to_field_const v ) )
+            v ) )
   in
   let inv_fpu =
     FF.FpU.of_field3_unsafe (inv_limbs.(0), inv_limbs.(1), inv_limbs.(2))
   in
   (* Nori: Provable.witness(FrC.provable, ...) does MRC + assertLessThan *)
   let inv_f3 = FF.FpU.to_field3 inv_fpu in
-  FF.multi_range_check (Tuple3.map ~f:FF.Limb.unsafe_create inv_f3) ;
+  FF.multi_range_check inv_f3 ;
   FF.assert_less_than inv_f3 ~bound:r ;
   let inv = FF.FpA.of_field3_unsafe inv_f3 in
   let product =

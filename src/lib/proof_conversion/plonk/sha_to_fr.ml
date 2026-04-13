@@ -80,18 +80,17 @@ let sha_to_fr (digest_bytes : Step.Field.t array) : FF.FpA.t =
     let terms =
       Array.to_list
         (Array.init len ~f:(fun j ->
-             let bit = sha_bit_repr.(pos + j) in
-             let coeff =
-               FF.bignum_to_field_const
-                 Bignum_bigint.(pow (of_int 2) (of_int j))
-             in
-             Step.Field.scale (bit :> Step.Field.t) coeff ) )
+             let bit = FF.Limb.of_boolean sha_bit_repr.(pos + j) in
+             let coeff = Bignum_bigint.(pow (of_int 2) (of_int j)) in
+             FF.Limb.scale bit coeff ) )
     in
-    List.fold terms ~init:Step.Field.zero ~f:Step.Field.add
+    List.fold terms
+      ~init:(FF.Limb.of_constant Bignum_bigint.zero)
+      ~f:FF.Limb.add
   in
-  let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
-  let limb1 = FF.seal (pack_limb ~pos:88 ~len:88) in
-  let limb2 = FF.seal (pack_limb ~pos:176 ~len:78) in
+  let limb0 = FF.Limb.seal (pack_limb ~pos:0 ~len:88) in
+  let limb1 = FF.Limb.seal (pack_limb ~pos:88 ~len:88) in
+  let limb2 = FF.Limb.seal (pack_limb ~pos:176 ~len:78) in
   let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
 
   (* const a = Provable.if(bit255.equals(true), FrC.provable, sh254, FrC.from(0n)) *)

@@ -76,23 +76,21 @@ let shr128 (digest_bytes : Step.Field.t array) : FF.FpA.t =
     done
   done ;
   let bits = Queue.to_array sha_bit_repr in
-  (* FrC.fromBits(shaBitRepr).assertCanonical() *)
   let pack_limb ~pos ~len =
     let terms =
       Array.to_list
         (Array.init len ~f:(fun j ->
-             let bit = bits.(pos + j) in
-             let coeff =
-               FF.bignum_to_field_const
-                 Bignum_bigint.(pow (of_int 2) (of_int j))
-             in
-             Step.Field.scale (bit :> Step.Field.t) coeff ) )
+             let bit = FF.Limb.of_boolean bits.(pos + j) in
+             let coeff = Bignum_bigint.(pow (of_int 2) (of_int j)) in
+             FF.Limb.scale bit coeff ) )
     in
-    List.fold terms ~init:Step.Field.zero ~f:Step.Field.add
+    List.fold terms
+      ~init:(FF.Limb.of_constant Bignum_bigint.zero)
+      ~f:FF.Limb.add
   in
-  let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
-  let limb1 = FF.seal (pack_limb ~pos:88 ~len:40) in
-  let f3 = (limb0, limb1, Step.Field.zero) in
+  let limb0 = FF.Limb.seal (pack_limb ~pos:0 ~len:88) in
+  let limb1 = FF.Limb.seal (pack_limb ~pos:88 ~len:40) in
+  let f3 = (limb0, limb1, FF.Limb.of_constant Bignum_bigint.zero) in
   assert_canonical_fr f3
 
 (** Shift left by 128 mod r: decompose SHA digest to 254 bits + top 2,
@@ -146,26 +144,25 @@ let shl_128_mod_r (digest_bytes : Step.Field.t array) : FF.FpA.t =
     let terms =
       Array.to_list
         (Array.init len ~f:(fun j ->
-             let bit = bits.(pos + j) in
-             let coeff =
-               FF.bignum_to_field_const
-                 Bignum_bigint.(pow (of_int 2) (of_int j))
-             in
-             Step.Field.scale (bit :> Step.Field.t) coeff ) )
+             let bit = FF.Limb.of_boolean bits.(pos + j) in
+             let coeff = Bignum_bigint.(pow (of_int 2) (of_int j)) in
+             FF.Limb.scale bit coeff ) )
     in
-    List.fold terms ~init:Step.Field.zero ~f:Step.Field.add
+    List.fold terms
+      ~init:(FF.Limb.of_constant Bignum_bigint.zero)
+      ~f:FF.Limb.add
   in
-  let limb0 = FF.seal (pack_limb ~pos:0 ~len:88) in
-  let limb1 = FF.seal (pack_limb ~pos:88 ~len:88) in
-  let limb2 = FF.seal (pack_limb ~pos:176 ~len:78) in
+  let limb0 = FF.Limb.seal (pack_limb ~pos:0 ~len:88) in
+  let limb1 = FF.Limb.seal (pack_limb ~pos:88 ~len:88) in
+  let limb2 = FF.Limb.seal (pack_limb ~pos:176 ~len:78) in
   let x = FF.FpU.of_field3_unsafe (limb0, limb1, limb2) in
   let cond_field3 (b : Step.Boolean.var) (c : Bignum_bigint.t) : FF.Field3.t =
     let l0, l1, l2 = FF.Field3.Constant.split c in
-    let bf = (b :> Step.Field.t) in
+    let bf = FF.Limb.of_boolean b in
     (* Nori: Provable.if seals each limb in order *)
-    let s0 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l0)) in
-    let s1 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l1)) in
-    let s2 = FF.seal (Step.Field.scale bf (FF.bignum_to_field_const l2)) in
+    let s0 = FF.Limb.seal (FF.Limb.scale bf l0) in
+    let s1 = FF.Limb.seal (FF.Limb.scale bf l1) in
+    let s2 = FF.Limb.seal (FF.Limb.scale bf l2) in
     (s0, s1, s2)
   in
   let a = cond_field3 !bit_255 two_254_mod_r in

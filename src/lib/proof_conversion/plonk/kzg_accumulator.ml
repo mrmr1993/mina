@@ -119,9 +119,9 @@ let to_input (acc : t) : Step.Field.t Random_oracle_input.Chunked.t =
   let l = 88 in
   let add_fpa (x : FF.FpA.t) =
     let l0, l1, l2 = FF.FpA.to_field3 x in
-    Queue.enqueue packeds (l0, l) ;
-    Queue.enqueue packeds (l1, l) ;
-    Queue.enqueue packeds (l2, l)
+    Queue.enqueue packeds (FF.Limb.to_field l0, l) ;
+    Queue.enqueue packeds (FF.Limb.to_field l1, l) ;
+    Queue.enqueue packeds (FF.Limb.to_field l2, l)
   in
   let add_fp12 (x : Fp12.Circuit.t) =
     (* Fp12 = { c0: Fp6, c1: Fp6 }

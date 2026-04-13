@@ -38,7 +38,7 @@ let witness_and_verify_acc (input_hash : Step.Field.t) : Accumulator.Circuit.t =
 let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
     : Fp12.Circuit.t =
   (* Flatten Fp12 to 36 native fields in toFields order *)
-  let to_fields (x : Fp12.Circuit.t) : Step.Field.t array =
+  let to_fields (x : Fp12.Circuit.t) : FF.Limb.t array =
     let fp2 (a : Fp2.Circuit.t) =
       let c0_0, c0_1, c0_2 = FF.FpA.to_field3 a.c0 in
       let c1_0, c1_1, c1_2 = FF.FpA.to_field3 a.c1 in
@@ -52,14 +52,16 @@ let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
   let n = Array.length mask in
   let value_fields = Array.map values ~f:to_fields in
   let size = Array.length value_fields.(0) in
-  let fields = Array.create ~len:size Step.Field.zero in
+  let fields =
+    Array.create ~len:size (FF.Limb.of_constant Bignum_bigint.zero)
+  in
   (* Outer loop over values, inner over fields — matching o1js iteration *)
   for i = 0 to n - 1 do
     let vf = value_fields.(i) in
-    let mf = (mask.(i) :> Step.Field.t) in
+    let mf = mask.(i) in
     for j = 0 to size - 1 do
-      let maybe = Step.Field.mul vf.(j) mf in
-      fields.(j) <- Step.Field.add fields.(j) maybe
+      let maybe = FF.Limb.mask vf.(j) mf in
+      fields.(j) <- FF.Limb.add fields.(j) maybe
     done
   done ;
   (* Reconstruct Fp12 from 36 fields *)
@@ -85,8 +87,12 @@ let switch_fp12 (mask : Step.Boolean.var array) (values : Fp12.Circuit.t array)
     into 176-bit fields (2 limbs fit in <255 bits), producing 3 packed
     fields instead of 6, saving one Poseidon absorption round. *)
 let hash_g1 (pt : G1.Circuit.t) : Step.Field.t =
-  let l0_x, l1_x, l2_x = FF.FpA.to_field3 pt.x in
-  let l0_y, l1_y, l2_y = FF.FpA.to_field3 pt.y in
+  let l0_x, l1_x, l2_x =
+    Tuple3.map ~f:FF.Limb.to_field @@ FF.FpA.to_field3 pt.x
+  in
+  let l0_y, l1_y, l2_y =
+    Tuple3.map ~f:FF.Limb.to_field @@ FF.FpA.to_field3 pt.y
+  in
   let two_88 =
     Step.Field.constant
       (FF.bignum_to_field_const Bignum_bigint.(shift_left one 88))
@@ -111,6 +117,7 @@ let hash_packed_field3_array (pis : FF.Field3.t array) : Step.Field.t =
   let cur_size = ref 0 in
   Array.iter pis ~f:(fun (l0, l1, l2) ->
       Array.iter [| l0; l1; l2 |] ~f:(fun limb ->
+          let limb = FF.Limb.to_field limb in
           cur_size := !cur_size + 88 ;
           if !cur_size < 255 then cur := Step.Field.((!cur * two_88) + limb)
           else (

@@ -79,9 +79,7 @@ let negate_point (pt : Circuit.t) : Circuit.t =
 let negate_constant_y = negate_point
 
 let read_fpa (v : FpA.t) : Bignum_bigint.t =
-  let l0, l1, l2 = FpA.to_field3 v in
-  let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
-  Bignum_bigint.(r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb))
+  Step.As_prover.read FF.Field3.typ (FpA.to_field3 v)
 
 (** Assert that a 2-element vector [x01, x2] does not equal a constant
     vector [c01, c2].  Matches nori's assertNotVectorEquals. *)
@@ -196,18 +194,17 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
        unspecified tuple evaluation order. *)
     let witnesses =
       Array.init 9 ~f:(fun i ->
-          Step.exists Step.Field.typ ~compute:(fun () ->
+          Step.exists FF.Limb.typ ~compute:(fun () ->
               let mv, x3v, y3v = get () in
               let vals = [| mv; x3v; y3v |] in
               let v = vals.(i / 3) in
               let limb = i mod 3 in
               let mask = FF.limb_mask in
-              FF.bignum_to_field_const
-                Bignum_bigint.(
-                  if Int.equal limb 0 then v land mask
-                  else if Int.equal limb 1 then
-                    shift_right v FF.limb_bits land mask
-                  else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
+              Bignum_bigint.(
+                if Int.equal limb 0 then v land mask
+                else if Int.equal limb 1 then
+                  shift_right v FF.limb_bits land mask
+                else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
     let m : FF.FpU.t =
       FF.FpU.of_field3_unsafe (witnesses.(0), witnesses.(1), witnesses.(2))
@@ -230,7 +227,7 @@ let add (p1 : Circuit.t) (p2 : Circuit.t) : Circuit.t =
     let y3_f3 = FpA.to_field3 y3_a in
     (* Check x1 != x2: deltaX = x1 - x2 + f, check != 0, != f, != 2f *)
     let deltaX = FF.sub x1 x2 ~f:p in
-    let deltaX_0, deltaX_1, deltaX_2 = deltaX in
+    let deltaX_0, deltaX_1, deltaX_2 = Tuple3.map ~f:FF.Limb.to_field deltaX in
     let deltaX01 =
       FF.seal
         Step.Field.(
@@ -336,18 +333,17 @@ let double (pt : Circuit.t) : Circuit.t =
        exists(9, ...) which allocates sequential variable indices. *)
     let witnesses =
       Array.init 9 ~f:(fun i ->
-          Step.exists Step.Field.typ ~compute:(fun () ->
+          Step.exists FF.Limb.typ ~compute:(fun () ->
               let mv, x3v, y3v = get () in
               let vals = [| mv; x3v; y3v |] in
               let v = vals.(i / 3) in
               let limb = i mod 3 in
               let mask = FF.limb_mask in
-              FF.bignum_to_field_const
-                Bignum_bigint.(
-                  if Int.equal limb 0 then v land mask
-                  else if Int.equal limb 1 then
-                    shift_right v FF.limb_bits land mask
-                  else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
+              Bignum_bigint.(
+                if Int.equal limb 0 then v land mask
+                else if Int.equal limb 1 then
+                  shift_right v FF.limb_bits land mask
+                else shift_right v (Int.( * ) 2 FF.limb_bits) land mask) ) )
     in
     let m : FF.FpU.t =
       FF.FpU.of_field3_unsafe (witnesses.(0), witnesses.(1), witnesses.(2))
@@ -424,7 +420,7 @@ let glv_decompose (s : FF.Field3.t) :
     | None ->
         let sv =
           let l0, l1, l2 = s in
-          let r v = FF.field_const_to_bignum (Step.As_prover.read_var v) in
+          let r = Step.As_prover.read FF.Limb.typ in
           Bignum_bigint.(
             r l0 + (r l1 * FF.two_to_limb) + (r l2 * FF.two_to_2limb))
         in
@@ -452,29 +448,25 @@ let glv_decompose (s : FF.Field3.t) :
   (* Witness all 6 values in a single batch, matching nori's exists(6, ...).
      The batched allocation produces a Zero gate that individual exists calls don't. *)
   let witnesses =
-    Step.exists (Step.Typ.array ~length:6 Step.Field.typ) ~compute:(fun () ->
+    Step.exists (Step.Typ.array ~length:6 FF.Limb.typ) ~compute:(fun () ->
         let s0_neg_v, s0_abs, s1_neg_v, s1_abs = get () in
         let open Bignum_bigint in
-        [| ( if s0_neg_v then Step.Field.Constant.one
-           else Step.Field.Constant.zero )
-         ; FF.bignum_to_field_const (s0_abs land FF.limb_mask)
-         ; FF.bignum_to_field_const
-             (shift_right s0_abs FF.limb_bits land FF.limb_mask)
-         ; ( if s1_neg_v then Step.Field.Constant.one
-           else Step.Field.Constant.zero )
-         ; FF.bignum_to_field_const (s1_abs land FF.limb_mask)
-         ; FF.bignum_to_field_const
-             (shift_right s1_abs FF.limb_bits land FF.limb_mask)
+        [| (if s0_neg_v then Bignum_bigint.one else Bignum_bigint.zero)
+         ; s0_abs land FF.limb_mask
+         ; shift_right s0_abs FF.limb_bits land FF.limb_mask
+         ; (if s1_neg_v then Bignum_bigint.one else Bignum_bigint.zero)
+         ; s1_abs land FF.limb_mask
+         ; shift_right s1_abs FF.limb_bits land FF.limb_mask
         |] )
   in
-  let s0_neg = witnesses.(0) in
+  let s0_neg = FF.Limb.to_field witnesses.(0) in
   let s00 = witnesses.(1) in
   let s01 = witnesses.(2) in
-  let s1_neg = witnesses.(3) in
+  let s1_neg = FF.Limb.to_field witnesses.(3) in
   let s10 = witnesses.(4) in
   let s11 = witnesses.(5) in
-  let s0 : FF.Field3.t = (s00, s01, Step.Field.zero) in
-  let s1 : FF.Field3.t = (s10, s11, Step.Field.zero) in
+  let s0 : FF.Field3.t = (s00, s01, FF.Limb.of_constant Bignum_bigint.zero) in
+  let s1 : FF.Field3.t = (s10, s11, FF.Limb.of_constant Bignum_bigint.zero) in
   Step.assert_ (Boolean s0_neg) ;
   Step.assert_ (Boolean s1_neg) ;
   (* Prove s1*lambda = s - s0  (or s + s0 if s0 negative) *)
@@ -482,7 +474,7 @@ let glv_decompose (s : FF.Field3.t) :
   let lambda_f3 = FF.Field3.of_constant lambda in
   let lambda_sel =
     let l0 =
-      FF.if_field s1_neg
+      FF.Limb.if_field s1_neg
         ~then_:
           (let l0, _, _ = neg_lambda in
            l0 )
@@ -491,7 +483,7 @@ let glv_decompose (s : FF.Field3.t) :
            l0 )
     in
     let l1 =
-      FF.if_field s1_neg
+      FF.Limb.if_field s1_neg
         ~then_:
           (let _, l1, _ = neg_lambda in
            l1 )
@@ -500,7 +492,7 @@ let glv_decompose (s : FF.Field3.t) :
            l1 )
     in
     let l2 =
-      FF.if_field s1_neg
+      FF.Limb.if_field s1_neg
         ~then_:
           (let _, _, l2 = neg_lambda in
            l2 )
@@ -528,7 +520,7 @@ let glv_decompose (s : FF.Field3.t) :
         FF.Sum.finish_simple (FF.Sum.sub (FF.Sum.of_field3 s) s0) ~f:r
       in
       let rhs0 =
-        FF.if_field s0_neg
+        FF.Limb.if_field s0_neg
           ~then_:
             (let l0, _, _ = s_plus_s0 in
              l0 )
@@ -537,7 +529,7 @@ let glv_decompose (s : FF.Field3.t) :
              l0 )
       in
       let rhs1 =
-        FF.if_field s0_neg
+        FF.Limb.if_field s0_neg
           ~then_:
             (let _, l1, _ = s_plus_s0 in
              l1 )
@@ -546,7 +538,7 @@ let glv_decompose (s : FF.Field3.t) :
              l1 )
       in
       let rhs2 =
-        FF.if_field s0_neg
+        FF.Limb.if_field s0_neg
           ~then_:
             (let _, _, l2 = s_plus_s0 in
              l2 )
@@ -570,14 +562,13 @@ let glv_decompose (s : FF.Field3.t) :
     number of unfilled bit positions in the last chunk. *)
 type slice_result = { chunks : Step.Field.t array; leftover_size : int }
 
-let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
+let slice_field (x : FF.Limb.t) ~(max_bits : int) ~(chunk_size : int)
     ?(leftover : slice_result option) () : slice_result =
   (* let bits = exists(maxBits, () => bigIntToBits(x)) *)
   let bits =
     Array.init max_bits ~f:(fun k ->
         Step.exists Step.Field.typ ~compute:(fun () ->
-            let v = Step.As_prover.read_var x in
-            let bi = FF.field_const_to_bignum v in
+            let bi = Step.As_prover.read FF.Limb.typ x in
             if Bignum_bigint.(shift_right bi k land one = one) then
               Step.Field.Constant.one
             else Step.Field.Constant.zero ) )
@@ -637,7 +628,7 @@ let slice_field (x : Step.Field.t) ~(max_bits : int) ~(chunk_size : int)
     i := !i + chunk_size
   done ;
   (* sum.assertEquals(x) *)
-  Step.Field.Assert.equal !the_sum x ;
+  Step.Field.Assert.equal !the_sum (FF.Limb.to_field x) ;
   let leftover_size = !i - max_bits in
   let chunks = Queue.to_array chunks in
   { chunks; leftover_size }
@@ -767,9 +758,9 @@ let negate_if (cond : Step.Field.t) (pt : Circuit.t) : Circuit.t =
   let neg_y = FpA.neg pt.y ~f:p in
   let y0_n, y1_n, y2_n = FpA.to_field3 neg_y in
   let y0_p, y1_p, y2_p = FpA.to_field3 pt.y in
-  let yl0 = FF.if_field cond ~then_:y0_n ~else_:y0_p in
-  let yl1 = FF.if_field cond ~then_:y1_n ~else_:y1_p in
-  let yl2 = FF.if_field cond ~then_:y2_n ~else_:y2_p in
+  let yl0 = FF.Limb.if_field cond ~then_:y0_n ~else_:y0_p in
+  let yl1 = FF.Limb.if_field cond ~then_:y1_n ~else_:y1_p in
+  let yl2 = FF.Limb.if_field cond ~then_:y2_n ~else_:y2_p in
   let y : FpA.t = FpA.of_field3_unsafe (yl0, yl1, yl2) in
   { x = pt.x; y }
 
@@ -817,7 +808,7 @@ let ia_final : Constant.t =
     cf. elliptic-curve.ts:211 *)
 let point_equals (pt : Circuit.t) (c : Constant.t) : Step.Boolean.var =
   let ff_equals (x : FpA.t) (cv : Bignum_bigint.t) : Step.Boolean.var =
-    let x0, x1, x2 = FpA.to_field3 x in
+    let x0, x1, x2 = Tuple3.map ~f:FF.Limb.to_field (FpA.to_field3 x) in
     let x01 =
       FF.seal
         Step.Field.(
@@ -958,7 +949,7 @@ let multi_scalar_mul (scalars_in : FF.Field3.t array)
                   - shift_right p (Int.( * ) 2 FF.limb_bits)
                   - one)
             in
-            let weak = Step.Field.(beta_x2 + constant bound) in
+            let weak = Step.Field.(FF.Limb.to_field beta_x2 + constant bound) in
             Queue.enqueue mrc_stack weak ;
             let beta_x_a = FpA.of_field3_unsafe beta_x in
             { Circuit.x = beta_x_a; y = pt_j.y } )

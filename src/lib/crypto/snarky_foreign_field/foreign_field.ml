@@ -277,17 +277,15 @@ module Field3 = struct
     let mod_ (x : t) ~(f : Bignum_bigint.t) : t = Bignum_bigint.(x % f)
   end
 
-  type t = Circuit.Field.t * Circuit.Field.t * Circuit.Field.t
+  type t = Limb.t * Limb.t * Limb.t
 
   type limb_tuple = Limb.t * Limb.t * Limb.t
 
-  let of_limb_tuple : limb_tuple -> t = Tuple3.map ~f:Limb.to_field
+  let of_limb_tuple : limb_tuple -> t = Fn.id
 
   let of_constant (x : Constant.t) : t =
     let l0, l1, l2 = Constant.split x in
-    ( Circuit.Field.constant (bignum_to_field_const l0)
-    , Circuit.Field.constant (bignum_to_field_const l1)
-    , Circuit.Field.constant (bignum_to_field_const l2) )
+    (Limb.of_constant l0, Limb.of_constant l1, Limb.of_constant l2)
 
   let limb_tuple_of_constant (x : Constant.t) : limb_tuple =
     let l0, l1, l2 = Constant.split x in
@@ -298,30 +296,21 @@ module Field3 = struct
     && Option.is_some (Limb.to_constant l1)
     && Option.is_some (Limb.to_constant l2)
 
-  let of_limbs
-      ((l0, l1, l2) : Circuit.Field.t * Circuit.Field.t * Circuit.Field.t) : t =
-    (l0, l1, l2)
+  let of_limbs ((l0, l1, l2) : Limb.t * Limb.t * Limb.t) : t = (l0, l1, l2)
 
   let limbs ((l0, l1, l2) : t) :
       Circuit.Field.t * Circuit.Field.t * Circuit.Field.t =
-    (l0, l1, l2)
+    (Limb.to_field l0, Limb.to_field l1, Limb.to_field l2)
 
   let is_constant ((l0, l1, l2) : t) : bool =
-    Option.is_some (Circuit.Field.to_constant l0)
-    && Option.is_some (Circuit.Field.to_constant l1)
-    && Option.is_some (Circuit.Field.to_constant l2)
+    Option.is_some (Limb.to_constant l0)
+    && Option.is_some (Limb.to_constant l1)
+    && Option.is_some (Limb.to_constant l2)
 
   let to_constant_opt ((l0, l1, l2) : t) : Constant.t option =
-    match
-      ( Circuit.Field.to_constant l0
-      , Circuit.Field.to_constant l1
-      , Circuit.Field.to_constant l2 )
-    with
+    match (Limb.to_constant l0, Limb.to_constant l1, Limb.to_constant l2) with
     | Some c0, Some c1, Some c2 ->
-        let v0 = field_const_to_bignum c0 in
-        let v1 = field_const_to_bignum c1 in
-        let v2 = field_const_to_bignum c2 in
-        Some (Constant.combine (v0, v1, v2))
+        Some (Constant.combine (c0, c1, c2))
     | _ ->
         None
 
@@ -342,9 +331,6 @@ module Field3 = struct
     let (Typ typ) =
       Circuit.Typ.tuple3 Limb.typ Limb.typ Limb.typ
       |> Circuit.Typ.transport ~there:Constant.split ~back:Constant.combine
-      |> Circuit.Typ.transport_var
-           ~there:(Tuple3.map ~f:Limb.unsafe_create)
-           ~back:(Tuple3.map ~f:Limb.to_field)
     in
     Typ
       { typ with
@@ -568,13 +554,7 @@ let multi_range_check ((x, y, z) : Field3.limb_tuple) : unit =
     range_check1 ~x64 ~x76 ~y64 ~y76 ~z ~yz:zero
 
 (* Initialize the Field3.typ check function now that multi_range_check exists *)
-let () =
-  Field3.check_ref :=
-    fun (x, y, z) ->
-      let x = Limb.unsafe_create x in
-      let y = Limb.unsafe_create y in
-      let z = Limb.unsafe_create z in
-      multi_range_check (x, y, z)
+let () = Field3.check_ref := multi_range_check
 
 (** Range check a compact 2-limb value [xy] (176 bits) and a single
     limb [z] (88 bits). Returns the three individual limbs. *)
@@ -787,9 +767,6 @@ let sum (xs : Field3.t list) (signs : sign list) ~(f : Bignum_bigint.t) :
   else
     let xs =
       List.map xs ~f:(fun (l0, l1, l2) ->
-          let l0 = Limb.unsafe_create l0 in
-          let l1 = Limb.unsafe_create l1 in
-          let l2 = Limb.unsafe_create l2 in
           let v0 = Limb.to_var l0 in
           let v1 = Limb.to_var l1 in
           let v2 = Limb.to_var l2 in
@@ -879,12 +856,12 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
     Circuit.exists T.typ ~compute:(fun () ->
         let a0, a1, a2 = a in
         let b0, b1, b2 = b in
-        let av0 = field_const_to_bignum (Circuit.As_prover.read_var a0) in
-        let av1 = field_const_to_bignum (Circuit.As_prover.read_var a1) in
-        let av2 = field_const_to_bignum (Circuit.As_prover.read_var a2) in
-        let bv0 = field_const_to_bignum (Circuit.As_prover.read_var b0) in
-        let bv1 = field_const_to_bignum (Circuit.As_prover.read_var b1) in
-        let bv2 = field_const_to_bignum (Circuit.As_prover.read_var b2) in
+        let av0 = Circuit.As_prover.read Limb.typ a0 in
+        let av1 = Circuit.As_prover.read Limb.typ a1 in
+        let av2 = Circuit.As_prover.read Limb.typ a2 in
+        let bv0 = Circuit.As_prover.read Limb.typ b0 in
+        let bv1 = Circuit.As_prover.read Limb.typ b1 in
+        let bv2 = Circuit.As_prover.read Limb.typ b2 in
         let a_big = Field3.Constant.combine (av0, av1, av2) in
         let b_big = Field3.Constant.combine (bv0, bv1, bv2) in
         let ab = Bignum_bigint.(a_big * b_big) in
@@ -987,12 +964,12 @@ let multiply_no_range_check (a : Field3.t) (b : Field3.t) ~(f : Bignum_bigint.t)
   let b0, b1, b2 = b in
   Circuit.assert_
     (ForeignFieldMul
-       { left_input0 = a0
-       ; left_input1 = a1
-       ; left_input2 = a2
-       ; right_input0 = b0
-       ; right_input1 = b1
-       ; right_input2 = b2
+       { left_input0 = Limb.to_field a0
+       ; left_input1 = Limb.to_field a1
+       ; left_input2 = Limb.to_field a2
+       ; right_input0 = Limb.to_field b0
+       ; right_input1 = Limb.to_field b1
+       ; right_input2 = Limb.to_field b2
        ; remainder01 = Limb.to_field r01
        ; remainder2 = Limb.to_field r2
        ; quotient0 = Limb.to_field q0
@@ -1060,11 +1037,9 @@ let assert_mul (x : Field3.t) (y : Field3.t) (xy : Field3.t)
     let xy0, xy1, xy2 = xy in
     let q, r01, r2 = multiply_no_range_check x y ~f in
     multi_range_check q ;
-    let xy01 =
-      Circuit.Field.(xy0 + (xy1 * constant (bignum_to_field_const two_to_limb)))
-    in
-    Circuit.assert_ (Equal (Limb.to_field r01, xy01)) ;
-    Circuit.assert_ (Equal (Limb.to_field r2, xy2))
+    let xy01 = Limb.(add xy0 (scale xy1 two_to_limb)) in
+    Circuit.assert_ (Equal (Limb.to_field r01, Limb.to_field xy01)) ;
+    Circuit.assert_ (Equal (Limb.to_field r2, Limb.to_field xy2))
 
 (* ------------------------------------------------------------------ *)
 (* Modular inverse                                                     *)
@@ -1100,9 +1075,9 @@ let inv (x : Field3.t) ~(f : Bignum_bigint.t) : Field3.t =
     let x0, x1, x2 = x in
     let prover_inv =
       Circuit.exists (Circuit.Typ.prover_value ()) ~compute:(fun () ->
-          let xv0 = field_const_to_bignum (Circuit.As_prover.read_var x0) in
-          let xv1 = field_const_to_bignum (Circuit.As_prover.read_var x1) in
-          let xv2 = field_const_to_bignum (Circuit.As_prover.read_var x2) in
+          let xv0 = Circuit.As_prover.read Limb.typ x0 in
+          let xv1 = Circuit.As_prover.read Limb.typ x1 in
+          let xv2 = Circuit.As_prover.read Limb.typ x2 in
           let x_big = Field3.Constant.combine (xv0, xv1, xv2) in
           let x_inv =
             match bignum_mod_inverse x_big ~f with
@@ -1164,9 +1139,9 @@ let assert_equal ((x0, x1, x2) : Field3.t) ((y0, y1, y2) : Field3.t) : unit =
     let y_big = Field3.to_constant (y0, y1, y2) in
     if not Bignum_bigint.(x_big = y_big) then failwith "assert_equal: x != y" )
   else (
-    Circuit.assert_ (Equal (x0, y0)) ;
-    Circuit.assert_ (Equal (x1, y1)) ;
-    Circuit.assert_ (Equal (x2, y2)) )
+    Circuit.assert_ (Equal (Limb.to_field x0, Limb.to_field y0)) ;
+    Circuit.assert_ (Equal (Limb.to_field x1, Limb.to_field y1)) ;
+    Circuit.assert_ (Equal (Limb.to_field x2, Limb.to_field y2)) )
 
 (** Boolean AND via field multiplication. *)
 let bool_and (a : Circuit.Boolean.var) (b : Circuit.Boolean.var) :
@@ -1254,7 +1229,7 @@ module Sum = struct
     assert (Option.is_none t.result) ;
     if List.length t.ops = 0 then (
       let r = List.hd_exn t.summands in
-      t.result <- Some (Tuple3.map ~f:Limb.unsafe_create r) ;
+      t.result <- Some r ;
       r )
     else
       let r = sum t.summands t.ops ~f in
@@ -1268,7 +1243,7 @@ module Sum = struct
     assert (Option.is_none t.result) ;
     if List.length t.ops = 0 then (
       let r = List.hd_exn t.summands in
-      t.result <- Some (Tuple3.map ~f:Limb.unsafe_create r) ;
+      t.result <- Some r ;
       r )
     else if List.for_all t.summands ~f:Field3.is_constant then (
       let x_bigs = List.map t.summands ~f:Field3.to_constant in
@@ -1284,9 +1259,6 @@ module Sum = struct
     else
       let xs =
         List.map t.summands ~f:(fun (l0, l1, l2) ->
-            let l0 = Limb.unsafe_create l0 in
-            let l1 = Limb.unsafe_create l1 in
-            let l2 = Limb.unsafe_create l2 in
             let l0 = Limb.to_var l0 in
             let l1 = Limb.to_var l1 in
             let l2 = Limb.to_var l2 in
@@ -1311,7 +1283,7 @@ module Sum = struct
     assert (Option.is_none t.result) ;
     if List.length t.ops = 0 then (
       let r = List.hd_exn t.summands in
-      t.result <- Some (Tuple3.map ~f:Limb.unsafe_create r) ;
+      t.result <- Some r ;
       r )
     else
       let xs = t.summands in
@@ -1330,9 +1302,6 @@ module Sum = struct
       else
         let xs =
           List.map xs ~f:(fun (l0, l1, l2) ->
-              let l0 = Limb.unsafe_create l0 in
-              let l1 = Limb.unsafe_create l1 in
-              let l2 = Limb.unsafe_create l2 in
               let l0 = Limb.to_var l0 in
               let l1 = Limb.to_var l1 in
               let l2 = Limb.to_var l2 in
@@ -1438,7 +1407,7 @@ module Sum = struct
             let sign_i = List.nth_exn signs i in
             let r, overflow = single_add !result xi ~sign:sign_i ~f in
             let r0, _, _ = Field3.of_limb_tuple r in
-            Circuit.assert_ (Equal (r0, x0s.(i))) ;
+            Circuit.assert_ (Equal (Limb.to_field r0, x0s.(i))) ;
             Circuit.assert_ (Equal (overflow, overflows.(i))) ;
             result := r ) ;
         ( if not t.chained then
@@ -1464,9 +1433,9 @@ type mul_input = Sum_input of Sum.t | Field3_input of Field3.t
 (** Convert a Field3 to variables if not already pure variables.
     Ensures finished sum values don't break the gate chain. *)
 let to_var_field3 ((l0, l1, l2) : Field3.t) : Field3.t =
-  let l0 = to_var l0 in
-  let l1 = to_var l1 in
-  let l2 = to_var l2 in
+  let l0 = Limb.to_var l0 in
+  let l1 = Limb.to_var l1 in
+  let l2 = Limb.to_var l2 in
   (l0, l1, l2)
 
 let assert_mul_sum (x : mul_input) (y : mul_input) (xy : mul_input)
@@ -1640,10 +1609,7 @@ end = struct
 
   let assert_almost_reduced (xs : FpU.t list) ~(f : Bignum_bigint.t)
       ?(skip_mrc = false) () : t list =
-    let xs_raw =
-      List.map xs ~f:(fun x ->
-          Tuple3.map ~f:Limb.unsafe_create (FpU.to_field3 x) )
-    in
+    let xs_raw = List.map xs ~f:FpU.to_field3 in
     assert_almost_reduced xs_raw ~f ~skip_mrc ;
     List.map xs_raw ~f:(fun x -> of_field3_unsafe (Field3.of_limb_tuple x))
 
@@ -1654,9 +1620,7 @@ end = struct
         check =
           (fun (l0, l1, l2) ->
             Circuit.make_checked (fun () ->
-                multi_range_check
-                  (Tuple3.map ~f:Limb.unsafe_create (l0, l1, l2)) ;
-                let l2 = Limb.unsafe_create l2 in
+                multi_range_check (l0, l1, l2) ;
                 let bound = weak_bound l2 ~f in
                 multi_range_check
                   ( bound
@@ -1698,8 +1662,7 @@ module FpC = struct
         check =
           (fun x ->
             Circuit.make_checked (fun () ->
-                multi_range_check
-                  (Tuple3.map ~f:Limb.unsafe_create (FpA.to_field3 x)) ;
+                multi_range_check (FpA.to_field3 x) ;
                 assert_less_than (FpA.to_field3 x) ~bound:f ) )
       }
     |> Circuit.Typ.transport_var

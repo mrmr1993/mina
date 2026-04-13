@@ -34,9 +34,8 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
      For constant limbs, compute bits without constraints (matching o1js
      Field.toBits() which constant-folds on constant inputs). *)
   let decompose_limb limb length =
-    match Step.Field.to_constant limb with
-    | Some c ->
-        let v = FF.field_const_to_bignum c in
+    match FF.Limb.to_constant limb with
+    | Some v ->
         List.init length ~f:(fun k ->
             if Bignum_bigint.(bit_and (shift_right v k) one = one) then
               Step.Boolean.true_
@@ -51,8 +50,7 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
           List.init length ~f:(fun k ->
               let k' = length - 1 - k in
               Step.exists Step.Boolean.typ ~compute:(fun () ->
-                  let v = Step.As_prover.read_var limb in
-                  let bi = FF.field_const_to_bignum v in
+                  let bi = Step.As_prover.read FF.Limb.typ limb in
                   Bignum_bigint.(bit_and (shift_right bi k') one = one) ) )
         in
         let bits = List.rev bits_rev in
@@ -66,7 +64,7 @@ let field3_to_bytes (f3 : FF.Field3.t) ~(size_in_bits : int) : byte array =
               Step.Field.add acc (Step.Field.scale (bit :> Step.Field.t) coeff) )
         in
         let sealed = FF.seal lc in
-        Step.Field.Assert.equal sealed limb ;
+        Step.Field.Assert.equal sealed (FF.Limb.to_field limb) ;
         bits
   in
   let bits0 = decompose_limb l0 limb_size in

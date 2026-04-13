@@ -543,7 +543,10 @@ let zkp23 input_hash : Step.Field.t =
         (let l = 88 in
          let add_fpa acc (x : FF.FpA.t) =
            let l0, l1, l2 = FF.FpA.to_field3 x in
-           (l0, l) :: (l1, l) :: (l2, l) :: acc
+           (FF.Limb.to_field l0, l)
+           :: (FF.Limb.to_field l1, l)
+           :: (FF.Limb.to_field l2, l)
+           :: acc
          in
          let ps = add_fpa (add_fpa [] kzg.proof.pi1) kzg.proof.pi0 in
          Array.of_list ps )

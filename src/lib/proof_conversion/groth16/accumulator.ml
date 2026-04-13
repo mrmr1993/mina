@@ -141,7 +141,11 @@ let to_input (acc : Circuit.t) : Step.Field.t Random_oracle_input.Chunked.t =
   (* Each Field3 limb becomes a packed (field, 88) entry *)
   let field3_packed (x : FF.Field3.t) =
     let l0, l1, l2 = x in
-    Random_oracle_input.Chunked.packeds [| (l0, l); (l1, l); (l2, l) |]
+    Random_oracle_input.Chunked.packeds
+      [| (FF.Limb.to_field l0, l)
+       ; (FF.Limb.to_field l1, l)
+       ; (FF.Limb.to_field l2, l)
+      |]
   in
   let fp2_packed (x : Fp2.Circuit.t) =
     Array.reduce_exn ~f:Random_oracle_input.Chunked.append
