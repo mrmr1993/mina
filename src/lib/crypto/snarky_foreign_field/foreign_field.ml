@@ -216,7 +216,12 @@ end = struct
   let to_var t = { t with var = to_var t.var }
 
   let to_constant t =
-    Option.bind (Circuit.Field.to_constant t.var) ~f:(fun _ -> t.bigint)
+    Option.map (Circuit.Field.to_constant t.var) ~f:(fun field ->
+        match t.bigint with
+        | Some bigint ->
+            bigint
+        | None ->
+            field_const_to_bignum field )
 
   let of_boolean (b : Circuit.Boolean.var) =
     let open Circuit in
