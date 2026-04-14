@@ -1,0 +1,14 @@
+FROM ubuntu:24.04
+
+RUN apt-get update --quiet --yes \
+  && apt-get install --quiet --yes --no-install-recommends \
+    libjemalloc2 \
+    libssl3t64 \
+    libffi8 \
+    libgmp10 \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY nori_proof_converter.exe /usr/local/bin/nori-proof-converter
+
+ENTRYPOINT ["nori-proof-converter"]
