@@ -114,16 +114,26 @@ let provable_switch (type var value) (typ : (var, value) Step.Typ.t)
   let (Step.Typ.Typ t) = typ in
   let n = Array.length bools in
   assert (Array.length values = n) ;
-  let all_fields = Array.map values ~f:(fun v -> fst (t.var_to_fields v)) in
-  let _, first_aux = t.var_to_fields values.(0) in
-  let num_fields = Array.length all_fields.(0) in
+  let all_fields = Array.map values ~f:(fun v -> t.var_to_fields v) in
+  let aux =
+    let aux = ref (t.constraint_system_auxiliary ()) in
+    for i = 0 to n - 1 do
+      Step.as_prover (fun () ->
+          if
+            Step.(
+              Field.Constant.(equal one) (As_prover.read Field.typ bools.(i)))
+          then aux := snd all_fields.(i) )
+    done ;
+    !aux
+  in
+  let num_fields = Array.length (fst all_fields.(0)) in
   let result_fields =
     Array.init num_fields ~f:(fun j ->
         let terms =
           Array.to_list
             (Array.init n ~f:(fun i ->
-                 Step.Field.mul bools.(i) all_fields.(i).(j) ) )
+                 Step.Field.mul bools.(i) (fst all_fields.(i)).(j) ) )
         in
         List.fold terms ~init:Step.Field.zero ~f:Step.Field.add )
   in
-  t.var_of_fields (result_fields, first_aux)
+  t.var_of_fields (result_fields, aux)
