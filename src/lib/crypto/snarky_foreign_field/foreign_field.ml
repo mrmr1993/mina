@@ -142,10 +142,6 @@ module Limb : sig
   (** Seal via [to_var] (Equal argument order: new, old). *)
   val to_var : t -> t
 
-  (** Wrap a raw [Circuit.Field.t] as a limb with no cached bigint.
-      Use when the variable was witnessed outside [Limb.typ]. *)
-  val of_var : Circuit.Field.t -> t
-
   (** If the limb is a constant, return its bigint value. *)
   val to_constant : t -> Bignum_bigint.t option
 
@@ -218,8 +214,6 @@ end = struct
   let seal t = { t with var = seal t.var }
 
   let to_var t = { t with var = to_var t.var }
-
-  let of_var v = { var = v; bigint = None }
 
   let to_constant t =
     Option.bind (Circuit.Field.to_constant t.var) ~f:(fun _ -> t.bigint)
