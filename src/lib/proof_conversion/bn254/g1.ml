@@ -867,12 +867,21 @@ let provable_if (type var value) (typ : (var, value) Step.Typ.t)
     (condition : Step.Field.t) ~(if_true : var) ~(if_false : var) : var =
   let (Step.Typ.Typ t) = typ in
   let true_fields, true_aux = t.var_to_fields if_true in
-  let false_fields, _ = t.var_to_fields if_false in
+  let false_fields, false_aux = t.var_to_fields if_false in
+  let aux = ref (t.constraint_system_auxiliary ()) in
+  Step.as_prover (fun () ->
+      let b = Step.As_prover.read Step.Field.typ condition in
+      if Step.Field.Constant.(equal one) b then aux := true_aux
+      else if Step.Field.Constant.(equal zero) b then aux := false_aux
+      else
+        failwithf "Invalid boolean value G1.provable_if: %s"
+          (Step.Field.Constant.to_string b)
+          () ) ;
   let result_fields =
     Array.map2_exn true_fields false_fields ~f:(fun a b ->
         FF.if_field condition ~then_:a ~else_:b )
   in
-  t.var_of_fields (result_fields, true_aux)
+  t.var_of_fields (result_fields, !aux)
 
 (** Batch range-check weak bounds, matching nori's reduceMrcStack. *)
 let reduce_mrc_stack (xs : Step.Field.t array) : unit =
