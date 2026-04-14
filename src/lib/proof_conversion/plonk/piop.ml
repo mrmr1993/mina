@@ -59,22 +59,27 @@ let neg_fr (a : FF.FpA.t) : FF.FpA.t =
 let inv_fr ?(inv_witness_first = true) (x : FF.FpA.t) : FF.FpA.t =
   (* Witness the inverse: allocate 3 limbs *)
   let inv_limbs =
+    let inv =
+      Step.exists (Step.Typ.prover_value ()) ~compute:(fun () ->
+          let l0, l1, l2 = FF.FpA.to_field3 x in
+          let lv0 = FF.field_const_to_bignum (Step.As_prover.read_var l0) in
+          let lv1 = FF.field_const_to_bignum (Step.As_prover.read_var l1) in
+          let lv2 = FF.field_const_to_bignum (Step.As_prover.read_var l2) in
+          let xv = FF.Field3.Constant.combine (lv0, lv1, lv2) in
+          let inv_v =
+            match FF.bignum_mod_inverse xv ~f:r with
+            | Some v ->
+                v
+            | None ->
+                Bignum_bigint.zero
+          in
+          FF.Field3.Constant.split inv_v )
+    in
     Array.init 3 ~f:(fun limb_idx ->
         Step.exists Step.Field.typ ~compute:(fun () ->
-            let l0, l1, l2 = FF.FpA.to_field3 x in
-            let lv0 = FF.field_const_to_bignum (Step.As_prover.read_var l0) in
-            let lv1 = FF.field_const_to_bignum (Step.As_prover.read_var l1) in
-            let lv2 = FF.field_const_to_bignum (Step.As_prover.read_var l2) in
-            let xv = FF.Field3.Constant.combine (lv0, lv1, lv2) in
-            let inv_v =
-              match FF.bignum_mod_inverse xv ~f:r with
-              | Some v ->
-                  v
-              | None ->
-                  Bignum_bigint.zero
+            let l0_v, l1_v, l2_v =
+              Step.As_prover.read (Step.Typ.prover_value ()) inv
             in
-            let limbs = FF.Field3.Constant.split inv_v in
-            let l0_v, l1_v, l2_v = limbs in
             let v =
               match limb_idx with
               | 0 ->
