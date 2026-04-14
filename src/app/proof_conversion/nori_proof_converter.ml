@@ -3036,24 +3036,45 @@ let () =
       run_stop_workers ~socket_dir
   | _ ->
       Printf.eprintf
-        "Usage: nori-proof-converter [--cache-dir <dir>] [--parallelism <n>] \
-         <command> [args...]\n\n" ;
-      Printf.eprintf
-        "Available commands: sp1ToPlonk, risc0ToGroth16, sp1ToPlonkParallel, \
-         risc0ToGroth16Parallel\n\n" ;
+        "Usage: nori-proof-converter [options] <command> [args...]\n\n" ;
+      Printf.eprintf "Conversion commands:\n" ;
+      Printf.eprintf "  sp1ToPlonk <input.json> [aux.json]\n" ;
+      Printf.eprintf "  risc0ToGroth16 <proof.json> <vk.json>\n\n" ;
       Printf.eprintf "Parallel commands:\n" ;
       Printf.eprintf "  sp1ToPlonkParallel <input.json>\n" ;
       Printf.eprintf "  risc0ToGroth16Parallel <proof.json> <vk.json>\n\n" ;
+      Printf.eprintf "Daemonised commands:\n" ;
+      Printf.eprintf
+        "  sp1ToPlonkDaemonised <input.json> --workers <socket-dir>\n" ;
+      Printf.eprintf
+        "  risc0ToGroth16Daemonised <proof.json> <vk.json> --workers \
+         <socket-dir>\n\n" ;
+      Printf.eprintf "Worker management:\n" ;
+      Printf.eprintf
+        "  start-workers --system <system> --count <n> --socket-dir <dir>\n\
+        \                [--vk-path <path>] [--circuits <spec>] [--background]\n\
+        \                [--skip-verify]\n" ;
+      Printf.eprintf "  stop-workers --socket-dir <dir>\n\n" ;
       Printf.eprintf "Internal commands (for staged/parallel execution):\n" ;
       Printf.eprintf "  internal init-workdir <workdir> plonk <input.json>\n" ;
       Printf.eprintf
         "  internal init-workdir <workdir> groth16 <proof.json> <vk.json>\n" ;
       Printf.eprintf "  internal generate-witness <workdir>\n" ;
+      Printf.eprintf "  internal compute-aux-witness <workdir>\n" ;
       Printf.eprintf "  internal compute-state <workdir> <n>\n" ;
       Printf.eprintf "  internal prove-zkp <workdir> <n>\n" ;
       Printf.eprintf
         "  internal compress <workdir> <base_count> <layer> <index>\n" ;
-      Printf.eprintf "  internal collect-output <workdir>\n\n" ;
+      Printf.eprintf "  internal compress-daemon <socket_path>\n" ;
+      Printf.eprintf
+        "  internal compress-via-daemon <socket_path> <workdir> <base_count> \
+         <layer> <index>\n" ;
+      Printf.eprintf "  internal collect-output <workdir>\n" ;
+      Printf.eprintf
+        "  internal prove-daemon <socket_path> --system <system> [--vk-path \
+         <path>]\n" ;
+      Printf.eprintf
+        "  internal dispatch-to-worker <socket_path> <command>\n\n" ;
       Printf.eprintf "Options:\n" ;
       Printf.eprintf
         "  --cache-dir <dir>     Cache proving keys to disk for reuse\n" ;
@@ -3061,5 +3082,8 @@ let () =
         "  --parallelism <n>     Max parallel processes (default: 1)\n" ;
       Printf.eprintf
         "  --compression-parallelism <n>\n\
-        \                        Number of compression daemons (default: 1)\n" ;
+        \                        Number of compression daemons (default: 1)\n\n" ;
+      Printf.eprintf "Environment variables:\n" ;
+      Printf.eprintf
+        "  RAYON_NUM_THREADS     Limit the number of cores each worker uses\n" ;
       exit 1
