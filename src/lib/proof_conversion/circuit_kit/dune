@@ -1,0 +1,19 @@
+;; Shared circuit-kit primitives consumed by every proof_conversion
+;; sub-library. Leaf in the proof_conversion dependency graph: depends
+;; only on Pickles, Snarky and the foreign-field gadget library.
+
+(include_subdirs no)
+
+(library
+ (name proof_conversion_circuit_kit)
+ (wrapped false)
+ (libraries
+  core_kernel
+  key_cache
+  pickles
+  snarky.backendless
+  snarky_foreign_field)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
