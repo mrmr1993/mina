@@ -132,3 +132,40 @@
   (backend bisect_ppx))
  (preprocess
   (pps ppx_version ppx_jane)))
+
+;; -------------------------------------------------------------------------
+;; Canonical regression gate: step-circuit gate-digest diff.
+;;
+;; Compiles every circuit under the production [~name:] strings, captures
+;; each circuit's step-circuit gate JSON dump via [DUMP_PCS_GATES], hashes
+;; it (along with the Pickles [~name:] string), and diffs the resulting
+;; sorted map against [golden/step_gate_digests.json].
+;;
+;; Step-circuit gate dumps are byte-deterministic across rebuilds; Pickles'
+;; wrap-circuit dumps and VK hashes are not, so VK-based gating would not
+;; survive a clean rebuild. Step-circuit gates fully fingerprint the
+;; constraint system the refactor must preserve.
+
+(executable
+ (name test_step_gate_golden)
+ (modules test_step_gate_golden)
+ (libraries
+  core_kernel
+  digestif
+  yojson
+  pickles
+  pickles_types
+  kimchi_pasta
+  mina_base
+  promise
+  proof_conversion)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
+
+;; To run the gate, invoke [verify_golden.sh] from the workspace root.
+;; A dune-sandboxed rule is not viable today because the proof_conversion
+;; library hardcodes workspace-relative data-file paths (e.g.
+;; [src/lib/proof_conversion/plonk/data/g2_lines.json]) which are absent
+;; from the sandbox.
