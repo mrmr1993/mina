@@ -1,6 +1,6 @@
 # Proof Conversion Library
 
-This library ports the [nori-proof-conversion](https://github.com/aspect-build/nori-proof-conversion) TypeScript/o1js circuits to OCaml. The goal is to produce **gate-identical** constraint systems so that verification keys are cross-compatible between the two implementations.
+This library ports the [nori-proof-conversion](https://github.com/nori-zk/proof-conversion) TypeScript/o1js circuits to OCaml. The goal is to produce **gate-identical** constraint systems so that verification keys are cross-compatible between the two implementations.
 
 ## Library layout
 
