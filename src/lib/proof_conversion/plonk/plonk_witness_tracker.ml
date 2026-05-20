@@ -4,6 +4,7 @@
     accumulator state) without circuit constraints. *)
 
 open! Core_kernel
+open Proof_conversion_groth16
 open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 

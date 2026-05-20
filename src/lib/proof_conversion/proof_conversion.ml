@@ -6,31 +6,32 @@
 open Core_kernel
 
 (** Re-export key modules for external access. *)
-module Witness_tracker = Witness_tracker
+module Compressor = Proof_conversion_groth16.Compressor
+module Witness_tracker = Proof_conversion_groth16.Witness_tracker
 
 module Bn254_params = Proof_conversion_bn254.Bn254_params
-module Proof_json = Proof_json
-module Vk_constants = Vk_constants
-module Circuit_info = Circuit_info
+module Proof_json = Proof_conversion_groth16.Proof_json
+module Vk_constants = Proof_conversion_groth16.Vk_constants
+module Circuit_info = Proof_conversion_groth16.Circuit_info
 module Plonk_circuits = Plonk_circuits
 module Plonk_proof_json = Plonk_proof_json
 module Plonk_requests = Plonk_requests
 module Plonk_pickles_rules = Plonk_pickles_rules
 module Plonk_witness_tracker = Plonk_witness_tracker
-module Groth16_requests = Groth16_requests
-module Pickles_rules = Pickles_rules
+module Groth16_requests = Proof_conversion_groth16.Groth16_requests
+module Pickles_rules = Proof_conversion_groth16.Pickles_rules
 module Circuit_utils = Proof_conversion_circuit_kit.Circuit_utils
-module Circuits = Circuits
+module Circuits = Proof_conversion_groth16.Circuits
 module Kzg_accumulator = Kzg_accumulator
 module Tree_compressor = Proof_conversion_compressor.Tree_compressor
 module G1 = Proof_conversion_bn254.G1
 module G2 = Proof_conversion_bn254.G2
 module Fp6 = Proof_conversion_bn254.Fp6
 module Fp12 = Proof_conversion_bn254.Fp12
-module Circuit_config = Circuit_config
-module Accumulator = Accumulator
-module Ate_circuit = Ate_circuit
-module Fupdate_circuit = Fupdate_circuit
+module Circuit_config = Proof_conversion_groth16.Circuit_config
+module Accumulator = Proof_conversion_groth16.Accumulator
+module Ate_circuit = Proof_conversion_groth16.Ate_circuit
+module Fupdate_circuit = Proof_conversion_groth16.Fupdate_circuit
 module Pairing_utils_bridge = Pairing_utils_bridge
 module Cache_config = Proof_conversion_circuit_kit.Cache_config
 module Workdir = Workdir

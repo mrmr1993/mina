@@ -11,6 +11,7 @@
     Reference: nori-proof-conversion/src/plonk/recursion/prove_zkps.ts *)
 
 open! Core_kernel
+open Proof_conversion_groth16
 open Proof_conversion_bn254
 open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
