@@ -86,8 +86,8 @@ let () =
            unset so the library applies its env-var / sibling-file fallback. *)
         let path_arg s = if String.is_empty s then None else Some s in
         printf "Converting %s proof: %s -> %s\n"
-          Proof_conversion.Convert.Groth16.name !input_path !output_path ;
-        Proof_conversion.Convert.Groth16.convert ?vk_path:(path_arg !vk_path)
+          Proof_conversion.Groth16.Convert.name !input_path !output_path ;
+        Proof_conversion.Groth16.Convert.convert ?vk_path:(path_arg !vk_path)
           ?aux_path:(path_arg !aux_path) ~input_path:!input_path
           ~output_path:!output_path ()
     | "plonk" ->
