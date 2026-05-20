@@ -1,6 +1,7 @@
 ;; Shared circuit-kit primitives consumed by every proof_conversion
 ;; sub-library. Leaf in the proof_conversion dependency graph: depends
-;; only on Pickles, Snarky and the foreign-field gadget library.
+;; only on Pickles, Snarky, the foreign-field gadget library and
+;; key_cache (used by Cache_config).
 
 (include_subdirs no)
 

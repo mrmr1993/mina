@@ -116,7 +116,6 @@ module Convert = struct
             let h = Accumulator.hash acc in
             fun () -> Step.As_prover.read_var h )
       in
-      (* Chain circuits 0-12 via auxiliary_output *)
       let current_hash = ref initial_hash in
       let current_acc = ref initial_acc in
       let hash_pairs =
