@@ -20,7 +20,8 @@
   digestif.ocaml
   proof_conversion_pairing_utils
   proof_conversion_circuit_kit
-  proof_conversion_bn254)
+  proof_conversion_bn254
+  proof_conversion_compressor)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

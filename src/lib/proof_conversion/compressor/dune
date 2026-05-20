@@ -1,0 +1,23 @@
+;; Binary-tree proof-compression circuits (layer1, node) wrapping the
+;; base PLONK/Groth16 proofs into a single Pickles side-loaded proof.
+;;
+;; Independent of any specific proof system; depends only on Pickles
+;; and the circuit_kit Boolean / cache helpers.
+
+(include_subdirs no)
+
+(library
+ (name proof_conversion_compressor)
+ (wrapped false)
+ (libraries
+  core_kernel
+  pickles
+  pickles_types
+  promise
+  random_oracle
+  snarky.backendless
+  proof_conversion_circuit_kit)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
