@@ -830,3 +830,216 @@ let default_const : t_const =
       ; h_state = z8
       }
   }
+
+(** String-leaved, named mirror of {!t_const} for transfer across a process
+    boundary. Every foreign-field element becomes a decimal string and every
+    digest an array of field-element strings, so the wire form holds only
+    primitives — no abstract crypto types. The field layout mirrors
+    {!t_const} exactly. *)
+module Wire = struct
+  type proof =
+    { l_com_x : string
+    ; l_com_y : string
+    ; r_com_x : string
+    ; r_com_y : string
+    ; o_com_x : string
+    ; o_com_y : string
+    ; h0_x : string
+    ; h0_y : string
+    ; h1_x : string
+    ; h1_y : string
+    ; h2_x : string
+    ; h2_y : string
+    ; l_at_zeta : string
+    ; r_at_zeta : string
+    ; o_at_zeta : string
+    ; s1_at_zeta : string
+    ; s2_at_zeta : string
+    ; grand_product_x : string
+    ; grand_product_y : string
+    ; grand_product_at_omega_zeta : string
+    ; batch_opening_at_zeta_x : string
+    ; batch_opening_at_zeta_y : string
+    ; batch_opening_at_zeta_omega_x : string
+    ; batch_opening_at_zeta_omega_y : string
+    ; qcp_0_at_zeta : string
+    ; qcp_0_wire_x : string
+    ; qcp_0_wire_y : string
+    }
+
+  type fs =
+    { gamma_digest : string array
+    ; gamma : string
+    ; beta_digest : string array
+    ; beta : string
+    ; alpha_digest : string array
+    ; alpha : string
+    ; zeta_digest : string array
+    ; zeta : string
+    ; gamma_kzg_digest : string array
+    ; gamma_kzg : string
+    }
+
+  type state =
+    { pi0 : string
+    ; pi1 : string
+    ; zeta_pow_n : string
+    ; zh_eval : string
+    ; alpha_2_l0 : string
+    ; hx : string
+    ; hy : string
+    ; pi : string
+    ; linearized_opening : string
+    ; lcm_x : string
+    ; lcm_y : string
+    ; cm_x : string
+    ; cm_y : string
+    ; cm_opening : string
+    ; kzg_random : string
+    ; kzg_cm_x : string
+    ; kzg_cm_y : string
+    ; neg_fq_x : string
+    ; neg_fq_y : string
+    ; h_state : string array
+    }
+
+  type t = { proof : proof; fs : fs; state : state }
+end
+
+(** Reduce an accumulator constant to its string-leaved {!Wire.t} form. *)
+let to_wire (c : t_const) : Wire.t =
+  let bi = Bignum_bigint.to_string in
+  let fa = Array.map ~f:Step.Field.Constant.to_string in
+  { Wire.proof =
+      { Wire.l_com_x = bi c.proof.l_com_x
+      ; l_com_y = bi c.proof.l_com_y
+      ; r_com_x = bi c.proof.r_com_x
+      ; r_com_y = bi c.proof.r_com_y
+      ; o_com_x = bi c.proof.o_com_x
+      ; o_com_y = bi c.proof.o_com_y
+      ; h0_x = bi c.proof.h0_x
+      ; h0_y = bi c.proof.h0_y
+      ; h1_x = bi c.proof.h1_x
+      ; h1_y = bi c.proof.h1_y
+      ; h2_x = bi c.proof.h2_x
+      ; h2_y = bi c.proof.h2_y
+      ; l_at_zeta = bi c.proof.l_at_zeta
+      ; r_at_zeta = bi c.proof.r_at_zeta
+      ; o_at_zeta = bi c.proof.o_at_zeta
+      ; s1_at_zeta = bi c.proof.s1_at_zeta
+      ; s2_at_zeta = bi c.proof.s2_at_zeta
+      ; grand_product_x = bi c.proof.grand_product_x
+      ; grand_product_y = bi c.proof.grand_product_y
+      ; grand_product_at_omega_zeta = bi c.proof.grand_product_at_omega_zeta
+      ; batch_opening_at_zeta_x = bi c.proof.batch_opening_at_zeta_x
+      ; batch_opening_at_zeta_y = bi c.proof.batch_opening_at_zeta_y
+      ; batch_opening_at_zeta_omega_x = bi c.proof.batch_opening_at_zeta_omega_x
+      ; batch_opening_at_zeta_omega_y = bi c.proof.batch_opening_at_zeta_omega_y
+      ; qcp_0_at_zeta = bi c.proof.qcp_0_at_zeta
+      ; qcp_0_wire_x = bi c.proof.qcp_0_wire_x
+      ; qcp_0_wire_y = bi c.proof.qcp_0_wire_y
+      }
+  ; fs =
+      { Wire.gamma_digest = fa c.fs.gamma_digest
+      ; gamma = bi c.fs.gamma
+      ; beta_digest = fa c.fs.beta_digest
+      ; beta = bi c.fs.beta
+      ; alpha_digest = fa c.fs.alpha_digest
+      ; alpha = bi c.fs.alpha
+      ; zeta_digest = fa c.fs.zeta_digest
+      ; zeta = bi c.fs.zeta
+      ; gamma_kzg_digest = fa c.fs.gamma_kzg_digest
+      ; gamma_kzg = bi c.fs.gamma_kzg
+      }
+  ; state =
+      { Wire.pi0 = bi c.state.pi0
+      ; pi1 = bi c.state.pi1
+      ; zeta_pow_n = bi c.state.zeta_pow_n
+      ; zh_eval = bi c.state.zh_eval
+      ; alpha_2_l0 = bi c.state.alpha_2_l0
+      ; hx = bi c.state.hx
+      ; hy = bi c.state.hy
+      ; pi = bi c.state.pi
+      ; linearized_opening = bi c.state.linearized_opening
+      ; lcm_x = bi c.state.lcm_x
+      ; lcm_y = bi c.state.lcm_y
+      ; cm_x = bi c.state.cm_x
+      ; cm_y = bi c.state.cm_y
+      ; cm_opening = bi c.state.cm_opening
+      ; kzg_random = bi c.state.kzg_random
+      ; kzg_cm_x = bi c.state.kzg_cm_x
+      ; kzg_cm_y = bi c.state.kzg_cm_y
+      ; neg_fq_x = bi c.state.neg_fq_x
+      ; neg_fq_y = bi c.state.neg_fq_y
+      ; h_state = fa c.state.h_state
+      }
+  }
+
+(** Reconstruct an accumulator constant from its {!Wire.t} form. *)
+let of_wire (w : Wire.t) : t_const =
+  let bi = Bignum_bigint.of_string in
+  let fa = Array.map ~f:Step.Field.Constant.of_string in
+  { proof =
+      { l_com_x = bi w.proof.l_com_x
+      ; l_com_y = bi w.proof.l_com_y
+      ; r_com_x = bi w.proof.r_com_x
+      ; r_com_y = bi w.proof.r_com_y
+      ; o_com_x = bi w.proof.o_com_x
+      ; o_com_y = bi w.proof.o_com_y
+      ; h0_x = bi w.proof.h0_x
+      ; h0_y = bi w.proof.h0_y
+      ; h1_x = bi w.proof.h1_x
+      ; h1_y = bi w.proof.h1_y
+      ; h2_x = bi w.proof.h2_x
+      ; h2_y = bi w.proof.h2_y
+      ; l_at_zeta = bi w.proof.l_at_zeta
+      ; r_at_zeta = bi w.proof.r_at_zeta
+      ; o_at_zeta = bi w.proof.o_at_zeta
+      ; s1_at_zeta = bi w.proof.s1_at_zeta
+      ; s2_at_zeta = bi w.proof.s2_at_zeta
+      ; grand_product_x = bi w.proof.grand_product_x
+      ; grand_product_y = bi w.proof.grand_product_y
+      ; grand_product_at_omega_zeta = bi w.proof.grand_product_at_omega_zeta
+      ; batch_opening_at_zeta_x = bi w.proof.batch_opening_at_zeta_x
+      ; batch_opening_at_zeta_y = bi w.proof.batch_opening_at_zeta_y
+      ; batch_opening_at_zeta_omega_x = bi w.proof.batch_opening_at_zeta_omega_x
+      ; batch_opening_at_zeta_omega_y = bi w.proof.batch_opening_at_zeta_omega_y
+      ; qcp_0_at_zeta = bi w.proof.qcp_0_at_zeta
+      ; qcp_0_wire_x = bi w.proof.qcp_0_wire_x
+      ; qcp_0_wire_y = bi w.proof.qcp_0_wire_y
+      }
+  ; fs =
+      { gamma_digest = fa w.fs.gamma_digest
+      ; gamma = bi w.fs.gamma
+      ; beta_digest = fa w.fs.beta_digest
+      ; beta = bi w.fs.beta
+      ; alpha_digest = fa w.fs.alpha_digest
+      ; alpha = bi w.fs.alpha
+      ; zeta_digest = fa w.fs.zeta_digest
+      ; zeta = bi w.fs.zeta
+      ; gamma_kzg_digest = fa w.fs.gamma_kzg_digest
+      ; gamma_kzg = bi w.fs.gamma_kzg
+      }
+  ; state =
+      { pi0 = bi w.state.pi0
+      ; pi1 = bi w.state.pi1
+      ; zeta_pow_n = bi w.state.zeta_pow_n
+      ; zh_eval = bi w.state.zh_eval
+      ; alpha_2_l0 = bi w.state.alpha_2_l0
+      ; hx = bi w.state.hx
+      ; hy = bi w.state.hy
+      ; pi = bi w.state.pi
+      ; linearized_opening = bi w.state.linearized_opening
+      ; lcm_x = bi w.state.lcm_x
+      ; lcm_y = bi w.state.lcm_y
+      ; cm_x = bi w.state.cm_x
+      ; cm_y = bi w.state.cm_y
+      ; cm_opening = bi w.state.cm_opening
+      ; kzg_random = bi w.state.kzg_random
+      ; kzg_cm_x = bi w.state.kzg_cm_x
+      ; kzg_cm_y = bi w.state.kzg_cm_y
+      ; neg_fq_x = bi w.state.neg_fq_x
+      ; neg_fq_y = bi w.state.neg_fq_y
+      ; h_state = fa w.state.h_state
+      }
+  }
