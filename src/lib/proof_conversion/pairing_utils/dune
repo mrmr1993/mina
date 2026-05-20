@@ -7,7 +7,6 @@
 
 (library
  (name proof_conversion_pairing_utils_bridge)
- (wrapped false)
  (libraries
   core_kernel
   bignum_bigint
