@@ -29,3 +29,16 @@
   (backend bisect_ppx))
  (preprocess
   (pps ppx_version ppx_jane)))
+
+;; Embed the precomputed pairing-line tables as OCaml string constants so
+;; the circuits have no runtime dependency on a workspace-relative data
+;; directory. The JSON in data/ remains the source of truth.
+
+(rule
+ (target plonk_line_data.ml)
+ (deps data/g2_lines.json data/tau_lines.json)
+ (action
+  (with-stdout-to
+   plonk_line_data.ml
+   (bash
+    "printf 'let g2_lines_json = {json|'; cat data/g2_lines.json; printf '|json}\\n\\nlet tau_lines_json = {json|'; cat data/tau_lines.json; printf '|json}\\n'"))))

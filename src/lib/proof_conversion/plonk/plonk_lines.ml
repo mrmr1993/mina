@@ -20,9 +20,11 @@ let parse_line (j : Yojson.Safe.t) : Lines.G2Line.constant =
   in
   (fp2 "lambda", fp2 "neg_mu")
 
-(** Load all lines from a JSON file. *)
-let load_lines_from_json (path : string) : Lines.G2Line.constant array =
-  let json = Yojson.Safe.from_file path in
+(** Parse all lines from a JSON string. The line tables are embedded as
+    string constants in [Plonk_line_data] (generated from data/*.json by
+    a dune rule), so there is no runtime dependency on a data directory. *)
+let parse_lines (json_str : string) : Lines.G2Line.constant array =
+  let json = Yojson.Safe.from_string json_str in
   let entries = Yojson.Safe.Util.to_list json in
   Array.of_list (List.map entries ~f:parse_line)
 

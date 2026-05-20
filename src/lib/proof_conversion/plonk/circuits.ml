@@ -368,11 +368,8 @@ let zkp_lines ~circuit_index input_hash :
     | _ ->
         assert false
   in
-  let data_dir = "src/lib/proof_conversion/plonk/data" in
-  let all_g2 = Plonk_lines.load_lines_from_json (data_dir ^ "/g2_lines.json") in
-  let all_tau =
-    Plonk_lines.load_lines_from_json (data_dir ^ "/tau_lines.json")
-  in
+  let all_g2 = Plonk_lines.parse_lines Plonk_line_data.g2_lines_json in
+  let all_tau = Plonk_lines.parse_lines Plonk_line_data.tau_lines_json in
   let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
   let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
   let kzg = witness_kzg_accumulator () in
@@ -853,11 +850,8 @@ let zkp_lines_native ~circuit_index (kzg_const : Kzg_accumulator.t_const)
     | _ ->
         assert false
   in
-  let data_dir = "src/lib/proof_conversion/plonk/data" in
-  let all_g2 = Plonk_lines.load_lines_from_json (data_dir ^ "/g2_lines.json") in
-  let all_tau =
-    Plonk_lines.load_lines_from_json (data_dir ^ "/tau_lines.json")
-  in
+  let all_g2 = Plonk_lines.parse_lines Plonk_line_data.g2_lines_json in
+  let all_tau = Plonk_lines.parse_lines Plonk_line_data.tau_lines_json in
   let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
   let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
   let a_cache =
@@ -944,11 +938,8 @@ let zkp_lines_fast ~circuit_index (kzg_const : Kzg_accumulator.t_const)
     | _ ->
         assert false
   in
-  let data_dir = "src/lib/proof_conversion/plonk/data" in
-  let all_g2 = Plonk_lines.load_lines_from_json (data_dir ^ "/g2_lines.json") in
-  let all_tau =
-    Plonk_lines.load_lines_from_json (data_dir ^ "/tau_lines.json")
-  in
+  let all_g2 = Plonk_lines.parse_lines Plonk_line_data.g2_lines_json in
+  let all_tau = Plonk_lines.parse_lines Plonk_line_data.tau_lines_json in
   let g2_lines = Plonk_lines.parse_g2 all_g2 ~from:from_ ~to_ in
   let tau_lines = Plonk_lines.parse_tau all_tau ~from:from_ ~to_ in
   let kzg = Kzg_accumulator.of_constant kzg_const in
