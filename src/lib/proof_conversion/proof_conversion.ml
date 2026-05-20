@@ -33,43 +33,47 @@ module Workdir = Proof_conversion_workdir.Workdir
 module Pairing_utils_bridge =
   Proof_conversion_pairing_utils_bridge.Pairing_utils_bridge
 
-(** Module type for a proof conversion system. *)
-module type PROOF_SYSTEM = sig
-  (** Human-readable name of the proof system (e.g. "groth16", "plonk"). *)
-  val name : string
-
-  (** Parse a proof from a JSON file and convert it into a Mina-compatible
-      proof. Returns the serialized proof data as a JSON string. *)
-  val convert : input_path:string -> output_path:string -> unit
-end
-
 (** End-to-end conversion pipelines, one per supported proof system. *)
 module Convert = struct
   (** Groth16 proof conversion (RISC Zero). *)
-  module Groth16 : PROOF_SYSTEM = struct
+  module Groth16 = struct
     open Proof_conversion_bn254
     open Proof_conversion_groth16
 
     let name = "groth16"
 
-    let convert ~input_path ~output_path =
+    (** Convert a Groth16 proof at [input_path] into a Mina-compatible proof,
+        written as JSON to [output_path].
+
+        [vk_path] and [aux_path] override the verification-key and auxiliary-
+        witness JSON locations. When omitted, each falls back to its
+        environment variable ([GROTH16_VK_PATH] / [GROTH16_AUX_PATH]) and then
+        to the conventional sibling of [input_path]. *)
+    let convert ?vk_path ?aux_path ~input_path ~output_path () =
       let dir = Filename.dirname input_path in
       let proof = Proof_json.load_proof input_path in
-      (* Look for VK and aux witness: check explicit env vars, then conventions *)
       let vk_path =
-        match Sys.getenv_opt "GROTH16_VK_PATH" with
+        match vk_path with
         | Some p ->
             p
-        | None ->
-            dir ^ "/vk.json"
+        | None -> (
+            match Sys.getenv_opt "GROTH16_VK_PATH" with
+            | Some p ->
+                p
+            | None ->
+                dir ^ "/vk.json" )
       in
       let vk = Proof_json.load_vk vk_path in
       let aux_path =
-        match Sys.getenv_opt "GROTH16_AUX_PATH" with
+        match aux_path with
         | Some p ->
             p
-        | None ->
-            dir ^ "/aux_witness.json"
+        | None -> (
+            match Sys.getenv_opt "GROTH16_AUX_PATH" with
+            | Some p ->
+                p
+            | None ->
+                dir ^ "/aux_witness.json" )
       in
       let aux = Proof_json.load_aux_witness aux_path in
       let tracker = Witness_tracker.create ~proof ~vk ~aux in

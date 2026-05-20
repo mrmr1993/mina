@@ -5,6 +5,7 @@ let () =
   let input_path = ref "" in
   let output_path = ref "" in
   let vk_path = ref "" in
+  let aux_path = ref "" in
   let info_mode = ref false in
   let spec =
     [ ( "--proof-type"
@@ -13,6 +14,9 @@ let () =
     ; ("--input", Arg.Set_string input_path, "PATH  Input proof JSON file")
     ; ("--output", Arg.Set_string output_path, "PATH  Output proof JSON file")
     ; ("--vk", Arg.Set_string vk_path, "PATH  Verification key JSON file")
+    ; ( "--aux"
+      , Arg.Set_string aux_path
+      , "PATH  Groth16 auxiliary-witness JSON file" )
     ; ("--info", Arg.Set info_mode, "  Report circuit info without proving")
     ]
   in
@@ -76,19 +80,21 @@ let () =
     if String.is_empty !output_path then (
       Arg.usage spec "Missing --output" ;
       exit 1 ) ;
-    let (module System : Proof_conversion.PROOF_SYSTEM) =
-      match !proof_type with
-      | "groth16" ->
-          (module Proof_conversion.Convert.Groth16)
-      | "plonk" ->
-          eprintf
-            "PLONK conversion is not available through mina-proof-conversion; \
-             use nori-proof-converter (see src/app/proof_conversion/README.md).\n" ;
-          exit 1
-      | other ->
-          eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
-          exit 1
-    in
-    printf "Converting %s proof: %s -> %s\n" System.name !input_path
-      !output_path ;
-    System.convert ~input_path:!input_path ~output_path:!output_path )
+    match !proof_type with
+    | "groth16" ->
+        (* An explicit CLI flag overrides the path; an empty flag is left
+           unset so the library applies its env-var / sibling-file fallback. *)
+        let path_arg s = if String.is_empty s then None else Some s in
+        printf "Converting %s proof: %s -> %s\n"
+          Proof_conversion.Convert.Groth16.name !input_path !output_path ;
+        Proof_conversion.Convert.Groth16.convert ?vk_path:(path_arg !vk_path)
+          ?aux_path:(path_arg !aux_path) ~input_path:!input_path
+          ~output_path:!output_path ()
+    | "plonk" ->
+        eprintf
+          "PLONK conversion is not available through mina-proof-conversion; \
+           use nori-proof-converter (see src/app/proof_conversion/README.md).\n" ;
+        exit 1
+    | other ->
+        eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
+        exit 1 )
