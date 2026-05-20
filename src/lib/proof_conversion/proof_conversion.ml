@@ -123,9 +123,8 @@ module Convert = struct
         Array.create ~len:Circuits.num_circuits
           (Step.Field.Constant.zero, Step.Field.Constant.zero)
       in
-      let proofs =
-        Array.create ~len:Circuits.num_circuits
-          (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
+      let proofs : Pickles_types.Nat.N0.n Pickles.Proof.t option array =
+        Array.create ~len:Circuits.num_circuits None
       in
       let fp_to_field h =
         Step.Field.Constant.of_string (Kimchi_pasta.Pasta.Fp.to_string h)
@@ -173,7 +172,7 @@ module Convert = struct
             ~input_hash ~witness
         in
         hash_pairs.(n) <- (input_hash, output_hash) ;
-        proofs.(n) <- proof ;
+        proofs.(n) <- Some proof ;
         current_hash := output_hash ;
         current_acc := acc_after ;
         (* Use line_hashes and g_values from auxiliary output *)
@@ -229,14 +228,14 @@ module Convert = struct
             ~witness
         in
         hash_pairs.(n) <- (input_hash, output_hash) ;
-        proofs.(n) <- proof ;
+        proofs.(n) <- Some proof ;
         current_hash := output_hash
       done ;
       (* Serialize proofs to JSON *)
       let json_proofs =
         Array.mapi proofs ~f:(fun i proof ->
             let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
-            let proof_str = P.to_base64 proof in
+            let proof_str = P.to_base64 (Option.value_exn proof) in
             `Assoc [ ("circuit", `Int i); ("proof", `String proof_str) ] )
       in
       let output_json =

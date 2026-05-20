@@ -83,12 +83,14 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   Printf.eprintf "Proving 24 base circuits...\n%!" ;
   let current_hash = ref input_hash in
   let current_acc = ref acc_const in
-  let base_proofs =
-    Array.create ~len:24
-      ( Step.Field.Constant.zero
-      , Step.Field.Constant.zero
-      , (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
-      , (Obj.magic () : Pickles.Side_loaded.Verification_key.t) )
+  let base_proofs :
+      ( Step.Field.Constant.t
+      * Step.Field.Constant.t
+      * Pickles_types.Nat.N0.n Pickles.Proof.t
+      * Pickles.Side_loaded.Verification_key.t )
+      option
+      array =
+    Array.create ~len:24 None
   in
   (* zkp0-11 *)
   for n = 0 to 11 do
@@ -106,7 +108,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_one_with_plonk_acc
         ~n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     current_hash := output_hash ;
     current_acc := acc_after
   done ;
@@ -127,7 +129,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp12
       ~input_hash:!current_hash ~witness:w12
   in
-  base_proofs.(12) <- (!current_hash, output_hash_12, proof_12, vk_12) ;
+  base_proofs.(12) <- Some (!current_hash, output_hash_12, proof_12, vk_12) ;
   current_hash := output_hash_12 ;
   (* zkp13-16 *)
   let current_kzg = ref kzg_const in
@@ -152,7 +154,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_lines
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     all_g_values := Array.append !all_g_values gv ;
     current_hash := output_hash ;
     current_kzg := kzg_after ;
@@ -196,7 +198,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_f_accum
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     current_hash := output_hash ;
     current_kzg := kzg_after
   done ;
@@ -215,20 +217,20 @@ let run_sp1_to_plonk ~input_path ~aux_path =
     Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:true ~n:23 ~input_hash:!current_hash ~witness:w23
   in
-  base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
+  base_proofs.(23) <- Some (!current_hash, output_hash_23, proof_23, vk_23) ;
   Printf.eprintf "All 24 base circuits proved.\n%!" ;
   (* === Tree compression === *)
   Printf.eprintf "Tree compression...\n%!" ;
   let layer1_tag, (module Layer1Proof), layer1_prove = TC.compile_layer1 () in
   ignore (module Layer1Proof : Pickles.Proof_intf) ;
-  let _, cout23, _, _ = base_proofs.(23) in
+  let _, cout23, _, _ = Option.value_exn base_proofs.(23) in
   let padded_proofs =
     Array.init 32 ~f:(fun i ->
         if i < 24 then
-          let cin, cout, proof, vk = base_proofs.(i) in
+          let cin, cout, proof, vk = Option.value_exn base_proofs.(i) in
           (cin, cout, proof, vk, true)
         else
-          let _, _, proof, vk = base_proofs.(0) in
+          let _, _, proof, vk = Option.value_exn base_proofs.(0) in
           (cout23, cout23, proof, vk, false) )
   in
   let layer1_results =
@@ -418,12 +420,14 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     ref (Array.create ~len:n_total Step.Field.Constant.zero)
   in
   let all_g_values = ref [||] in
-  let base_proofs =
-    Array.create ~len:num_circuits
-      ( Step.Field.Constant.zero
-      , Step.Field.Constant.zero
-      , (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
-      , (Obj.magic () : Pickles.Side_loaded.Verification_key.t) )
+  let base_proofs :
+      ( Step.Field.Constant.t
+      * Step.Field.Constant.t
+      * Pickles_types.Nat.N0.n Pickles.Proof.t
+      * Pickles.Side_loaded.Verification_key.t )
+      option
+      array =
+    Array.create ~len:num_circuits None
   in
   (* Circuits 0-6: ate loop with accumulator chaining *)
   for n = 0 to 6 do
@@ -441,7 +445,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
         ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, side_vk) ;
     current_hash := output_hash ;
     current_acc := acc_after ;
     evolving_line_hashes := lh_after ;
@@ -479,7 +483,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
         ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, side_vk) ;
     current_hash := output_hash ;
     current_acc := acc_after
   done ;
@@ -499,7 +503,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       ~skip_verify:true ~vk:vk_const ~n:13 ~input_hash:!current_hash
       ~witness:witness_13
   in
-  base_proofs.(13) <- (!current_hash, output_hash_13, proof_13, vk_13) ;
+  base_proofs.(13) <- Some (!current_hash, output_hash_13, proof_13, vk_13) ;
   current_hash := output_hash_13 ;
   (* Circuit 14: partial IC *)
   Printf.eprintf "  zkp14...\n%!" ;
@@ -515,7 +519,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       ~skip_verify:true ~vk:vk_const ~n:14 ~input_hash:!current_hash
       ~witness:witness_14
   in
-  base_proofs.(14) <- (!current_hash, output_hash_14, proof_14, vk_14) ;
+  base_proofs.(14) <- Some (!current_hash, output_hash_14, proof_14, vk_14) ;
   current_hash := output_hash_14 ;
   (* Circuit 15: full IC *)
   Printf.eprintf "  zkp15...\n%!" ;
@@ -537,7 +541,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       ~skip_verify:true ~vk:vk_const ~n:15 ~input_hash:!current_hash
       ~witness:witness_15
   in
-  base_proofs.(15) <- (!current_hash, output_hash_15, proof_15, vk_15) ;
+  base_proofs.(15) <- Some (!current_hash, output_hash_15, proof_15, vk_15) ;
   Printf.eprintf "All 16 base circuits proved.\n%!" ;
   (* === Tree compression === *)
   Printf.eprintf "Tree compression...\n%!" ;
@@ -548,8 +552,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     Array.init 8 ~f:(fun i ->
         let li = i * 2 in
         let ri = (i * 2) + 1 in
-        let cin_l, cout_l, proof_l, vk_l = base_proofs.(li) in
-        let cin_r, cout_r, proof_r, vk_r = base_proofs.(ri) in
+        let cin_l, cout_l, proof_l, vk_l = Option.value_exn base_proofs.(li) in
+        let cin_r, cout_r, proof_r, vk_r = Option.value_exn base_proofs.(ri) in
         Printf.eprintf "  Layer1 %d (zkp%d + zkp%d)...\n%!" i li ri ;
         let witness : TC.layer1_witness =
           { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
@@ -855,8 +859,9 @@ let run_internal_compute_state ~workdir ~n =
           Proof_conversion.Groth16.Proof_json.fp12_of_json
             (Yojson.Safe.Util.member "c" aux_json)
         in
-        let result12 =
-          ref (Obj.magic () : Proof_conversion.Plonk.Kzg_accumulator.t_const)
+        let result12 : Proof_conversion.Plonk.Kzg_accumulator.t_const option ref
+            =
+          ref None
         in
         Step.run_unchecked (fun () ->
             let kzg =
@@ -865,9 +870,10 @@ let run_internal_compute_state ~workdir ~n =
             in
             Step.as_prover (fun () ->
                 result12 :=
-                  Step.As_prover.read Proof_conversion.Plonk.Kzg_accumulator.typ
-                    kzg ) ) ;
-        let kzg12 = !result12 in
+                  Some
+                    (Step.As_prover.read
+                       Proof_conversion.Plonk.Kzg_accumulator.typ kzg ) ) ) ;
+        let kzg12 = Option.value_exn !result12 in
         let oh12 =
           Proof_conversion.Plonk.Witness_tracker.hash_kzg_accumulator_const
             kzg12

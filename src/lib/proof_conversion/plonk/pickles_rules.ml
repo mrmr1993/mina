@@ -452,9 +452,8 @@ let compile_and_prove_all_chained ~(initial_acc : Accumulator.t_const)
     Array.create ~len:Circuits.num_circuits
       (Step.Field.Constant.zero, Step.Field.Constant.zero)
   in
-  let proofs =
-    Array.create ~len:Circuits.num_circuits
-      (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
+  let proofs : Pickles_types.Nat.N0.n Pickles.Proof.t option array =
+    Array.create ~len:Circuits.num_circuits None
   in
   for n = 0 to Circuits.num_circuits - 1 do
     let input_hash = !current_hash in
@@ -465,11 +464,11 @@ let compile_and_prove_all_chained ~(initial_acc : Accumulator.t_const)
       compile_and_prove_one_with_plonk_acc ~n ~input_hash ~witness
     in
     hash_pairs.(n) <- (input_hash, output_hash) ;
-    proofs.(n) <- proof ;
+    proofs.(n) <- Some proof ;
     current_hash := output_hash ;
     current_acc := acc_after
   done ;
-  (hash_pairs, proofs)
+  (hash_pairs, Array.map proofs ~f:(fun p -> Option.value_exn p))
 
 (** Legacy: prove all with pre-computed witnesses (no chaining). *)
 let compile_and_prove_all ~(witnesses : Requests.witness array) :

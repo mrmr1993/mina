@@ -20,12 +20,14 @@ let () =
   let current_hash = ref input_hash in
   let current_acc = ref acc_const in
   (* Collect (input_hash, output_hash, proof, vk) for each circuit *)
-  let base_proofs =
-    Array.create ~len:24
-      ( Step.Field.Constant.zero
-      , Step.Field.Constant.zero
-      , (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
-      , (Obj.magic () : Pickles.Side_loaded.Verification_key.t) )
+  let base_proofs :
+      ( Step.Field.Constant.t
+      * Step.Field.Constant.t
+      * Pickles_types.Nat.N0.n Pickles.Proof.t
+      * Pickles.Side_loaded.Verification_key.t )
+      option
+      array =
+    Array.create ~len:24 None
   in
   (* zkp0-11: PLONK accumulator phase *)
   for n = 0 to 11 do
@@ -44,7 +46,7 @@ let () =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_one_with_plonk_acc
         ~n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     current_hash := output_hash ;
     current_acc := acc_after
   done ;
@@ -65,7 +67,7 @@ let () =
     Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp12
       ~input_hash:!current_hash ~witness:w12
   in
-  base_proofs.(12) <- (!current_hash, output_hash_12, proof_12, vk_12) ;
+  base_proofs.(12) <- Some (!current_hash, output_hash_12, proof_12, vk_12) ;
   current_hash := output_hash_12 ;
   (* zkp13-16: Line hashing *)
   let current_kzg = ref kzg_const in
@@ -90,7 +92,7 @@ let () =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_lines
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     all_g_values := Array.append !all_g_values gv ;
     current_hash := output_hash ;
     current_kzg := kzg_after ;
@@ -134,7 +136,7 @@ let () =
       Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_f_accum
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
-    base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
+    base_proofs.(n) <- Some (!current_hash, output_hash, proof, vk) ;
     current_hash := output_hash ;
     current_kzg := kzg_after
   done ;
@@ -153,7 +155,7 @@ let () =
     Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:false ~n:23 ~input_hash:!current_hash ~witness:w23
   in
-  base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
+  base_proofs.(23) <- Some (!current_hash, output_hash_23, proof_23, vk_23) ;
   Printf.eprintf "All 24 base circuits proved!\n%!" ;
   (* === Phase 2: Layer1 compression (24 → 16 pairs, pad to 32) === *)
   Printf.eprintf
@@ -163,13 +165,13 @@ let () =
   let padded_proofs =
     Array.init 32 ~f:(fun i ->
         if i < 24 then
-          let cin, cout, proof, vk = base_proofs.(i) in
+          let cin, cout, proof, vk = Option.value_exn base_proofs.(i) in
           (cin, cout, proof, vk, true)
         else
           (* Dummy: use zkp0's proof/vk with verify=false.
              Set cin=cout=cout23 so continuity checks pass at merge boundaries. *)
-          let _, _, proof, vk = base_proofs.(0) in
-          let _, cout23, _, _ = base_proofs.(23) in
+          let _, _, proof, vk = Option.value_exn base_proofs.(0) in
+          let _, cout23, _, _ = Option.value_exn base_proofs.(23) in
           (cout23, cout23, proof, vk, false) )
   in
   let layer1_results =
@@ -256,7 +258,7 @@ let () =
   (* Verify: leftIn should be the initial input hash (cin0) *)
   assert (Step.Field.Constant.equal final_left_in input_hash) ;
   (* rightOut should be the final output hash (cout23) *)
-  let _, cout23, _, _ = base_proofs.(23) in
+  let _, cout23, _, _ = Option.value_exn base_proofs.(23) in
   assert (Step.Field.Constant.equal final_right_out cout23) ;
   Printf.eprintf "Carry values verified: leftIn=cin0, rightOut=cout23\n%!" ;
   (* Export the final proof for cross-verification *)
