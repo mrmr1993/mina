@@ -11,6 +11,7 @@
     VKs which need additional infrastructure). *)
 
 open! Core_kernel
+open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
 
 (** Layer1 circuit: takes two adjacent proof hashes and combines them.

@@ -19,7 +19,7 @@ module Plonk_pickles_rules = Plonk_pickles_rules
 module Plonk_witness_tracker = Plonk_witness_tracker
 module Groth16_requests = Groth16_requests
 module Pickles_rules = Pickles_rules
-module Circuit_utils = Circuit_utils
+module Circuit_utils = Proof_conversion_circuit_kit.Circuit_utils
 module Circuits = Circuits
 module Kzg_accumulator = Kzg_accumulator
 module Tree_compressor = Tree_compressor
@@ -32,7 +32,7 @@ module Accumulator = Accumulator
 module Ate_circuit = Ate_circuit
 module Fupdate_circuit = Fupdate_circuit
 module Pairing_utils_bridge = Pairing_utils_bridge
-module Cache_config = Cache_config
+module Cache_config = Proof_conversion_circuit_kit.Cache_config
 module Workdir = Workdir
 module Plonk_accumulator = Plonk_accumulator
 

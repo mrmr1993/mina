@@ -7,6 +7,7 @@
     scale uses GLV decomposition + windowed MSM. *)
 
 open! Core_kernel
+open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 module FpA = FF.FpA

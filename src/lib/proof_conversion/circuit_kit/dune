@@ -6,7 +6,6 @@
 
 (library
  (name proof_conversion_circuit_kit)
- (wrapped false)
  (libraries
   core_kernel
   key_cache

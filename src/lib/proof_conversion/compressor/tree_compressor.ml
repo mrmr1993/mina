@@ -12,6 +12,7 @@
       nori-proof-conversion/src/structs.ts *)
 
 open! Core_kernel
+open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
 
 (** NOTHING_UP_MY_SLEEVE = Field(0), used for dummy VK hashes. *)
