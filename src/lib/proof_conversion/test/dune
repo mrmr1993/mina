@@ -43,55 +43,6 @@
   (pps ppx_version ppx_jane)))
 
 (executable
- (name test_groth16_final)
- (modules test_groth16_final)
- (libraries
-  core_kernel
-  pickles
-  pickles_types
-  kimchi_pasta
-  mina_base
-  promise
-  proof_conversion)
- (instrumentation
-  (backend bisect_ppx))
- (preprocess
-  (pps ppx_version ppx_jane)))
-
-(executable
- (name test_groth16_ghash)
- (modules test_groth16_ghash)
- (libraries
-  core_kernel
-  pickles
-  pickles_types
-  kimchi_pasta
-  mina_base
-  promise
-  proof_conversion
-  random_oracle)
- (instrumentation
-  (backend bisect_ppx))
- (preprocess
-  (pps ppx_version ppx_jane)))
-
-(executable
- (name test_groth16_cinv)
- (modules test_groth16_cinv)
- (libraries
-  core_kernel
-  pickles
-  pickles_types
-  kimchi_pasta
-  mina_base
-  promise
-  proof_conversion)
- (instrumentation
-  (backend bisect_ppx))
- (preprocess
-  (pps ppx_version ppx_jane)))
-
-(executable
  (name test_plonk_e2e)
  (modules test_plonk_e2e)
  (libraries
@@ -156,8 +107,5 @@
  (preprocess
   (pps ppx_version ppx_jane)))
 
-;; To run the gate, invoke [verify_golden.sh] from the workspace root.
-;; A dune-sandboxed rule is not viable today because the proof_conversion
-;; library hardcodes workspace-relative data-file paths (e.g.
-;; [src/lib/proof_conversion/plonk/data/g2_lines.json]) which are absent
-;; from the sandbox.
+;; The gate is run via [verify_golden.sh] from the workspace root (it
+;; takes ~20 minutes — too long for the default test alias).

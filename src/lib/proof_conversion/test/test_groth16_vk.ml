@@ -1,16 +1,16 @@
 (** Compile individual Groth16 circuits and report VK hashes.
 
-    Usage:
+    Run from the workspace root:
       CIRCUIT=7 dune exec src/lib/proof_conversion/test/test_groth16_vk.exe
       dune exec src/lib/proof_conversion/test/test_groth16_vk.exe  (all circuits)
 
-    Compare VK hashes against nori:
-      cd ../nori-proof-conversion && \
-        GROTH16_VK_PATH=./src/groth/example_jsons/vk.json \
-        node build/src/groth/recursion/dump_digests.js *)
+    Uses the committed example VK by default; override with GROTH16_VK_PATH. *)
 
 open Core_kernel
 module Step = Pickles.Impls.Step
+
+let default_vk_path =
+  "src/lib/proof_conversion/test/fixtures/groth16_example/vk.json"
 
 let compile_circuit ~(vk : Proof_conversion.Groth16.Vk_constants.t) ~(n : int) :
     string =
@@ -24,7 +24,6 @@ let compile_circuit ~(vk : Proof_conversion.Groth16.Vk_constants.t) ~(n : int) :
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-zkp%d" n)
       ~o1js_compatible_mode:false
-      ~override_wrap_domain:Pickles_base.Proofs_verified.N1
       ~choices:(fun ~self:_ -> [ rule ])
       ()
   in
@@ -40,12 +39,9 @@ let compile_circuit ~(vk : Proof_conversion.Groth16.Vk_constants.t) ~(n : int) :
 
 let () =
   let vk_path =
-    match Stdlib.Sys.getenv_opt "GROTH16_VK_PATH" with
-    | Some p ->
-        p
-    | None ->
-        eprintf "Set GROTH16_VK_PATH to the verification key JSON\n" ;
-        exit 1
+    Option.value
+      (Stdlib.Sys.getenv_opt "GROTH16_VK_PATH")
+      ~default:default_vk_path
   in
   let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
   let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in

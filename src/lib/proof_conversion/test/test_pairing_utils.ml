@@ -1,15 +1,19 @@
-(** Compare native Rust aux witness (OCaml MLO + VK w27) with JSON fixture. *)
+(** Compare native Rust aux witness (OCaml MLO + VK w27) with JSON fixture.
+
+    Run from the workspace root: [dune exec
+    src/lib/proof_conversion/test/test_pairing_utils.exe]. *)
 open Core_kernel
 
 module BI = Bignum_bigint
 
+let fixture_dir = "src/lib/proof_conversion/test/fixtures/groth16_example"
+
 let () =
   let proof =
-    Proof_conversion.Groth16.Proof_json.load_proof
-      "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof (fixture_dir ^ "/proof.json")
   in
   let vk =
-    Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json"
+    Proof_conversion.Groth16.Proof_json.load_vk (fixture_dir ^ "/vk.json")
   in
   Printf.eprintf
     "Computing native aux witness (OCaml MLO + Rust eth_root)...\n%!" ;
@@ -19,7 +23,7 @@ let () =
   Printf.eprintf "Native: shift_power=%d\n%!" native.shift_power ;
   let json =
     Proof_conversion.Groth16.Proof_json.load_aux_witness
-      "/tmp/groth16_test/aux_witness.json"
+      (fixture_dir ^ "/aux_witness.json")
   in
   Printf.eprintf "JSON:   shift_power=%d\n%!" json.shift_power ;
   Printf.eprintf "shift match: %b\n%!" (native.shift_power = json.shift_power) ;

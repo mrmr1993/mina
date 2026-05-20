@@ -81,7 +81,10 @@ let () =
       | "groth16" ->
           (module Proof_conversion.Convert.Groth16)
       | "plonk" ->
-          (module Proof_conversion.Convert.Plonk)
+          eprintf
+            "PLONK conversion is not available through mina-proof-conversion; \
+             use nori-proof-converter (see src/app/proof_conversion/README.md).\n" ;
+          exit 1
       | other ->
           eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
           exit 1
