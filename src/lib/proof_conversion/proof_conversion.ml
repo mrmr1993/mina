@@ -34,7 +34,7 @@ module Ate_circuit = Proof_conversion_groth16.Ate_circuit
 module Fupdate_circuit = Proof_conversion_groth16.Fupdate_circuit
 module Pairing_utils_bridge = Proof_conversion_pairing_utils_bridge.Pairing_utils_bridge
 module Cache_config = Proof_conversion_circuit_kit.Cache_config
-module Workdir = Workdir
+module Workdir = Proof_conversion_workdir.Workdir
 module Plonk_accumulator = Proof_conversion_plonk.Plonk_accumulator
 
 (** Module type for a proof conversion system. *)
