@@ -5,6 +5,15 @@
 ;; Depends on [groth16] for the shared accumulator-hashing primitives
 ;; ([Accumulator], [Accumulator_hash], [Witness_tracker]) that both
 ;; proof systems reuse.
+;;
+;; [include_subdirs unqualified] is required: the modules under
+;; transcript/ and kzg/ are mutually recursive with the plonk-root
+;; modules (e.g. transcript/fiat_shamir references Accumulator and
+;; Proof; accumulator references transcript/uint32; kzg/kzg references
+;; Accumulator; circuits references Kzg_accumulator). A mutually-
+;; recursive module set cannot be split into separate dune libraries —
+;; a library is an acyclic compilation unit — so plonk is one library
+;; flattened across its subdirectories.
 
 (include_subdirs unqualified)
 

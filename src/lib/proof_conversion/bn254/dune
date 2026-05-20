@@ -2,6 +2,14 @@
 ;; elliptic-curve points (G1/G2), and pairing-line types.
 ;;
 ;; Depends on [circuit_kit] for the Boolean helpers used inside g1.
+;;
+;; [include_subdirs unqualified] is required: the modules under towers/,
+;; ec/ and lines/ are mutually recursive across those directories (e.g.
+;; bn254_params references towers and ec, towers/fp_const references
+;; lines, lines references towers and ec). A mutually-recursive module
+;; set cannot be split into separate dune libraries — a library is an
+;; acyclic compilation unit — so bn254 is one library flattened across
+;; its subdirectories.
 
 (include_subdirs unqualified)
 
