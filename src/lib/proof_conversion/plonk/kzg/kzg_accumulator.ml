@@ -298,3 +298,65 @@ let of_constant (c : t_const) : t = Step.constant typ c
 
 (** Witness a KzgAccumulator using the proper Typ.t. *)
 let witness () : t = Step.exists typ ~compute:(fun () -> default_const)
+
+(** String-leaved, named mirror of {!t_const} for transfer across a process
+    boundary. Foreign-field elements and native field elements become decimal
+    strings; the [Fp12] components are kept as {!Fp12.Constant.t}, itself a
+    transparent tuple of bigints. The field layout mirrors {!t_const}. *)
+module Wire = struct
+  type proof =
+    { a_x : string
+    ; a_y : string
+    ; neg_b_x : string
+    ; neg_b_y : string
+    ; shift_power : string
+    ; c : Fp12.Constant.t
+    ; c_inv : Fp12.Constant.t
+    ; pi0 : string
+    ; pi1 : string
+    }
+
+  type state = { f : Fp12.Constant.t; lines_hashes_digest : string }
+
+  type t = { proof : proof; state : state }
+end
+
+(** Reduce a KZG accumulator constant to its {!Wire.t} form. *)
+let to_wire (acc : t_const) : Wire.t =
+  let bi = Bignum_bigint.to_string in
+  let f = Step.Field.Constant.to_string in
+  { Wire.proof =
+      { Wire.a_x = bi acc.proof.a_x
+      ; a_y = bi acc.proof.a_y
+      ; neg_b_x = bi acc.proof.neg_b_x
+      ; neg_b_y = bi acc.proof.neg_b_y
+      ; shift_power = f acc.proof.shift_power
+      ; c = acc.proof.c
+      ; c_inv = acc.proof.c_inv
+      ; pi0 = bi acc.proof.pi0
+      ; pi1 = bi acc.proof.pi1
+      }
+  ; state =
+      { Wire.f = acc.state.f
+      ; lines_hashes_digest = f acc.state.lines_hashes_digest
+      }
+  }
+
+(** Reconstruct a KZG accumulator constant from its {!Wire.t} form. *)
+let of_wire (w : Wire.t) : t_const =
+  let bi = Bignum_bigint.of_string in
+  let f = Step.Field.Constant.of_string in
+  { proof =
+      { a_x = bi w.proof.a_x
+      ; a_y = bi w.proof.a_y
+      ; neg_b_x = bi w.proof.neg_b_x
+      ; neg_b_y = bi w.proof.neg_b_y
+      ; shift_power = f w.proof.shift_power
+      ; c = w.proof.c
+      ; c_inv = w.proof.c_inv
+      ; pi0 = bi w.proof.pi0
+      ; pi1 = bi w.proof.pi1
+      }
+  ; state =
+      { f = w.state.f; lines_hashes_digest = f w.state.lines_hashes_digest }
+  }

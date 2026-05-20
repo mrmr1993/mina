@@ -234,7 +234,6 @@ let read_plonk_state ~workdir ~n : Proof_conversion_plonk.Accumulator.t_const =
 let write_plonk_kzg_state ~workdir ~n ~(kzg : Kzg_accumulator.t_const)
     ~(lines_hashes : Step.Field.Constant.t array)
     ~(g_values : Fp12.Constant.t array) =
-  (* Convert to string-based for Marshal *)
   let j =
     `Assoc
       [ ( "lines_hashes"
@@ -242,64 +241,19 @@ let write_plonk_kzg_state ~workdir ~n ~(kzg : Kzg_accumulator.t_const)
       ; ("g_values", `List (Array.to_list (Array.map g_values ~f:fp12_to_json)))
       ]
   in
-  (* KZG acc has simpler types — marshal the JSON + kzg separately *)
-  let bi_s x = BI.to_string x in
-  let f_s x = Step.Field.Constant.to_string x in
-  let kzg_data =
-    ( bi_s kzg.proof.a_x
-    , bi_s kzg.proof.a_y
-    , bi_s kzg.proof.neg_b_x
-    , bi_s kzg.proof.neg_b_y
-    , f_s kzg.proof.shift_power
-    , fp12_to_json kzg.proof.c
-    , fp12_to_json kzg.proof.c_inv
-    , bi_s kzg.proof.pi0
-    , bi_s kzg.proof.pi1
-    , fp12_to_json kzg.state.f
-    , f_s kzg.state.lines_hashes_digest )
-  in
-  marshal_to_file ~path:(acc_path workdir n) (kzg_data, Yojson.Safe.to_string j)
+  marshal_to_file ~path:(acc_path workdir n)
+    (Kzg_accumulator.to_wire kzg, Yojson.Safe.to_string j)
 
 (** Read PLONK KZG accumulator state. *)
 let read_plonk_kzg_state ~workdir ~n :
     Kzg_accumulator.t_const
     * Step.Field.Constant.t array
     * Fp12.Constant.t array =
-  let (kzg_data, j_str) =
+  let (kzg_wire, j_str) =
     ( marshal_from_file ~path:(acc_path workdir n)
-      : ( string
-        * string
-        * string
-        * string
-        * string
-        * Yojson.Safe.t
-        * Yojson.Safe.t
-        * string
-        * string
-        * Yojson.Safe.t
-        * string )
-        * string )
+      : Kzg_accumulator.Wire.t * string )
   in
-  let bi s = BI.of_string s in
-  let ax, ay, nbx, nby, sp, c_j, ci_j, p0, p1, f_j, lhd = kzg_data in
-  let kzg : Kzg_accumulator.t_const =
-    { proof =
-        { a_x = bi ax
-        ; a_y = bi ay
-        ; neg_b_x = bi nbx
-        ; neg_b_y = bi nby
-        ; shift_power = Step.Field.Constant.of_string sp
-        ; c = fp12_of_json c_j
-        ; c_inv = fp12_of_json ci_j
-        ; pi0 = bi p0
-        ; pi1 = bi p1
-        }
-    ; state =
-        { f = fp12_of_json f_j
-        ; lines_hashes_digest = Step.Field.Constant.of_string lhd
-        }
-    }
-  in
+  let kzg = Kzg_accumulator.of_wire kzg_wire in
   let j = Yojson.Safe.from_string j_str in
   let open Yojson.Safe.Util in
   let lines_hashes =

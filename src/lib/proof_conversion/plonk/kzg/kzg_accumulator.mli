@@ -67,3 +67,31 @@ val of_constant : t_const -> t
 
 (** Witness a [KzgAccumulator] using {!typ}. *)
 val witness : unit -> t
+
+(** String-leaved, named mirror of {!t_const} for transfer across a process
+    boundary. Foreign-field and native field elements become decimal strings;
+    the [Fp12] components are kept as {!Fp12.Constant.t}. The field layout
+    mirrors {!t_const}. *)
+module Wire : sig
+  type proof =
+    { a_x : string
+    ; a_y : string
+    ; neg_b_x : string
+    ; neg_b_y : string
+    ; shift_power : string
+    ; c : Fp12.Constant.t
+    ; c_inv : Fp12.Constant.t
+    ; pi0 : string
+    ; pi1 : string
+    }
+
+  type state = { f : Fp12.Constant.t; lines_hashes_digest : string }
+
+  type t = { proof : proof; state : state }
+end
+
+(** Reduce a KZG accumulator constant to its {!Wire.t} form. *)
+val to_wire : t_const -> Wire.t
+
+(** Reconstruct a KZG accumulator constant from its {!Wire.t} form. *)
+val of_wire : Wire.t -> t_const
