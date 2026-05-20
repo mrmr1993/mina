@@ -354,9 +354,8 @@ let squeeze_random_for_kzg (fs : t) ~(proof : Accumulator.circuit_proof)
     Matches nori gammaKzgDigest_part0 (fiat-shamir/index.ts:470-545).
     Returns intermediate SHA-256 state (8 UInt32 words). *)
 let gamma_kzg_digest_part0 (fs : t) ~(proof : Accumulator.circuit_proof)
-    ~(vk : Proof.vk) ~(linearized_cm_x : FF.FpA.t)
-    ~(linearized_cm_y : FF.FpA.t) ~(linearized_opening : FF.FpA.t) :
-    Uint32.t array =
+    ~(vk : Proof.vk) ~(linearized_cm_x : FF.FpA.t) ~(linearized_cm_y : FF.FpA.t)
+    ~(linearized_opening : FF.FpA.t) : Uint32.t array =
   let gamma_separator =
     FF.FpA.of_constant (Bignum_bigint.of_string "0x67616d6d61")
   in

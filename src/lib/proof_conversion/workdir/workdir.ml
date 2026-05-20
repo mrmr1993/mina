@@ -221,7 +221,8 @@ let read_groth16_state ~workdir ~n :
 (** Write PLONK accumulator state.
     Converts all Bignum_bigint and Field.Constant values to strings
     for Marshal compatibility. *)
-let write_plonk_state ~workdir ~n ~(acc : Proof_conversion_plonk.Accumulator.t_const) =
+let write_plonk_state ~workdir ~n
+    ~(acc : Proof_conversion_plonk.Accumulator.t_const) =
   (* Convert to a string-based representation for marshalling *)
   let bi_s x = BI.to_string x in
   let f_s x = Step.Field.Constant.to_string x in

@@ -122,8 +122,7 @@ let run_circuit_unchecked ~(n : int) ~(input_hash : Step.Field.Constant.t)
 (** Run circuits 0-11 unchecked to evolve the PLONK accumulator,
     then extract KZG A/B points from circuit 12 and compute the
     Miller loop output via Rust FFI. Returns the Fp12 MLO. *)
-let compute_kzg_mlo (initial_acc : Accumulator.t_const) : Fp12.Constant.t
-    =
+let compute_kzg_mlo (initial_acc : Accumulator.t_const) : Fp12.Constant.t =
   let module FF = Snarky_foreign_field.Foreign_field in
   (* Disable constraint evaluation for speed *)
   Snarky_backendless.Snark0.set_eval_constraints false ;

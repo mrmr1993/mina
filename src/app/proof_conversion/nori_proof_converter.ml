@@ -379,7 +379,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
   let b_lines = WT.get_all_b_lines tracker in
   (* Compute initial accumulator *)
-  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+  let n_total =
+    Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+  in
   let initial_acc =
     let acc = WT.get_accumulator_constant tracker in
     let initial_g_digest =
@@ -399,8 +401,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   let initial_hash =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
-              initial_acc )
+          Step.exists Proof_conversion.Groth16.Accumulator.typ
+            ~compute:(fun () -> initial_acc)
         in
         let h = Proof_conversion.Groth16.Accumulator.hash acc in
         fun () -> Step.As_prover.read_var h )
@@ -453,7 +455,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     let n_iters =
       Proof_conversion.Groth16.Fupdate_circuit.iterations_per_circuit.(idx)
     in
-    let g_start = Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx) in
+    let g_start =
+      Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx)
+    in
     let all_lh = !evolving_line_hashes in
     let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
     let g_chunk = Array.sub !all_g_values ~pos:g_start ~len:n_iters in
@@ -491,8 +495,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_13, proof_13, vk_13 =
-    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
-      ~vk:vk_const ~n:13 ~input_hash:!current_hash ~witness:witness_13
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export
+      ~skip_verify:true ~vk:vk_const ~n:13 ~input_hash:!current_hash
+      ~witness:witness_13
   in
   base_proofs.(13) <- (!current_hash, output_hash_13, proof_13, vk_13) ;
   current_hash := output_hash_13 ;
@@ -506,8 +511,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_14, proof_14, vk_14 =
-    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
-      ~vk:vk_const ~n:14 ~input_hash:!current_hash ~witness:witness_14
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export
+      ~skip_verify:true ~vk:vk_const ~n:14 ~input_hash:!current_hash
+      ~witness:witness_14
   in
   base_proofs.(14) <- (!current_hash, output_hash_14, proof_14, vk_14) ;
   current_hash := output_hash_14 ;
@@ -527,8 +533,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     }
   in
   let output_hash_15, proof_15, vk_15 =
-    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
-      ~vk:vk_const ~n:15 ~input_hash:!current_hash ~witness:witness_15
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export
+      ~skip_verify:true ~vk:vk_const ~n:15 ~input_hash:!current_hash
+      ~witness:witness_15
   in
   base_proofs.(15) <- (!current_hash, output_hash_15, proof_15, vk_15) ;
   Printf.eprintf "All 16 base circuits proved.\n%!" ;
@@ -718,7 +725,9 @@ let run_internal_generate_witness ~workdir =
       let module WT = Proof_conversion.Groth16.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
       Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
-      let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+      let n_total =
+        Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+      in
       let initial_acc =
         let acc = WT.get_accumulator_constant tracker in
         let initial_g_digest =
@@ -738,8 +747,8 @@ let run_internal_generate_witness ~workdir =
       let initial_hash =
         Step.run_and_check_exn (fun () ->
             let acc =
-              Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
-                  initial_acc )
+              Step.exists Proof_conversion.Groth16.Accumulator.typ
+                ~compute:(fun () -> initial_acc)
             in
             let h = Proof_conversion.Groth16.Accumulator.hash acc in
             fun () -> Step.As_prover.read_var h )
@@ -856,7 +865,8 @@ let run_internal_compute_state ~workdir ~n =
             in
             Step.as_prover (fun () ->
                 result12 :=
-                  Step.As_prover.read Proof_conversion.Plonk.Kzg_accumulator.typ kzg ) ) ;
+                  Step.As_prover.read Proof_conversion.Plonk.Kzg_accumulator.typ
+                    kzg ) ) ;
         let kzg12 = !result12 in
         let oh12 =
           Proof_conversion.Plonk.Witness_tracker.hash_kzg_accumulator_const
@@ -972,7 +982,9 @@ let run_internal_compute_state ~workdir ~n =
       let module WT = Proof_conversion.Groth16.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
       Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
-      let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+      let n_total =
+        Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+      in
       let b_lines = WT.get_all_b_lines tracker in
       let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
       let cur_acc, cur_lh, cur_gv = W.read_groth16_state ~workdir ~n:(n - 1) in
@@ -1040,8 +1052,8 @@ let run_internal_compute_state ~workdir ~n =
       let result_gv = ref cur_gv in
       ( if n <= 12 then (
         let body =
-          Proof_conversion.Groth16.Circuits.build_circuit_body_with_acc ~vk:vk_const
-            ~circuit_index:n
+          Proof_conversion.Groth16.Circuits.build_circuit_body_with_acc
+            ~vk:vk_const ~circuit_index:n
         in
         let res_gv = ref [||] in
         Step.run_unchecked (fun () ->
@@ -1052,15 +1064,16 @@ let run_internal_compute_state ~workdir ~n =
                 Step.as_prover (fun () ->
                     result_hash := Step.As_prover.read_var output_hash ;
                     result_acc :=
-                      Step.As_prover.read Proof_conversion.Groth16.Accumulator.typ
-                        acc_var ;
+                      Step.As_prover.read
+                        Proof_conversion.Groth16.Accumulator.typ acc_var ;
                     result_lh :=
                       Step.As_prover.read
                         (Step.Typ.array ~length:n_total Step.Field.typ)
                         lh_var ;
                     res_gv :=
                       Array.map gv_arr ~f:(fun g ->
-                          Step.As_prover.read Proof_conversion.Bn254.Fp12.typ g ) ) )
+                          Step.As_prover.read Proof_conversion.Bn254.Fp12.typ g ) )
+                )
               handler ) ;
         if n <= 6 then (
           result_lh := !result_lh ;
@@ -1260,8 +1273,9 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, acc_after, lh_after, gv_after, proof_out, side_vk =
-          Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
+          Proof_conversion.Groth16.Pickles_rules
+          .compile_prove_and_export_with_acc ~skip_verify:true ~vk:vk_const ~n
+            ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
         W.write_proof_file
@@ -1305,8 +1319,9 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, acc_after, _lh, _gv, proof_out, side_vk =
-          Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
-            ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
+          Proof_conversion.Groth16.Pickles_rules
+          .compile_prove_and_export_with_acc ~skip_verify:true ~vk:vk_const ~n
+            ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
         W.write_proof_file
@@ -1948,7 +1963,9 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
   let acc, line_hashes, g_values = W.read_groth16_state ~workdir ~n:prev in
   let b_lines = WT.get_all_b_lines tracker in
-  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+  let n_total =
+    Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+  in
   let w : Proof_conversion.Groth16.Requests.witness =
     if n <= 6 then
       { Proof_conversion.Groth16.Requests.empty_witness with
@@ -2007,8 +2024,8 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
       }
   in
   let output_hash, proof_out =
-    Proof_conversion.Groth16.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
-      ~skip_verify ~input_hash ~witness:w
+    Proof_conversion.Groth16.Pickles_rules.prove_with_compiled ~n ~prover
+      ~proof_module ~skip_verify ~input_hash ~witness:w
   in
   let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
   W.write_proof_file
@@ -2107,8 +2124,8 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
               Printf.eprintf "  Compiling groth16 circuit %d/%d...\n%!" (n + 1)
                 base_count ;
               Some
-                (Proof_conversion.Groth16.Pickles_rules.compile_circuit ~vk:vk_const ~n)
-              )
+                (Proof_conversion.Groth16.Pickles_rules.compile_circuit
+                   ~vk:vk_const ~n ) )
             else (
               Printf.eprintf "  Skipping groth16 circuit %d/%d (on-demand)\n%!"
                 (n + 1) base_count ;
@@ -3073,8 +3090,7 @@ let () =
       Printf.eprintf
         "  internal prove-daemon <socket_path> --system <system> [--vk-path \
          <path>]\n" ;
-      Printf.eprintf
-        "  internal dispatch-to-worker <socket_path> <command>\n\n" ;
+      Printf.eprintf "  internal dispatch-to-worker <socket_path> <command>\n\n" ;
       Printf.eprintf "Options:\n" ;
       Printf.eprintf
         "  --cache-dir <dir>     Cache proving keys to disk for reuse\n" ;

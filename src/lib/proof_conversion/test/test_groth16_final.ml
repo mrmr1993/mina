@@ -7,15 +7,20 @@ module FF = Snarky_foreign_field.Foreign_field
 
 let () =
   let proof =
-    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof
+      "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk =
+    Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json"
+  in
   let aux =
     Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
   in
   let tracker = WT.create ~proof ~vk ~aux in
-  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+  let n_total =
+    Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+  in
   let initial_g_digest =
     let zeros = Array.create ~len:n_total Step.Field.Constant.zero in
     Random_oracle.hash zeros
@@ -36,8 +41,8 @@ let () =
   let fields =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
-              initial_acc )
+          Step.exists Proof_conversion.Groth16.Accumulator.typ
+            ~compute:(fun () -> initial_acc)
         in
         (* Extract all FpA fields from the accumulator *)
         let q = Queue.create () in

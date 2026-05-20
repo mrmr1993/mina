@@ -5,9 +5,12 @@ module BI = Bignum_bigint
 
 let () =
   let proof =
-    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof
+      "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk =
+    Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json"
+  in
   Printf.eprintf
     "Computing native aux witness (OCaml MLO + Rust eth_root)...\n%!" ;
   let native =

@@ -162,8 +162,7 @@ let parse_aux_witness (json : Yojson.Safe.t) : aux_witness =
   { shift_power; c_fp12 }
 
 (** Load fixture and return both the accumulator and aux witness. *)
-let load_fixture_with_aux (path : string) :
-    Accumulator.t_const * aux_witness =
+let load_fixture_with_aux (path : string) : Accumulator.t_const * aux_witness =
   let json = Yojson.Safe.from_file path in
   let acc = load_fixture path in
   let aux = parse_aux_witness json in

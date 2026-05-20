@@ -64,9 +64,7 @@ let dump_dir =
 let next_step_dump_idx = ref 0
 
 let read_step_dump idx =
-  let path =
-    Filename.concat dump_dir (sprintf "cs_30ED_0_%d_gates.json" idx)
-  in
+  let path = Filename.concat dump_dir (sprintf "cs_30ED_0_%d_gates.json" idx) in
   In_channel.with_file path ~f:In_channel.input_all
 
 let take_next_step_dump () =
@@ -75,11 +73,9 @@ let take_next_step_dump () =
   let dup = read_step_dump (!next_step_dump_idx + 1) in
   if not (String.equal content dup) then
     failwithf
-      "test_step_gate_golden: expected dump idx %d and %d to be identical, \
-       but they differ. Pickles dump convention may have changed."
-      !next_step_dump_idx
-      (!next_step_dump_idx + 1)
-      () ;
+      "test_step_gate_golden: expected dump idx %d and %d to be identical, but \
+       they differ. Pickles dump convention may have changed."
+      !next_step_dump_idx (!next_step_dump_idx + 1) () ;
   next_step_dump_idx := !next_step_dump_idx + 2 ;
   content
 
@@ -96,11 +92,11 @@ let compile_plonk_circuit ~n =
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
-        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ))
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
-      ~name:(sprintf "plonk-zkp%d" n)
-      ~o1js_compatible_mode:false
+      ~name:(sprintf "plonk-zkp%d" n) ~o1js_compatible_mode:false
       ~choices:(fun ~self:_ -> [ rule ])
       ()
   in
@@ -115,7 +111,8 @@ let compile_groth16_circuit ~vk:vk_const ~n =
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
-        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ))
+        (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
+        )
       ~auxiliary_typ:Step.Typ.unit
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "groth16-zkp%d" n)
@@ -130,11 +127,13 @@ let compile_groth16_circuit ~vk:vk_const ~n =
   ()
 
 let compile_compressor which =
-  let _tag, (module Proof : Pickles.Proof_intf
-              with type t = Pickles_types.Nat.N2.n Pickles.Proof.t
-               and type statement =
-                unit * Proof_conversion.Tree_compressor.subtree_carry_const)
-      , _prover =
+  let ( _tag
+      , (module Proof : Pickles.Proof_intf
+          with type t = Pickles_types.Nat.N2.n Pickles.Proof.t
+           and type statement = unit
+                                * Proof_conversion.Tree_compressor
+                                  .subtree_carry_const )
+      , _prover ) =
     match which with
     | `Layer1 ->
         Proof_conversion.Tree_compressor.compile_layer1 ()
@@ -160,10 +159,9 @@ let () =
   in
   (* PLONK base circuits *)
   for n = 0 to Proof_conversion.Plonk.Circuits.num_circuits - 1 do
-    log_and_digest
-      ~circuit_name:(sprintf "plonk/zkp%d" n)
-      ~pickles_name:(sprintf "plonk-zkp%d" n)
-      ~compile:(fun () -> compile_plonk_circuit ~n)
+    log_and_digest ~circuit_name:(sprintf "plonk/zkp%d" n)
+      ~pickles_name:(sprintf "plonk-zkp%d" n) ~compile:(fun () ->
+        compile_plonk_circuit ~n )
   done ;
   (* Tree compressor circuits *)
   log_and_digest ~circuit_name:"compressor/layer1" ~pickles_name:"layer1"
@@ -176,10 +174,9 @@ let () =
     Proof_conversion.Groth16.Vk_constants.create vk
   in
   for n = 0 to Proof_conversion.Groth16.Circuits.num_circuits - 1 do
-    log_and_digest
-      ~circuit_name:(sprintf "groth16/zkp%d" n)
-      ~pickles_name:(sprintf "groth16-zkp%d" n)
-      ~compile:(fun () -> compile_groth16_circuit ~vk:vk_const ~n)
+    log_and_digest ~circuit_name:(sprintf "groth16/zkp%d" n)
+      ~pickles_name:(sprintf "groth16-zkp%d" n) ~compile:(fun () ->
+        compile_groth16_circuit ~vk:vk_const ~n )
   done ;
   (* Sort key by (system, numeric index) for stable, human-readable output. *)
   let key_order (name, _) =
@@ -187,7 +184,11 @@ let () =
       match String.split name ~on:'/' with
       | [ s; rest ] ->
           let n =
-            match Int.of_string (String.chop_prefix rest ~prefix:"zkp" |> Option.value ~default:"") with
+            match
+              Int.of_string
+                ( String.chop_prefix rest ~prefix:"zkp"
+                |> Option.value ~default:"" )
+            with
             | n ->
                 n
             | exception _ ->

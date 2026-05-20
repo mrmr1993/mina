@@ -301,9 +301,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
          Step.exists (Step.Typ.array ~length:g_idx Step.Field.typ)
            ~request:(fun () -> Requests.Lhs_hashes)
        in
-       let g =
-         Step.exists Fp12.typ ~request:(fun () -> Requests.Final_g)
-       in
+       let g = Step.exists Fp12.typ ~request:(fun () -> Requests.Final_g) in
        (* Circuit body — hash checks *)
        let acc_hash = Accumulator.hash acc in
        Step.Field.Assert.equal input_hash acc_hash ;
@@ -386,8 +384,7 @@ let build_circuit_body ~(vk : Vk_constants.t) ~(circuit_index : int) :
       fun input_hash ->
        (* Witness PI and partial accumulator as G1Affine *)
        let pi =
-         Step.exists G1.Circuit.typ ~request:(fun () ->
-             Requests.Pi_point )
+         Step.exists G1.Circuit.typ ~request:(fun () -> Requests.Pi_point)
        in
        let partial_acc =
          Step.exists G1.Circuit.typ ~request:(fun () ->

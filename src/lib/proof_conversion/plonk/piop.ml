@@ -271,8 +271,8 @@ let opening_of_linearized_polynomial ~(proof : Accumulator.circuit_proof)
 (** Linearized commitment (split 0): ql*l + qr*r + qm*(l*r).
     Matches nori compute_commitment_linearized_polynomial_split_0. *)
 let compute_commitment_linearized_polynomial_split_0
-    ~(proof : Accumulator.circuit_proof) ~(vk : Proof.vk) :
-    FF.FpA.t * FF.FpA.t =
+    ~(proof : Accumulator.circuit_proof) ~(vk : Proof.vk) : FF.FpA.t * FF.FpA.t
+    =
   let ql =
     { G1.Circuit.x = FF.FpA.of_constant vk.ql.x
     ; y = FF.FpA.of_constant vk.ql.y
@@ -299,9 +299,9 @@ let compute_commitment_linearized_polynomial_split_0
 (** Linearized commitment (split 1): add qo, qk, qcp_0, s3 terms.
     Matches nori compute_commitment_linearized_polynomial_split_1. *)
 let compute_commitment_linearized_polynomial_split_1 ~(lcm_x : FF.FpA.t)
-    ~(lcm_y : FF.FpA.t) ~(proof : Accumulator.circuit_proof)
-    ~(vk : Proof.vk) ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t)
-    ~(alpha : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+    ~(lcm_y : FF.FpA.t) ~(proof : Accumulator.circuit_proof) ~(vk : Proof.vk)
+    ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t) ~(alpha : FF.FpA.t) :
+    FF.FpA.t * FF.FpA.t =
   let lcm = { G1.Circuit.x = lcm_x; y = lcm_y } in
   let qo =
     { G1.Circuit.x = FF.FpA.of_constant vk.qo.x
@@ -353,10 +353,10 @@ let compute_commitment_linearized_polynomial_split_1 ~(lcm_x : FF.FpA.t)
 (** Linearized commitment (split 2): grand product + neg folded quotient.
     Matches nori compute_commitment_linearized_polynomial_split_2. *)
 let compute_commitment_linearized_polynomial_split_2 ~(lcm_x : FF.FpA.t)
-    ~(lcm_y : FF.FpA.t) ~(proof : Accumulator.circuit_proof)
-    ~(vk : Proof.vk) ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t)
-    ~(alpha : FF.FpA.t) ~(zeta : FF.FpA.t) ~(alpha_2_l0 : FF.FpA.t)
-    ~(hx : FF.FpA.t) ~(hy : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+    ~(lcm_y : FF.FpA.t) ~(proof : Accumulator.circuit_proof) ~(vk : Proof.vk)
+    ~(beta : FF.FpA.t) ~(gamma : FF.FpA.t) ~(alpha : FF.FpA.t)
+    ~(zeta : FF.FpA.t) ~(alpha_2_l0 : FF.FpA.t) ~(hx : FF.FpA.t) ~(hy : FF.FpA.t)
+    : FF.FpA.t * FF.FpA.t =
   let lcm = { G1.Circuit.x = lcm_x; y = lcm_y } in
   let coset = FF.FpA.of_constant vk.coset_shift in
   (* Nori: .mul(beta).assertCanonical().add(l_at_zeta).add(gamma).assertCanonical() *)
@@ -429,9 +429,9 @@ let fold_state_0 ~(proof : Accumulator.circuit_proof) ~(lcm_x : FF.FpA.t)
 
 (** Fold state (split 1): add o, s1, s2 commitments.
     Matches nori fold_state_1. *)
-let fold_state_1 ~(proof : Accumulator.circuit_proof)
-    ~(vk : Proof.vk) ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
-    ~(gamma_kzg : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
+let fold_state_1 ~(proof : Accumulator.circuit_proof) ~(vk : Proof.vk)
+    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t) ~(gamma_kzg : FF.FpA.t) :
+    FF.FpA.t * FF.FpA.t =
   let g2 = mul_fr gamma_kzg gamma_kzg in
   let g3 = mul_fr gamma_kzg g2 in
   let g4 = mul_fr gamma_kzg g3 in
@@ -479,10 +479,9 @@ let fold_state_2 ~(vk : Proof.vk) ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
 
 (** Prepare pairing (split 0): batch openings + commitments + evals.
     Matches nori preparePairing_0. *)
-let prepare_pairing_0 ~(vk : Proof.vk)
-    ~(proof : Accumulator.circuit_proof) ~(random : FF.FpA.t)
-    ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t) ~(cm_opening : FF.FpA.t) :
-    FF.FpA.t * FF.FpA.t * FF.FpA.t * FF.FpA.t =
+let prepare_pairing_0 ~(vk : Proof.vk) ~(proof : Accumulator.circuit_proof)
+    ~(random : FF.FpA.t) ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t)
+    ~(cm_opening : FF.FpA.t) : FF.FpA.t * FF.FpA.t * FF.FpA.t * FF.FpA.t =
   (* Quotients part *)
   let batch_shifted =
     { G1.Circuit.x = proof.batch_opening_at_zeta_omega_x
@@ -530,10 +529,9 @@ let prepare_pairing_0 ~(vk : Proof.vk)
 
 (** Prepare pairing (split 1): add quotients_g1.
     Matches nori preparePairing_1. *)
-let prepare_pairing_1 ~(vk : Proof.vk)
-    ~(proof : Accumulator.circuit_proof) ~(random : FF.FpA.t)
-    ~(folded_cm_x : FF.FpA.t) ~(folded_cm_y : FF.FpA.t) ~(zeta : FF.FpA.t) :
-    FF.FpA.t * FF.FpA.t =
+let prepare_pairing_1 ~(vk : Proof.vk) ~(proof : Accumulator.circuit_proof)
+    ~(random : FF.FpA.t) ~(folded_cm_x : FF.FpA.t) ~(folded_cm_y : FF.FpA.t)
+    ~(zeta : FF.FpA.t) : FF.FpA.t * FF.FpA.t =
   let folded_cm = { G1.Circuit.x = folded_cm_x; y = folded_cm_y } in
   let batch_z =
     { G1.Circuit.x = proof.batch_opening_at_zeta_x

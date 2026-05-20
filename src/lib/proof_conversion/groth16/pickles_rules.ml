@@ -98,8 +98,8 @@ let prove_with_compiled ~(n : int) ~prover
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
 let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness)
-    : Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
+    Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~vk ~n in
   let _tag, _cache, (module Proof), provers =
     Pickles.compile_promise
@@ -162,8 +162,7 @@ let make_rule_with_acc ~(vk : Vk_constants.t) ~(n : int) :
 (** Compile and prove a single circuit (0-12), returning the accumulator
     and line_hashes via auxiliary_output for chaining. *)
 let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness)
-    :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Accumulator.Constant.t
     * Step.Field.Constant.t array

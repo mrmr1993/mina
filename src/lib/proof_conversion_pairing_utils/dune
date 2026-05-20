@@ -33,6 +33,7 @@
    (echo "-C target-feature=-bmi2,-adx"))))
 
 ; Build the Rust pairing-utils static library.
+
 (rule
  (targets libpairing_utils.a)
  (deps

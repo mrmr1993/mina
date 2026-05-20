@@ -102,13 +102,11 @@ let plonk_vk : Proof.vk =
 
 (** Witness a full PLONK Accumulator as private input via request. *)
 let witness_accumulator () : Accumulator.t =
-  Step.exists Accumulator.typ ~request:(fun () ->
-      Requests.Accumulator )
+  Step.exists Accumulator.typ ~request:(fun () -> Requests.Accumulator)
 
 (** Witness a full KZG Accumulator as private input via request. *)
 let witness_kzg_accumulator () : Kzg_accumulator.t =
-  Step.exists Kzg_accumulator.typ ~request:(fun () ->
-      Requests.Kzg_accumulator )
+  Step.exists Kzg_accumulator.typ ~request:(fun () -> Requests.Kzg_accumulator)
 
 (** Circuits 0-11: witness Accumulator, mutate, return (hash, acc).
     The [inner] function performs the circuit-specific mutations. *)

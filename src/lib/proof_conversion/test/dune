@@ -20,11 +20,7 @@
 (executable
  (name test_tower_field)
  (modules test_tower_field)
- (libraries
-  core_kernel
-  proof_conversion
-  snarky_foreign_field
-  bignum.bigint)
+ (libraries core_kernel proof_conversion snarky_foreign_field bignum.bigint)
  (instrumentation
   (backend bisect_ppx))
  (preprocess
@@ -114,9 +110,7 @@
 (executable
  (name test_pairing_utils)
  (modules test_pairing_utils)
- (libraries
-  core_kernel
-  proof_conversion)
+ (libraries core_kernel proof_conversion)
  (instrumentation
   (backend bisect_ppx))
  (preprocess
@@ -125,9 +119,7 @@
 (executable
  (name test_gate_comparison)
  (modules test_gate_comparison gate_comparison)
- (libraries
-  core_kernel
-  yojson)
+ (libraries core_kernel yojson)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

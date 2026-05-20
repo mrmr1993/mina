@@ -6,9 +6,12 @@ module WT = Proof_conversion.Groth16.Witness_tracker
 
 let () =
   let proof =
-    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof
+      "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk =
+    Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json"
+  in
   let aux =
     Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
@@ -46,7 +49,8 @@ let () =
             Step.exists Proof_conversion.Bn254.Fp12.typ ~compute:(fun () -> c)
           in
           let c_inv_var =
-            Step.exists Proof_conversion.Bn254.Fp12.typ ~compute:(fun () -> c_inv)
+            Step.exists Proof_conversion.Bn254.Fp12.typ ~compute:(fun () ->
+                c_inv )
           in
           let prod = Proof_conversion.Bn254.Fp12.mul c_var c_inv_var in
           Proof_conversion.Bn254.Fp12.assert_one prod ;

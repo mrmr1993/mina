@@ -6,9 +6,12 @@ module WT = Proof_conversion.Groth16.Witness_tracker
 
 let () =
   let proof =
-    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof
+      "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk =
+    Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json"
+  in
   let aux =
     Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
@@ -18,7 +21,9 @@ let () =
   let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
   (* Get initial accumulator *)
   let initial_acc = WT.get_accumulator_constant tracker in
-  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+  let n_total =
+    Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
+  in
   let initial_g_digest =
     let zeros = Array.create ~len:n_total Step.Field.Constant.zero in
     Random_oracle.hash zeros
@@ -49,16 +54,16 @@ let () =
   let initial_hash =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
-              initial_acc )
+          Step.exists Proof_conversion.Groth16.Accumulator.typ
+            ~compute:(fun () -> initial_acc)
         in
         let h = Proof_conversion.Groth16.Accumulator.hash acc in
         fun () -> Step.As_prover.read_var h )
   in
   Printf.eprintf "Proving circuit 0 to get line_hashes...\n%!" ;
   let _, _, lh_from_circuit, _, _ =
-    Proof_conversion.Groth16.Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const
-      ~n:0 ~input_hash:initial_hash ~witness
+    Proof_conversion.Groth16.Pickles_rules.compile_and_prove_one_with_acc
+      ~vk:vk_const ~n:0 ~input_hash:initial_hash ~witness
   in
   Printf.eprintf "Circuit 0 proved.\n%!" ;
   (* Compare circuit line_hashes entries with tracker g_value hashes *)
