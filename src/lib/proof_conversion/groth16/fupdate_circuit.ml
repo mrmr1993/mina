@@ -33,22 +33,22 @@ let build ~(circuit_index : int) (input_hash : Step.Field.t) : Step.Field.t =
      witnessing, which happens before the method body runs). *)
   let acc =
     Step.exists Accumulator.typ ~request:(fun () ->
-        Groth16_requests.Groth16_accumulator )
+        Requests.Groth16_accumulator )
   in
   let g_chunk =
     Step.exists (Step.Typ.array ~length:n_iters Fp12.typ) ~request:(fun () ->
-        Groth16_requests.G_chunk )
+        Requests.G_chunk )
   in
   let lhs_hashes =
     Step.exists (Step.Typ.array ~length:g_start Step.Field.typ)
-      ~request:(fun () -> Groth16_requests.Lhs_hashes)
+      ~request:(fun () -> Requests.Lhs_hashes)
   in
   let n_total = Array.length Bn254_params.ate_loop_count in
   let rhs_start = g_start + n_iters in
   let rhs_len = n_total - rhs_start in
   let rhs_hashes =
     Step.exists (Step.Typ.array ~length:rhs_len Step.Field.typ)
-      ~request:(fun () -> Groth16_requests.Rhs_hashes)
+      ~request:(fun () -> Requests.Rhs_hashes)
   in
   (* Now compute hashes and assertions (method body). *)
   let acc_hash = Accumulator.hash acc in
@@ -83,22 +83,22 @@ let build_with_acc ~(circuit_index : int) (input_hash : Step.Field.t) :
   let ate = Bn254_params.ate_loop_count in
   let acc =
     Step.exists Accumulator.typ ~request:(fun () ->
-        Groth16_requests.Groth16_accumulator )
+        Requests.Groth16_accumulator )
   in
   let g_chunk =
     Step.exists (Step.Typ.array ~length:n_iters Fp12.typ) ~request:(fun () ->
-        Groth16_requests.G_chunk )
+        Requests.G_chunk )
   in
   let lhs_hashes =
     Step.exists (Step.Typ.array ~length:g_start Step.Field.typ)
-      ~request:(fun () -> Groth16_requests.Lhs_hashes)
+      ~request:(fun () -> Requests.Lhs_hashes)
   in
   let n_total = Array.length Bn254_params.ate_loop_count in
   let rhs_start = g_start + n_iters in
   let rhs_len = n_total - rhs_start in
   let rhs_hashes =
     Step.exists (Step.Typ.array ~length:rhs_len Step.Field.typ)
-      ~request:(fun () -> Groth16_requests.Rhs_hashes)
+      ~request:(fun () -> Requests.Rhs_hashes)
   in
   let acc_hash = Accumulator.hash acc in
   Step.Field.Assert.equal input_hash acc_hash ;

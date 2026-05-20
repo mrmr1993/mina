@@ -22,7 +22,7 @@ let feature_flags ~(n : int) =
 
 (** Make a Pickles rule for circuit [n] (unit auxiliary output). *)
 let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
-  let body = Plonk_circuits.circuit_body n in
+  let body = Circuits.circuit_body n in
   { identifier = sprintf "plonk-zkp%d" n
   ; prevs = []
   ; main =
@@ -37,12 +37,12 @@ let make_rule ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
   ; feature_flags = feature_flags ~n
   }
 
-(** Make a rule for circuits 0-11 that returns the Plonk_accumulator
+(** Make a rule for circuits 0-11 that returns the Accumulator
     as auxiliary output, enabling chaining to the next circuit. *)
 let make_rule_with_plonk_acc ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
   assert (n >= 0 && n <= 11) ;
   let zkp_fn =
-    Plonk_circuits.(
+    Circuits.(
       match n with
       | 0 ->
           zkp0
@@ -88,9 +88,9 @@ let make_rule_with_plonk_acc ~(n : int) : _ Pickles.Inductive_rule.Promise.t =
 (** Compile and prove a single PLONK circuit (0-11), returning the
     post-circuit accumulator via auxiliary_output for chaining. *)
 let compile_and_prove_one_with_plonk_acc ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
     Step.Field.Constant.t
-    * Plonk_accumulator.t_const
+    * Accumulator.t_const
     * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule_with_plonk_acc ~n in
   let _tag, _cache, (module Proof), provers =
@@ -99,14 +99,14 @@ let compile_and_prove_one_with_plonk_acc ~(n : int)
       ~public_input:
         (Pickles.Inductive_rule.Input_and_output (Step.Field.typ, Step.Field.typ)
         )
-      ~auxiliary_typ:Plonk_accumulator.typ
+      ~auxiliary_typ:Accumulator.typ
       ~max_proofs_verified:(module Pickles_types.Nat.N0)
       ~name:(sprintf "plonk-zkp%d" n) ~o1js_compatible_mode:false
       ~choices:(fun ~self:_ -> [ rule ])
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, acc_after, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -124,7 +124,7 @@ let compile_and_prove_one_with_plonk_acc ~(n : int)
 
 (** Compile and prove zkp12, returning the KZG accumulator for chaining. *)
 let compile_and_prove_zkp12 ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Plonk_requests.witness) :
+    ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Kzg_accumulator.t_const
     * Pickles_types.Nat.N0.n Pickles.Proof.t =
@@ -134,7 +134,7 @@ let compile_and_prove_zkp12 ~(input_hash : Step.Field.Constant.t)
     ; main =
         (fun { public_input = input_hash } ->
           Circuit_utils.dummy_constraints () ;
-          let output_hash, kzg_acc = Plonk_circuits.zkp12 input_hash in
+          let output_hash, kzg_acc = Circuits.zkp12 input_hash in
           Promise.return
             { Pickles.Inductive_rule.previous_proof_statements = []
             ; public_output = output_hash
@@ -156,7 +156,7 @@ let compile_and_prove_zkp12 ~(input_hash : Step.Field.Constant.t)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, kzg_after, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -189,7 +189,7 @@ let zkp_lines_g_count ~circuit_index =
 (** Compile and prove zkp13-16 (line hashing), returning the updated
     KZG accumulator, lines_hashes, and g values for chaining. *)
 let compile_and_prove_zkp_lines ~(circuit_index : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Kzg_accumulator.t_const
     * Step.Field.Constant.t array
@@ -205,7 +205,7 @@ let compile_and_prove_zkp_lines ~(circuit_index : int)
         (fun { public_input = input_hash } ->
           Circuit_utils.dummy_constraints () ;
           let output_hash, kzg, lh, gv =
-            Plonk_circuits.zkp_lines ~circuit_index input_hash
+            Circuits.zkp_lines ~circuit_index input_hash
           in
           Promise.return
             { Pickles.Inductive_rule.previous_proof_statements = []
@@ -233,7 +233,7 @@ let compile_and_prove_zkp_lines ~(circuit_index : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, ((kzg_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -253,7 +253,7 @@ let compile_and_prove_zkp_lines ~(circuit_index : int)
 (** Compile and prove zkp17-22 (f-accumulation), returning the updated
     KZG accumulator for chaining. *)
 let compile_and_prove_zkp_f_accum ~(circuit_index : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Kzg_accumulator.t_const
     * Pickles_types.Nat.N0.n Pickles.Proof.t =
@@ -265,7 +265,7 @@ let compile_and_prove_zkp_f_accum ~(circuit_index : int)
         (fun { public_input = input_hash } ->
           Circuit_utils.dummy_constraints () ;
           let output_hash, kzg =
-            Plonk_circuits.zkp_f_accum ~circuit_index input_hash
+            Circuits.zkp_f_accum ~circuit_index input_hash
           in
           Promise.return
             { Pickles.Inductive_rule.previous_proof_statements = []
@@ -289,7 +289,7 @@ let compile_and_prove_zkp_f_accum ~(circuit_index : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, kzg_after, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -344,9 +344,9 @@ let prove_with_compiled ~(n : int) ~prover
           with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
            and type statement = Step.Field.Constant.t * Step.Field.Constant.t )
        ) ?(skip_verify = false) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Plonk_requests.witness) =
+    ~(witness : Requests.witness) =
   let (module Proof) = proof_module in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () ->
         prover ?handler:(Some handler) input_hash )
@@ -365,7 +365,7 @@ let prove_with_compiled ~(n : int) ~prover
   (output_hash, proof)
 
 let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Plonk_requests.witness) :
+    ~(witness : Requests.witness) :
     Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~n in
   let _tag, _cache, (module Proof), provers =
@@ -381,7 +381,7 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -400,7 +400,7 @@ let compile_and_prove_one ~(n : int) ~(input_hash : Step.Field.Constant.t)
 (** Compile a single circuit and return the proof, VK, and output hash.
     Used for cross-verification with nori. *)
 let compile_prove_and_export ?(skip_verify = false) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Plonk_requests.witness) :
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Pickles_types.Nat.N0.n Pickles.Proof.t
     * Pickles.Side_loaded.Verification_key.t =
@@ -422,7 +422,7 @@ let compile_prove_and_export ?(skip_verify = false) ~(n : int)
         Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -442,24 +442,24 @@ let compile_prove_and_export ?(skip_verify = false) ~(n : int)
 (** Prove all 24 PLONK circuits in sequence with accumulator chaining.
     Each circuit's auxiliary_output (the post-circuit accumulator) feeds
     as the witness for the next circuit. Returns all proofs and hash pairs. *)
-let compile_and_prove_all_chained ~(initial_acc : Plonk_accumulator.t_const)
+let compile_and_prove_all_chained ~(initial_acc : Accumulator.t_const)
     ~(initial_hash : Step.Field.Constant.t) :
     (Step.Field.Constant.t * Step.Field.Constant.t) array
     * Pickles_types.Nat.N0.n Pickles.Proof.t array =
   let current_hash = ref initial_hash in
   let current_acc = ref initial_acc in
   let hash_pairs =
-    Array.create ~len:Plonk_circuits.num_circuits
+    Array.create ~len:Circuits.num_circuits
       (Step.Field.Constant.zero, Step.Field.Constant.zero)
   in
   let proofs =
-    Array.create ~len:Plonk_circuits.num_circuits
+    Array.create ~len:Circuits.num_circuits
       (Obj.magic () : Pickles_types.Nat.N0.n Pickles.Proof.t)
   in
-  for n = 0 to Plonk_circuits.num_circuits - 1 do
+  for n = 0 to Circuits.num_circuits - 1 do
     let input_hash = !current_hash in
-    let witness : Plonk_requests.witness =
-      { Plonk_requests.empty_witness with plonk_acc = Some !current_acc }
+    let witness : Requests.witness =
+      { Requests.empty_witness with plonk_acc = Some !current_acc }
     in
     let output_hash, acc_after, proof =
       compile_and_prove_one_with_plonk_acc ~n ~input_hash ~witness
@@ -472,12 +472,12 @@ let compile_and_prove_all_chained ~(initial_acc : Plonk_accumulator.t_const)
   (hash_pairs, proofs)
 
 (** Legacy: prove all with pre-computed witnesses (no chaining). *)
-let compile_and_prove_all ~(witnesses : Plonk_requests.witness array) :
+let compile_and_prove_all ~(witnesses : Requests.witness array) :
     Pickles_types.Nat.N0.n Pickles.Proof.t array =
-  assert (Array.length witnesses = Plonk_circuits.num_circuits) ;
+  assert (Array.length witnesses = Circuits.num_circuits) ;
   let current_hash = ref Step.Field.Constant.zero in
   let proofs =
-    Array.init Plonk_circuits.num_circuits ~f:(fun n ->
+    Array.init Circuits.num_circuits ~f:(fun n ->
         let output_hash, proof =
           compile_and_prove_one ~n ~input_hash:!current_hash
             ~witness:witnesses.(n)

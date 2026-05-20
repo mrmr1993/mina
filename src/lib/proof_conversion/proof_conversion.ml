@@ -13,12 +13,12 @@ module Bn254_params = Proof_conversion_bn254.Bn254_params
 module Proof_json = Proof_conversion_groth16.Proof_json
 module Vk_constants = Proof_conversion_groth16.Vk_constants
 module Circuit_info = Proof_conversion_groth16.Circuit_info
-module Plonk_circuits = Proof_conversion_plonk.Plonk_circuits
-module Plonk_proof_json = Proof_conversion_plonk.Plonk_proof_json
-module Plonk_requests = Proof_conversion_plonk.Plonk_requests
-module Plonk_pickles_rules = Proof_conversion_plonk.Plonk_pickles_rules
-module Plonk_witness_tracker = Proof_conversion_plonk.Plonk_witness_tracker
-module Groth16_requests = Proof_conversion_groth16.Groth16_requests
+module Plonk_circuits = Proof_conversion_plonk.Circuits
+module Plonk_proof_json = Proof_conversion_plonk.Proof_json
+module Plonk_requests = Proof_conversion_plonk.Requests
+module Plonk_pickles_rules = Proof_conversion_plonk.Pickles_rules
+module Plonk_witness_tracker = Proof_conversion_plonk.Witness_tracker
+module Groth16_requests = Proof_conversion_groth16.Requests
 module Pickles_rules = Proof_conversion_groth16.Pickles_rules
 module Circuit_utils = Proof_conversion_circuit_kit.Circuit_utils
 module Circuits = Proof_conversion_groth16.Circuits
@@ -35,7 +35,7 @@ module Fupdate_circuit = Proof_conversion_groth16.Fupdate_circuit
 module Pairing_utils_bridge = Proof_conversion_pairing_utils_bridge.Pairing_utils_bridge
 module Cache_config = Proof_conversion_circuit_kit.Cache_config
 module Workdir = Proof_conversion_workdir.Workdir
-module Plonk_accumulator = Proof_conversion_plonk.Plonk_accumulator
+module Plonk_accumulator = Proof_conversion_plonk.Accumulator
 
 (** Module type for a proof conversion system. *)
 module type PROOF_SYSTEM = sig

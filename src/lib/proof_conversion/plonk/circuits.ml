@@ -11,9 +11,9 @@
     Reference: nori-proof-conversion/src/plonk/recursion/prove_zkps.ts *)
 
 open! Core_kernel
-open Proof_conversion_groth16
 open Proof_conversion_bn254
 open Proof_conversion_circuit_kit
+module Accumulator_hash = Proof_conversion_groth16.Accumulator_hash
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 
@@ -39,7 +39,7 @@ let domain_size_bits = Array.init 25 ~f:(fun i -> if i = 0 then 1 else 0)
 
 (** SP1 PLONK verification key, matching nori vk.ts.
     Source: https://github.com/succinctlabs/sp1-contracts/blob/main/contracts/src/v5.0.0/PlonkVerifier.sol *)
-let plonk_vk : Plonk_proof.vk =
+let plonk_vk : Proof.vk =
   let bi = Bignum_bigint.of_string in
   let g1 x y = { G1.Constant.x = bi x; y = bi y } in
   { domain_size = sp1_domain_size
@@ -101,24 +101,24 @@ let plonk_vk : Plonk_proof.vk =
   }
 
 (** Witness a full PLONK Accumulator as private input via request. *)
-let witness_accumulator () : Plonk_accumulator.t =
-  Step.exists Plonk_accumulator.typ ~request:(fun () ->
-      Plonk_requests.Plonk_accumulator )
+let witness_accumulator () : Accumulator.t =
+  Step.exists Accumulator.typ ~request:(fun () ->
+      Requests.Accumulator )
 
 (** Witness a full KZG Accumulator as private input via request. *)
 let witness_kzg_accumulator () : Kzg_accumulator.t =
   Step.exists Kzg_accumulator.typ ~request:(fun () ->
-      Plonk_requests.Kzg_accumulator )
+      Requests.Kzg_accumulator )
 
-(** Circuits 0-11: witness Plonk_accumulator, mutate, return (hash, acc).
+(** Circuits 0-11: witness Accumulator, mutate, return (hash, acc).
     The [inner] function performs the circuit-specific mutations. *)
-let plonk_acc_body (inner : Plonk_accumulator.t -> unit) input_hash :
-    Step.Field.t * Plonk_accumulator.t =
+let plonk_acc_body (inner : Accumulator.t -> unit) input_hash :
+    Step.Field.t * Accumulator.t =
   let acc = witness_accumulator () in
-  let in_digest = Plonk_accumulator.hash_packed acc in
+  let in_digest = Accumulator.hash_packed acc in
   Step.assert_ (Equal (in_digest, input_hash)) ;
   inner acc ;
-  (Plonk_accumulator.hash_packed acc, acc)
+  (Accumulator.hash_packed acc, acc)
 
 (** zkp0: Squeeze gamma and beta. *)
 let zkp0 input_hash =
@@ -311,15 +311,15 @@ let zkp11 input_hash =
     input_hash
 
 (** zkp12: Prepare pairing (split 1) + KZG accumulator initialization.
-    Transitions from Plonk_accumulator to Kzg_accumulator.
+    Transitions from Accumulator to Kzg_accumulator.
     Returns (output_hash, kzg_acc) for chaining to zkp13+. *)
 let zkp12 input_hash : Step.Field.t * Kzg_accumulator.t =
   let acc = witness_accumulator () in
   let shift_power =
-    Step.exists Step.Field.typ ~request:(fun () -> Plonk_requests.Shift_power)
+    Step.exists Step.Field.typ ~request:(fun () -> Requests.Shift_power)
   in
-  let c = Step.exists Fp12.typ ~request:(fun () -> Plonk_requests.C_fp12) in
-  let in_digest = Plonk_accumulator.hash_packed acc in
+  let c = Step.exists Fp12.typ ~request:(fun () -> Requests.C_fp12) in
+  let in_digest = Accumulator.hash_packed acc in
   Step.assert_ (Equal (in_digest, input_hash)) ;
   let kzg_cm_x, kzg_cm_y =
     Piop.prepare_pairing_1 ~vk:plonk_vk ~proof:acc.proof
@@ -383,7 +383,7 @@ let zkp_lines ~circuit_index input_hash :
   let lines_hashes =
     Step.exists
       (Step.Typ.array ~length:Kzg_accumulator.ate_loop_len Step.Field.typ)
-      ~request:(fun () -> Plonk_requests.Lines_hashes)
+      ~request:(fun () -> Requests.Lines_hashes)
   in
   let lines_digest = Accumulator_hash.poseidon_hash lines_hashes in
   Step.assert_ (Equal (kzg.state.lines_hashes_digest, lines_digest)) ;
@@ -458,12 +458,12 @@ let zkp_f_accum ~circuit_index input_hash : Step.Field.t * Kzg_accumulator.t =
   let kzg = witness_kzg_accumulator () in
   let g_chunk =
     Step.exists (Step.Typ.array ~length:chunk_size Fp12.typ) ~request:(fun () ->
-        Plonk_requests.G_chunk )
+        Requests.G_chunk )
   in
   let remaining = ate_len - chunk_size in
   let flat_hashes =
     Step.exists (Step.Typ.array ~length:remaining Step.Field.typ)
-      ~request:(fun () -> Plonk_requests.Flat_hashes)
+      ~request:(fun () -> Requests.Flat_hashes)
   in
   let lhs_hashes = Array.sub flat_hashes ~pos:0 ~len:lhs_size in
   let rhs_hashes = Array.sub flat_hashes ~pos:lhs_size ~len:rhs_size in
@@ -490,11 +490,11 @@ let zkp23 input_hash : Step.Field.t =
   let lhs_hashes =
     Step.exists
       (Step.Typ.array ~length:(ate_len - 1) Step.Field.typ)
-      ~request:(fun () -> Plonk_requests.Lhs_hashes)
+      ~request:(fun () -> Requests.Lhs_hashes)
   in
   let g_chunk =
     Step.exists (Step.Typ.array ~length:1 Fp12.typ) ~request:(fun () ->
-        Plonk_requests.G_chunk )
+        Requests.G_chunk )
   in
   let in_digest = Kzg_accumulator.hash_packed kzg in
   Step.assert_ (Equal (in_digest, input_hash)) ;
@@ -603,9 +603,9 @@ let circuit_body (n : int) : Step.Field.t -> Step.Field.t =
 
 (** Fast body for circuits 0-11: inject accumulator as constants (no exists),
     run inner mutation, skip both Poseidon hashes.  Returns evolved acc. *)
-let plonk_acc_body_fast (inner : Plonk_accumulator.t -> unit)
-    (acc_const : Plonk_accumulator.t_const) : Plonk_accumulator.t =
-  let acc = Plonk_accumulator.of_constant acc_const in
+let plonk_acc_body_fast (inner : Accumulator.t -> unit)
+    (acc_const : Accumulator.t_const) : Accumulator.t =
+  let acc = Accumulator.of_constant acc_const in
   inner acc ; acc
 
 let zkp0_fast acc =
@@ -803,10 +803,10 @@ let zkp_fast_fns =
   |]
 
 (** Fast zkp12: inject acc as constant, skip hashing. *)
-let zkp12_fast (acc_const : Plonk_accumulator.t_const)
+let zkp12_fast (acc_const : Accumulator.t_const)
     ~(shift_power : Step.Field.Constant.t) ~(c_fp12 : Fp12.Constant.t) :
     Kzg_accumulator.t =
-  let acc = Plonk_accumulator.of_constant acc_const in
+  let acc = Accumulator.of_constant acc_const in
   let shift_power_var = Step.Field.constant shift_power in
   let c = Fp12.of_constant c_fp12 in
   let kzg_cm_x, kzg_cm_y =

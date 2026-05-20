@@ -1,7 +1,7 @@
 (** Parse SP1 PLONK proof from JSON fixture into accumulator constants.
 
     Deserializes the ABI-encoded hex proof, extracts public inputs,
-    and constructs the initial Plonk_accumulator.t_const.
+    and constructs the initial Accumulator.t_const.
 
     Reference: nori-proof-conversion/src/plonk/proof.ts *)
 
@@ -54,9 +54,9 @@ let parse_public_inputs ~(program_vk : string) ~(pi_hex : string) :
   (pi0, pi1)
 
 (** Load and parse the SP1 PLONK proof fixture.
-    Returns the initial Plonk_accumulator.t_const with proof fields
+    Returns the initial Accumulator.t_const with proof fields
     populated and state containing pi0/pi1. *)
-let load_fixture (path : string) : Plonk_accumulator.t_const =
+let load_fixture (path : string) : Accumulator.t_const =
   let json = Yojson.Safe.from_file path in
   let hex_proof = Yojson.Safe.Util.(member "hexProof" json |> to_string) in
   let program_vk = Yojson.Safe.Util.(member "programVk" json |> to_string) in
@@ -64,7 +64,7 @@ let load_fixture (path : string) : Plonk_accumulator.t_const =
   (* Decode proof *)
   let vals = abi_decode_proof hex_proof in
   let f3 i = bigint_to_field3 vals.(i) in
-  let proof : Plonk_accumulator.proof_const =
+  let proof : Accumulator.proof_const =
     { l_com_x = f3 0
     ; l_com_y = f3 1
     ; r_com_x = f3 2
@@ -100,7 +100,7 @@ let load_fixture (path : string) : Plonk_accumulator.t_const =
   let z3 = FF.Field3.Constant.zero in
   let z32 = Array.create ~len:32 Step.Field.Constant.zero in
   let z8 = Array.create ~len:8 Step.Field.Constant.zero in
-  let fs : Plonk_accumulator.fs_const =
+  let fs : Accumulator.fs_const =
     { gamma_digest = z32
     ; gamma = z3
     ; beta_digest = z32
@@ -113,7 +113,7 @@ let load_fixture (path : string) : Plonk_accumulator.t_const =
     ; gamma_kzg = z3
     }
   in
-  let state : Plonk_accumulator.state_const =
+  let state : Accumulator.state_const =
     { pi0
     ; pi1
     ; zeta_pow_n = z3
@@ -163,7 +163,7 @@ let parse_aux_witness (json : Yojson.Safe.t) : aux_witness =
 
 (** Load fixture and return both the accumulator and aux witness. *)
 let load_fixture_with_aux (path : string) :
-    Plonk_accumulator.t_const * aux_witness =
+    Accumulator.t_const * aux_witness =
   let json = Yojson.Safe.from_file path in
   let acc = load_fixture path in
   let aux = parse_aux_witness json in
@@ -190,12 +190,12 @@ let parse_sp1_json (json : Yojson.Safe.t) : string * string * string =
 
 (** Load from SP1 JSON format (nori CLI input).
     Returns the initial accumulator constant. *)
-let load_sp1 (path : string) : Plonk_accumulator.t_const =
+let load_sp1 (path : string) : Accumulator.t_const =
   let json = Yojson.Safe.from_file path in
   let hex_proof, program_vk, pi_hex = parse_sp1_json json in
   let vals = abi_decode_proof hex_proof in
   let f3 i = bigint_to_field3 vals.(i) in
-  let proof : Plonk_accumulator.proof_const =
+  let proof : Accumulator.proof_const =
     { l_com_x = f3 0
     ; l_com_y = f3 1
     ; r_com_x = f3 2
@@ -229,7 +229,7 @@ let load_sp1 (path : string) : Plonk_accumulator.t_const =
   let z3 = FF.Field3.Constant.zero in
   let z32 = Array.create ~len:32 Step.Field.Constant.zero in
   let z8 = Array.create ~len:8 Step.Field.Constant.zero in
-  let fs : Plonk_accumulator.fs_const =
+  let fs : Accumulator.fs_const =
     { gamma_digest = z32
     ; gamma = z3
     ; beta_digest = z32
@@ -242,7 +242,7 @@ let load_sp1 (path : string) : Plonk_accumulator.t_const =
     ; gamma_kzg = z3
     }
   in
-  let state : Plonk_accumulator.state_const =
+  let state : Accumulator.state_const =
     { pi0
     ; pi1
     ; zeta_pow_n = z3

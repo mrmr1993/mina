@@ -12,7 +12,7 @@ open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 
 (** Request for the PLONK accumulator (zkp0-11). *)
-type _ t += Plonk_accumulator : Plonk_accumulator.t_const t
+type _ t += Accumulator : Accumulator.t_const t
 
 (** Request for the KZG accumulator (zkp12-23). *)
 type _ t += Kzg_accumulator : Kzg_accumulator.t_const t
@@ -41,7 +41,7 @@ type _ t += Lhs_hashes : Step.Field.Constant.t array t
 
 (** Witness values for a single circuit invocation. *)
 type witness =
-  { plonk_acc : Plonk_accumulator.t_const option
+  { plonk_acc : Accumulator.t_const option
   ; kzg_acc : Kzg_accumulator.t_const option
   ; shift_power : Step.Field.Constant.t option
   ; c_fp12 : Fp12.Constant.t option
@@ -68,7 +68,7 @@ let handler (w : witness) :
  fun (With { request; respond }) ->
   let k x = respond (Provide x) in
   match request with
-  | Plonk_accumulator -> (
+  | Accumulator -> (
       match w.plonk_acc with Some v -> k v | None -> respond Unhandled )
   | Kzg_accumulator -> (
       match w.kzg_acc with Some v -> k v | None -> respond Unhandled )

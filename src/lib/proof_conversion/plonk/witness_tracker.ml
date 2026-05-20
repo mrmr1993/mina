@@ -4,7 +4,6 @@
     accumulator state) without circuit constraints. *)
 
 open! Core_kernel
-open Proof_conversion_groth16
 open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 
@@ -19,10 +18,10 @@ let chunked_input_to_const (input : Step.Field.t Random_oracle_input.Chunked.t)
 
 (** Compute the Poseidon hash of an accumulator constant, matching
     in-circuit hash_packed.  Uses native Poseidon (no snarky overhead). *)
-let hash_accumulator_const (acc_const : Plonk_accumulator.t_const) :
+let hash_accumulator_const (acc_const : Accumulator.t_const) :
     Step.Field.Constant.t =
-  let acc = Plonk_accumulator.of_constant acc_const in
-  let input = Plonk_accumulator.to_input acc in
+  let acc = Accumulator.of_constant acc_const in
+  let input = Accumulator.to_input acc in
   let input_const = chunked_input_to_const input in
   let packed = Random_oracle.pack_input input_const in
   Random_oracle.hash packed
@@ -40,7 +39,7 @@ let hash_kzg_accumulator_const (kzg_const : Kzg_accumulator.t_const) :
 (** Extract KZG A/B points from the accumulator state after circuit 11.
     Runs prepare_pairing_1 via run_unchecked (a few EC operations, fast).
     Returns (a_x, a_y, neg_b_x, neg_b_y) as Bignum_bigint values. *)
-let extract_kzg_points_from_state11 (acc11 : Plonk_accumulator.t_const) :
+let extract_kzg_points_from_state11 (acc11 : Accumulator.t_const) :
     Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t * Bignum_bigint.t =
   let module FF = Snarky_foreign_field.Foreign_field in
   let result =
@@ -52,9 +51,9 @@ let extract_kzg_points_from_state11 (acc11 : Plonk_accumulator.t_const) :
   in
   Snarky_backendless.Snark0.set_eval_constraints false ;
   Step.run_unchecked (fun () ->
-      let acc = Plonk_accumulator.of_constant acc11 in
+      let acc = Accumulator.of_constant acc11 in
       let ax, ay =
-        Piop.prepare_pairing_1 ~vk:Plonk_circuits.plonk_vk ~proof:acc.proof
+        Piop.prepare_pairing_1 ~vk:Circuits.plonk_vk ~proof:acc.proof
           ~random:acc.state.kzg_random ~folded_cm_x:acc.state.kzg_cm_x
           ~folded_cm_y:acc.state.kzg_cm_y ~zeta:acc.fs.zeta
       in
@@ -70,7 +69,7 @@ let extract_kzg_points_from_state11 (acc11 : Plonk_accumulator.t_const) :
 let compute_mlo_from_points ~(a_x : Bignum_bigint.t) ~(a_y : Bignum_bigint.t)
     ~(neg_b_x : Bignum_bigint.t) ~(neg_b_y : Bignum_bigint.t) : Fp12.Constant.t
     =
-  let module WT = Witness_tracker in
+  let module WT = Proof_conversion_groth16.Witness_tracker in
   let module BI = Bignum_bigint in
   let g2 : WT.G2.t =
     { x =
@@ -109,12 +108,12 @@ let compute_mlo_from_points ~(a_x : Bignum_bigint.t) ~(a_y : Bignum_bigint.t)
 (** Run a circuit via run_unchecked with a witness handler.
     Returns the output hash. *)
 let run_circuit_unchecked ~(n : int) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Plonk_requests.witness) : Step.Field.Constant.t =
-  let handler = Plonk_requests.handler witness in
+    ~(witness : Requests.witness) : Step.Field.Constant.t =
+  let handler = Requests.handler witness in
   Step.run_unchecked (fun () ->
       Step.handle
         (fun () ->
-          let body = Plonk_circuits.circuit_body n in
+          let body = Circuits.circuit_body n in
           let input_var = Step.Field.constant input_hash in
           let output_var = body input_var in
           Step.As_prover.read_var output_var )
@@ -123,7 +122,7 @@ let run_circuit_unchecked ~(n : int) ~(input_hash : Step.Field.Constant.t)
 (** Run circuits 0-11 unchecked to evolve the PLONK accumulator,
     then extract KZG A/B points from circuit 12 and compute the
     Miller loop output via Rust FFI. Returns the Fp12 MLO. *)
-let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
+let compute_kzg_mlo (initial_acc : Accumulator.t_const) : Fp12.Constant.t
     =
   let module FF = Snarky_foreign_field.Foreign_field in
   (* Disable constraint evaluation for speed *)
@@ -132,7 +131,7 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
   let current_hash = ref (hash_accumulator_const initial_acc) in
   let current_acc = ref initial_acc in
   let zkp_fns =
-    Plonk_circuits.
+    Circuits.
       [| zkp0
        ; zkp1
        ; zkp2
@@ -149,10 +148,10 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
   in
   for n = 0 to 11 do
     Printf.eprintf "  Running zkp%d unchecked...\n%!" n ;
-    let witness : Plonk_requests.witness =
-      { Plonk_requests.empty_witness with plonk_acc = Some !current_acc }
+    let witness : Requests.witness =
+      { Requests.empty_witness with plonk_acc = Some !current_acc }
     in
-    let handler = Plonk_requests.handler witness in
+    let handler = Requests.handler witness in
     let result = ref (Step.Field.Constant.zero, !current_acc) in
     Step.run_unchecked (fun () ->
         Step.handle
@@ -161,7 +160,7 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
             let output_hash, acc = zkp_fns.(n) input_var in
             Step.as_prover (fun () ->
                 let oh = Step.As_prover.read_var output_hash in
-                let acc_const = Step.As_prover.read Plonk_accumulator.typ acc in
+                let acc_const = Step.As_prover.read Accumulator.typ acc in
                 result := (oh, acc_const) ) )
           handler ) ;
     let output_hash, new_acc = !result in
@@ -170,21 +169,21 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
   done ;
   (* Run circuit 12's logic unchecked to get KZG A/B points.
      c/shift_power don't affect A/B computation. *)
-  let witness : Plonk_requests.witness =
-    { Plonk_requests.empty_witness with
+  let witness : Requests.witness =
+    { Requests.empty_witness with
       plonk_acc = Some !current_acc
     ; shift_power = Some Step.Field.Constant.zero
     ; c_fp12 = Some Fp12.Constant.one
     }
   in
-  let handler = Plonk_requests.handler witness in
+  let handler = Requests.handler witness in
   let module BI = Bignum_bigint in
   let kzg_result = ref (BI.zero, BI.zero, BI.zero, BI.zero) in
   Step.run_unchecked (fun () ->
       Step.handle
         (fun () ->
           let _output_hash, kzg =
-            Plonk_circuits.zkp12 (Step.Field.constant !current_hash)
+            Circuits.zkp12 (Step.Field.constant !current_hash)
           in
           Step.as_prover (fun () ->
               let read_fpa f =
@@ -200,7 +199,7 @@ let compute_kzg_mlo (initial_acc : Plonk_accumulator.t_const) : Fp12.Constant.t
   Snarky_backendless.Snark0.set_eval_constraints true ;
   (* Compute the KZG MLO using the same out-of-circuit arithmetic
      as the Groth16 tracker (matching circuit convention). *)
-  let module WT = Witness_tracker in
+  let module WT = Proof_conversion_groth16.Witness_tracker in
   let module BI = Bignum_bigint in
   (* SRS G2 points *)
   let g2 : WT.G2.t =

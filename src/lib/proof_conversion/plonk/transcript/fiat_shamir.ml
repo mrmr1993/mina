@@ -11,7 +11,7 @@ module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 
 (** In-circuit Fiat-Shamir state (mutable). *)
-type t = Plonk_accumulator.circuit_fs
+type t = Accumulator.circuit_fs
 
 (** SHA-256 padding: append 0x80 byte, zeros, then 8-byte big-endian length.
     Total must be multiple of 64 bytes (512 bits per block).
@@ -48,7 +48,7 @@ let sha256_pad_and_block (bytes : Field_to_bytes.byte array) :
 (** SHA-256 hash of a byte array (handles padding).
     Returns 8 UInt32 words and a Bytes32 digest. *)
 let sha256_hash (bytes : Field_to_bytes.byte array) :
-    Uint32.t array * Plonk_accumulator.bytes32 =
+    Uint32.t array * Accumulator.bytes32 =
   let blocks = sha256_pad_and_block bytes in
   let h = Sha256.hash_blocks blocks in
   (* Convert 8 UInt32 words to 32 bytes (for digest storage).
@@ -111,8 +111,8 @@ let provable_bn254_scalar_field_to_bytes (x : FF.FpA.t) :
 
 (** Squeeze gamma challenge from proof + VK + public inputs.
     Matches nori squeezeGamma (fiat-shamir/index.ts:206-297). *)
-let squeeze_gamma (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
-    ~(pi0 : FF.FpA.t) ~(pi1 : FF.FpA.t) ~(vk : Plonk_proof.vk) : unit =
+let squeeze_gamma (fs : t) ~(proof : Accumulator.circuit_proof)
+    ~(pi0 : FF.FpA.t) ~(pi1 : FF.FpA.t) ~(vk : Proof.vk) : unit =
   let gamma_separator =
     FF.FpA.of_constant (Bignum_bigint.of_string "0x67616d6d61")
   in
@@ -245,7 +245,7 @@ let squeeze_beta (fs : t) : unit =
 
 (** Squeeze alpha challenge from beta digest + proof commitments.
     Matches nori squeezeAlpha (fiat-shamir/index.ts:312-340). *)
-let squeeze_alpha (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
+let squeeze_alpha (fs : t) ~(proof : Accumulator.circuit_proof) : unit =
   let alpha_separator =
     FF.FpA.of_constant (Bignum_bigint.of_string "0x616c706861")
   in
@@ -283,7 +283,7 @@ let squeeze_alpha (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
 
 (** Squeeze zeta challenge from alpha digest + proof commitments.
     Matches nori squeezeZeta (fiat-shamir/index.ts:342-372). *)
-let squeeze_zeta (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
+let squeeze_zeta (fs : t) ~(proof : Accumulator.circuit_proof) : unit =
   let zeta_separator =
     FF.FpA.of_constant (Bignum_bigint.of_string "0x7a657461")
   in
@@ -323,7 +323,7 @@ let squeeze_zeta (fs : t) ~(proof : Plonk_accumulator.circuit_proof) : unit =
 
 (** Squeeze random challenge for KZG from commitments + zeta + gamma_kzg.
     Matches nori squeezeRandomForKzg (fiat-shamir/index.ts:438-466). *)
-let squeeze_random_for_kzg (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
+let squeeze_random_for_kzg (fs : t) ~(proof : Accumulator.circuit_proof)
     ~(cm_x : FF.FpA.t) ~(cm_y : FF.FpA.t) : FF.FpA.t =
   let cm_bytes =
     ref (Array.to_list (provable_bn254_base_field_to_bytes cm_x))
@@ -353,8 +353,8 @@ let squeeze_random_for_kzg (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
 (** Partial SHA-256 for gamma_kzg: process first 11 blocks.
     Matches nori gammaKzgDigest_part0 (fiat-shamir/index.ts:470-545).
     Returns intermediate SHA-256 state (8 UInt32 words). *)
-let gamma_kzg_digest_part0 (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
-    ~(vk : Plonk_proof.vk) ~(linearized_cm_x : FF.FpA.t)
+let gamma_kzg_digest_part0 (fs : t) ~(proof : Accumulator.circuit_proof)
+    ~(vk : Proof.vk) ~(linearized_cm_x : FF.FpA.t)
     ~(linearized_cm_y : FF.FpA.t) ~(linearized_opening : FF.FpA.t) :
     Uint32.t array =
   let gamma_separator =
@@ -428,7 +428,7 @@ let gamma_kzg_digest_part0 (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
 
 (** Partial SHA-256 for gamma_kzg: process final block.
     Matches nori gammaKzgDigest_part1 (fiat-shamir/index.ts:547-573). *)
-let gamma_kzg_digest_part1 (fs : t) ~(proof : Plonk_accumulator.circuit_proof)
+let gamma_kzg_digest_part1 (fs : t) ~(proof : Accumulator.circuit_proof)
     ~(h_state : Uint32.t array) : unit =
   (* remaining bytes: qcp_0_at_zeta[27:32] + grand_product_at_omega_zeta *)
   let qcp_0_at_zeta_bytes =

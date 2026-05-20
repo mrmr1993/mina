@@ -75,9 +75,9 @@ let prove_with_compiled ~(n : int) ~prover
           with type t = Pickles_types.Nat.N0.n Pickles.Proof.t
            and type statement = Step.Field.Constant.t * Step.Field.Constant.t )
        ) ?(skip_verify = false) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Groth16_requests.witness) =
+    ~(witness : Requests.witness) =
   let (module Proof) = proof_module in
-  let handler = Groth16_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () ->
         prover ?handler:(Some handler) input_hash )
@@ -98,7 +98,7 @@ let prove_with_compiled ~(n : int) ~prover
 (** Compile and prove a single circuit.
     Takes the input hash value and returns (output_hash, proof). *)
 let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness)
     : Step.Field.Constant.t * Pickles_types.Nat.N0.n Pickles.Proof.t =
   let rule = make_rule ~vk ~n in
   let _tag, _cache, (module Proof), provers =
@@ -115,7 +115,7 @@ let compile_and_prove_one ~(vk : Vk_constants.t) ~(n : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Groth16_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -162,7 +162,7 @@ let make_rule_with_acc ~(vk : Vk_constants.t) ~(n : int) :
 (** Compile and prove a single circuit (0-12), returning the accumulator
     and line_hashes via auxiliary_output for chaining. *)
 let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
-    ~(input_hash : Step.Field.Constant.t) ~(witness : Groth16_requests.witness)
+    ~(input_hash : Step.Field.Constant.t) ~(witness : Requests.witness)
     :
     Step.Field.Constant.t
     * Accumulator.Constant.t
@@ -184,7 +184,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
       ()
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Groth16_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, ((acc_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -201,7 +201,7 @@ let compile_and_prove_one_with_acc ~(vk : Vk_constants.t) ~(n : int)
 
 (** Compile and prove all 16 circuits, chaining input/output hashes. *)
 let compile_and_prove_all ~(vk : Vk_constants.t)
-    ~(witnesses : Groth16_requests.witness array) :
+    ~(witnesses : Requests.witness array) :
     Pickles_types.Nat.N0.n Pickles.Proof.t array =
   assert (Array.length witnesses = Circuits.num_circuits) ;
   let current_hash = ref Step.Field.Constant.zero in
@@ -221,7 +221,7 @@ let compile_and_prove_all ~(vk : Vk_constants.t)
     (13-15). *)
 let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
     ~(n : int) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Groth16_requests.witness) :
+    ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Pickles_types.Nat.N0.n Pickles.Proof.t
     * Pickles.Side_loaded.Verification_key.t =
@@ -244,7 +244,7 @@ let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
         Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Groth16_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, _aux, proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
@@ -266,7 +266,7 @@ let compile_prove_and_export ?(skip_verify = false) ~(vk : Vk_constants.t)
     tree compression. *)
 let compile_prove_and_export_with_acc ?(skip_verify = false)
     ~(vk : Vk_constants.t) ~(n : int) ~(input_hash : Step.Field.Constant.t)
-    ~(witness : Groth16_requests.witness) :
+    ~(witness : Requests.witness) :
     Step.Field.Constant.t
     * Accumulator.Constant.t
     * Step.Field.Constant.t array
@@ -292,7 +292,7 @@ let compile_prove_and_export_with_acc ?(skip_verify = false)
         Pickles.Side_loaded.Verification_key.of_compiled_promise tag )
   in
   let Pickles.Provers.[ prove ] = provers in
-  let handler = Groth16_requests.handler witness in
+  let handler = Requests.handler witness in
   let output_hash, ((acc_after, lh_after), gv_after), proof =
     Promise.block_on_async_exn (fun () -> prove ~handler input_hash)
   in
