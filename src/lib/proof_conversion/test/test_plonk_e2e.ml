@@ -10,10 +10,10 @@ let () =
   Printf.eprintf "=== FULL PLONK E2E TEST ===\n%!" ;
   Printf.eprintf "Loading fixture...\n%!" ;
   let acc_const, aux =
-    Proof_conversion.Plonk_proof_json.load_fixture_with_aux fixture_path
+    Proof_conversion.Plonk.Proof_json.load_fixture_with_aux fixture_path
   in
   let input_hash =
-    Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
+    Proof_conversion.Plonk.Witness_tracker.hash_accumulator_const acc_const
   in
   (* === Phase 1: Prove all 24 base circuits === *)
   Printf.eprintf "\n--- Phase 1: Proving 24 base circuits ---\n%!" ;
@@ -30,18 +30,18 @@ let () =
   (* zkp0-11: PLONK accumulator phase *)
   for n = 0 to 11 do
     Printf.eprintf "Proving zkp%d...\n%!" n ;
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         plonk_acc = Some !current_acc
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     (* Also get acc for chaining *)
     let _, acc_after, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_one_with_plonk_acc
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_one_with_plonk_acc
         ~n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -50,19 +50,19 @@ let () =
   done ;
   (* zkp12: KZG transition *)
   Printf.eprintf "Proving zkp12...\n%!" ;
-  let w12 : Proof_conversion.Plonk_requests.witness =
-    { Proof_conversion.Plonk_requests.empty_witness with
+  let w12 : Proof_conversion.Plonk.Requests.witness =
+    { Proof_conversion.Plonk.Requests.empty_witness with
       plonk_acc = Some !current_acc
     ; shift_power = Some aux.shift_power
     ; c_fp12 = Some aux.c_fp12
     }
   in
   let output_hash_12, proof_12, vk_12 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+    Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:false ~n:12 ~input_hash:!current_hash ~witness:w12
   in
   let _, kzg_const, _ =
-    Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
+    Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp12
       ~input_hash:!current_hash ~witness:w12
   in
   base_proofs.(12) <- (!current_hash, output_hash_12, proof_12, vk_12) ;
@@ -70,24 +70,24 @@ let () =
   (* zkp13-16: Line hashing *)
   let current_kzg = ref kzg_const in
   let all_g_values = ref [||] in
-  let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+  let ate_loop_len = Proof_conversion.Plonk.Kzg_accumulator.ate_loop_len in
   let current_lines_hashes =
     ref (Array.create ~len:ate_loop_len Step.Field.Constant.zero)
   in
   for n = 13 to 16 do
     Printf.eprintf "Proving zkp%d...\n%!" n ;
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some !current_kzg
       ; lines_hashes = Some !current_lines_hashes
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, lh_after, gv, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_lines
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -119,19 +119,19 @@ let () =
       Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
     in
     let flat_hashes = Array.append lhs_h rhs_h in
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some !current_kzg
       ; g_chunk = Some g_chunk
       ; flat_hashes = Some flat_hashes
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:false ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_f_accum
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -142,15 +142,15 @@ let () =
   Printf.eprintf "Proving zkp23...\n%!" ;
   let lhs_hashes_23 = Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1) in
   let g_chunk_23 = [| g_values.(ate_loop_len - 1) |] in
-  let w23 : Proof_conversion.Plonk_requests.witness =
-    { Proof_conversion.Plonk_requests.empty_witness with
+  let w23 : Proof_conversion.Plonk.Requests.witness =
+    { Proof_conversion.Plonk.Requests.empty_witness with
       kzg_acc = Some !current_kzg
     ; lhs_hashes = Some lhs_hashes_23
     ; g_chunk = Some g_chunk_23
     }
   in
   let output_hash_23, proof_23, vk_23 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+    Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:false ~n:23 ~input_hash:!current_hash ~witness:w23
   in
   base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;

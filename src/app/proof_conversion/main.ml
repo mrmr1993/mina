@@ -30,9 +30,9 @@ let () =
         if String.is_empty !vk_path then (
           eprintf "Groth16 --info requires --vk <path>\n" ;
           exit 1 ) ;
-        let vk = Proof_conversion.Proof_json.load_vk !vk_path in
-        let vk_const = Proof_conversion.Vk_constants.create vk in
-        Proof_conversion.Circuit_info.report_all ~vk:vk_const ()
+        let vk = Proof_conversion.Groth16.Proof_json.load_vk !vk_path in
+        let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
+        Proof_conversion.Groth16.Circuit_info.report_all ~vk:vk_const ()
     | "plonk" ->
         let circuits =
           match Stdlib.Sys.getenv_opt "COMPILE_ZKP" with
@@ -40,10 +40,10 @@ let () =
               let n = Int.of_string (String.chop_prefix_exn s ~prefix:"zkp") in
               [| n |]
           | None ->
-              Array.init Proof_conversion.Plonk_circuits.num_circuits ~f:Fn.id
+              Array.init Proof_conversion.Plonk.Circuits.num_circuits ~f:Fn.id
         in
         Array.iter circuits ~f:(fun n ->
-            let rule = Proof_conversion.Plonk_pickles_rules.make_rule ~n in
+            let rule = Proof_conversion.Plonk.Pickles_rules.make_rule ~n in
             let _tag, _cache, (module Proof), _provers =
               Pickles.compile_promise
                 ~public_input:
@@ -79,9 +79,9 @@ let () =
     let (module System : Proof_conversion.PROOF_SYSTEM) =
       match !proof_type with
       | "groth16" ->
-          (module Proof_conversion.Groth16)
+          (module Proof_conversion.Convert.Groth16)
       | "plonk" ->
-          (module Proof_conversion.Plonk)
+          (module Proof_conversion.Convert.Plonk)
       | other ->
           eprintf "Unknown proof type: %s (expected groth16 or plonk)\n" other ;
           exit 1

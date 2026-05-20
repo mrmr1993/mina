@@ -2,15 +2,15 @@
 open Core_kernel
 
 module Step = Pickles.Impls.Step
-module WT = Proof_conversion.Witness_tracker
+module WT = Proof_conversion.Groth16.Witness_tracker
 
 let () =
   let proof =
-    Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
   let aux =
-    Proof_conversion.Proof_json.load_aux_witness
+    Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
   in
   let tracker = WT.create ~proof ~vk ~aux in
@@ -43,13 +43,13 @@ let () =
   ( try
       Step.run_and_check_exn (fun () ->
           let c_var =
-            Step.exists Proof_conversion.Fp12.typ ~compute:(fun () -> c)
+            Step.exists Proof_conversion.Bn254.Fp12.typ ~compute:(fun () -> c)
           in
           let c_inv_var =
-            Step.exists Proof_conversion.Fp12.typ ~compute:(fun () -> c_inv)
+            Step.exists Proof_conversion.Bn254.Fp12.typ ~compute:(fun () -> c_inv)
           in
-          let prod = Proof_conversion.Fp12.mul c_var c_inv_var in
-          Proof_conversion.Fp12.assert_one prod ;
+          let prod = Proof_conversion.Bn254.Fp12.mul c_var c_inv_var in
+          Proof_conversion.Bn254.Fp12.assert_one prod ;
           fun () -> Printf.eprintf "In-circuit c * c_inv = 1: OK\n%!" )
     with exn -> Printf.eprintf "In-circuit FAILED: %s\n%!" (Exn.to_string exn)
   ) ;

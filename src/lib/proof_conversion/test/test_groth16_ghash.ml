@@ -2,23 +2,23 @@
 open Core_kernel
 
 module Step = Pickles.Impls.Step
-module WT = Proof_conversion.Witness_tracker
+module WT = Proof_conversion.Groth16.Witness_tracker
 
 let () =
   let proof =
-    Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
   let aux =
-    Proof_conversion.Proof_json.load_aux_witness
+    Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
   in
   let tracker = WT.create ~proof ~vk ~aux in
-  Proof_conversion.Circuit_config.set_tracker tracker ;
-  let vk_const = Proof_conversion.Vk_constants.create vk in
+  Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
+  let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
   (* Get initial accumulator *)
   let initial_acc = WT.get_accumulator_constant tracker in
-  let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
   let initial_g_digest =
     let zeros = Array.create ~len:n_total Step.Field.Constant.zero in
     Random_oracle.hash zeros
@@ -28,7 +28,7 @@ let () =
       state =
         { g_digest = initial_g_digest
         ; t_point = initial_acc.proof.b
-        ; f = Proof_conversion.Fp12.Constant.one
+        ; f = Proof_conversion.Bn254.Fp12.Constant.one
         }
     }
   in
@@ -38,8 +38,8 @@ let () =
   in
   let _line_hashes = WT.get_line_hashes tracker in
   let b_lines = WT.get_all_b_lines tracker in
-  let witness : Proof_conversion.Groth16_requests.witness =
-    { Proof_conversion.Groth16_requests.empty_witness with
+  let witness : Proof_conversion.Groth16.Requests.witness =
+    { Proof_conversion.Groth16.Requests.empty_witness with
       accumulator = Some initial_acc
     ; line_hashes = Some (Array.create ~len:n_total Step.Field.Constant.zero)
     ; b_lines =
@@ -49,21 +49,21 @@ let () =
   let initial_hash =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Accumulator.typ ~compute:(fun () ->
+          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
               initial_acc )
         in
-        let h = Proof_conversion.Accumulator.hash acc in
+        let h = Proof_conversion.Groth16.Accumulator.hash acc in
         fun () -> Step.As_prover.read_var h )
   in
   Printf.eprintf "Proving circuit 0 to get line_hashes...\n%!" ;
   let _, _, lh_from_circuit, _, _ =
-    Proof_conversion.Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const
+    Proof_conversion.Groth16.Pickles_rules.compile_and_prove_one_with_acc ~vk:vk_const
       ~n:0 ~input_hash:initial_hash ~witness
   in
   Printf.eprintf "Circuit 0 proved.\n%!" ;
   (* Compare circuit line_hashes entries with tracker g_value hashes *)
   let g_values = WT.get_g_values tracker in
-  let ranges = Proof_conversion.Ate_circuit.circuit_ranges in
+  let ranges = Proof_conversion.Groth16.Ate_circuit.circuit_ranges in
   let begin_idx, end_idx = ranges.(0) in
   Printf.eprintf "Circuit 0 range: [%d, %d)\n%!" begin_idx end_idx ;
   let mismatches = ref 0 in

@@ -31,7 +31,7 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   let acc_const, aux =
     if is_sp1_format then (
       Printf.eprintf "Detected SP1 format.\n%!" ;
-      let acc = Proof_conversion.Plonk_proof_json.load_sp1 input_path in
+      let acc = Proof_conversion.Plonk.Proof_json.load_sp1 input_path in
       let aux =
         let try_path p =
           if String.length p > 0 && Stdlib.Sys.file_exists p then Some p
@@ -50,21 +50,21 @@ let run_sp1_to_plonk ~input_path ~aux_path =
         | Some p ->
             Printf.eprintf "Loading aux witness from %s\n%!" p ;
             let aux_json = Yojson.Safe.from_file p in
-            Proof_conversion.Plonk_proof_json.parse_aux_witness aux_json
+            Proof_conversion.Plonk.Proof_json.parse_aux_witness aux_json
         | None ->
             Printf.eprintf
               "Computing PLONK aux witness natively (circuits 0-12 unchecked + \
                Rust FFI)...\n\
                %!" ;
             let mlo =
-              Proof_conversion.Plonk_witness_tracker.compute_kzg_mlo acc
+              Proof_conversion.Plonk.Witness_tracker.compute_kzg_mlo acc
             in
-            let w27 = Proof_conversion.Bn254_params.w27 () in
+            let w27 = Proof_conversion.Bn254.Bn254_params.w27 () in
             let groth16_aux =
               Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27
                 mlo w27
             in
-            { Proof_conversion.Plonk_proof_json.shift_power =
+            { Proof_conversion.Plonk.Proof_json.shift_power =
                 Step.Field.Constant.of_int groth16_aux.shift_power
             ; c_fp12 = groth16_aux.c
             }
@@ -72,10 +72,10 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       (acc, aux) )
     else (
       Printf.eprintf "Detected fixture format.\n%!" ;
-      Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path )
+      Proof_conversion.Plonk.Proof_json.load_fixture_with_aux input_path )
   in
   let input_hash =
-    Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
+    Proof_conversion.Plonk.Witness_tracker.hash_accumulator_const acc_const
   in
   Printf.eprintf "Initial hash: %s\n%!"
     (Step.Field.Constant.to_string input_hash) ;
@@ -93,17 +93,17 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   (* zkp0-11 *)
   for n = 0 to 11 do
     Printf.eprintf "  zkp%d...\n%!" n ;
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         plonk_acc = Some !current_acc
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, acc_after, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_one_with_plonk_acc
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_one_with_plonk_acc
         ~n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -112,19 +112,19 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   done ;
   (* zkp12 *)
   Printf.eprintf "  zkp12...\n%!" ;
-  let w12 : Proof_conversion.Plonk_requests.witness =
-    { Proof_conversion.Plonk_requests.empty_witness with
+  let w12 : Proof_conversion.Plonk.Requests.witness =
+    { Proof_conversion.Plonk.Requests.empty_witness with
       plonk_acc = Some !current_acc
     ; shift_power = Some aux.shift_power
     ; c_fp12 = Some aux.c_fp12
     }
   in
   let output_hash_12, proof_12, vk_12 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+    Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:true ~n:12 ~input_hash:!current_hash ~witness:w12
   in
   let _, kzg_const, _ =
-    Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp12
+    Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp12
       ~input_hash:!current_hash ~witness:w12
   in
   base_proofs.(12) <- (!current_hash, output_hash_12, proof_12, vk_12) ;
@@ -132,24 +132,24 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   (* zkp13-16 *)
   let current_kzg = ref kzg_const in
   let all_g_values = ref [||] in
-  let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+  let ate_loop_len = Proof_conversion.Plonk.Kzg_accumulator.ate_loop_len in
   let current_lines_hashes =
     ref (Array.create ~len:ate_loop_len Step.Field.Constant.zero)
   in
   for n = 13 to 16 do
     Printf.eprintf "  zkp%d...\n%!" n ;
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some !current_kzg
       ; lines_hashes = Some !current_lines_hashes
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, lh_after, gv, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_lines
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_lines
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -181,19 +181,19 @@ let run_sp1_to_plonk ~input_path ~aux_path =
       Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
     in
     let flat_hashes = Array.append lhs_h rhs_h in
-    let w : Proof_conversion.Plonk_requests.witness =
-      { Proof_conversion.Plonk_requests.empty_witness with
+    let w : Proof_conversion.Plonk.Requests.witness =
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some !current_kzg
       ; g_chunk = Some g_chunk
       ; flat_hashes = Some flat_hashes
       }
     in
     let output_hash, proof, vk =
-      Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+      Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
         ~skip_verify:true ~n ~input_hash:!current_hash ~witness:w
     in
     let _, kzg_after, _ =
-      Proof_conversion.Plonk_pickles_rules.compile_and_prove_zkp_f_accum
+      Proof_conversion.Plonk.Pickles_rules.compile_and_prove_zkp_f_accum
         ~circuit_index:n ~input_hash:!current_hash ~witness:w
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, vk) ;
@@ -204,15 +204,15 @@ let run_sp1_to_plonk ~input_path ~aux_path =
   Printf.eprintf "  zkp23...\n%!" ;
   let lhs_hashes_23 = Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1) in
   let g_chunk_23 = [| g_values.(ate_loop_len - 1) |] in
-  let w23 : Proof_conversion.Plonk_requests.witness =
-    { Proof_conversion.Plonk_requests.empty_witness with
+  let w23 : Proof_conversion.Plonk.Requests.witness =
+    { Proof_conversion.Plonk.Requests.empty_witness with
       kzg_acc = Some !current_kzg
     ; lhs_hashes = Some lhs_hashes_23
     ; g_chunk = Some g_chunk_23
     }
   in
   let output_hash_23, proof_23, vk_23 =
-    Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+    Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
       ~skip_verify:true ~n:23 ~input_hash:!current_hash ~witness:w23
   in
   base_proofs.(23) <- (!current_hash, output_hash_23, proof_23, vk_23) ;
@@ -340,9 +340,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Printf.eprintf "=== RISC Zero to Groth16 Proof Conversion ===\n%!" ;
   Printf.eprintf "Proof: %s\n%!" proof_path ;
   Printf.eprintf "VK: %s\n%!" vk_path ;
-  let module WT = Proof_conversion.Witness_tracker in
-  let proof = Proof_conversion.Proof_json.load_proof proof_path in
-  let vk_raw = Proof_conversion.Proof_json.load_vk vk_path in
+  let module WT = Proof_conversion.Groth16.Witness_tracker in
+  let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
+  let vk_raw = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
   (* Enrich VK: compute alpha_beta if missing (raw VK) *)
   let vk =
     let ((g00, _), _, _), _ = vk_raw.alpha_beta in
@@ -361,7 +361,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     match Sys.getenv_opt "GROTH16_AUX_PATH" with
     | Some p ->
         Printf.eprintf "Loading aux witness from %s\n%!" p ;
-        Proof_conversion.Proof_json.load_aux_witness p
+        Proof_conversion.Groth16.Proof_json.load_aux_witness p
     | None ->
         (* Try default path, fall back to native computation *)
         let default_path =
@@ -369,17 +369,17 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
         in
         if Stdlib.Sys.file_exists default_path then (
           Printf.eprintf "Loading aux witness from %s\n%!" default_path ;
-          Proof_conversion.Proof_json.load_aux_witness default_path )
+          Proof_conversion.Groth16.Proof_json.load_aux_witness default_path )
         else (
           Printf.eprintf "Computing aux witness natively via Rust FFI...\n%!" ;
           Proof_conversion.Pairing_utils_bridge.groth16_aux_witness ~proof ~vk )
   in
   let tracker = WT.create ~proof ~vk ~aux in
-  Proof_conversion.Circuit_config.set_tracker tracker ;
-  let vk_const = Proof_conversion.Vk_constants.create vk in
+  Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
+  let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
   let b_lines = WT.get_all_b_lines tracker in
   (* Compute initial accumulator *)
-  let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
   let initial_acc =
     let acc = WT.get_accumulator_constant tracker in
     let initial_g_digest =
@@ -391,25 +391,25 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
         { g_digest = initial_g_digest
         ; t_point = acc.proof.b
         ; f =
-            ( Proof_conversion.Fp6.Constant.zero
-            , Proof_conversion.Fp6.Constant.zero )
+            ( Proof_conversion.Bn254.Fp6.Constant.zero
+            , Proof_conversion.Bn254.Fp6.Constant.zero )
         }
     }
   in
   let initial_hash =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Accumulator.typ ~compute:(fun () ->
+          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
               initial_acc )
         in
-        let h = Proof_conversion.Accumulator.hash acc in
+        let h = Proof_conversion.Groth16.Accumulator.hash acc in
         fun () -> Step.As_prover.read_var h )
   in
   Printf.eprintf "Initial hash: %s\n%!"
     (Step.Field.Constant.to_string initial_hash) ;
   (* === Prove all 16 base circuits === *)
   Printf.eprintf "Proving 16 base circuits...\n%!" ;
-  let num_circuits = Proof_conversion.Circuits.num_circuits in
+  let num_circuits = Proof_conversion.Groth16.Circuits.num_circuits in
   let current_hash = ref initial_hash in
   let current_acc = ref initial_acc in
   let evolving_line_hashes =
@@ -426,8 +426,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   (* Circuits 0-6: ate loop with accumulator chaining *)
   for n = 0 to 6 do
     Printf.eprintf "  zkp%d...\n%!" n ;
-    let witness : Proof_conversion.Groth16_requests.witness =
-      { Proof_conversion.Groth16_requests.empty_witness with
+    let witness : Proof_conversion.Groth16.Requests.witness =
+      { Proof_conversion.Groth16.Requests.empty_witness with
         accumulator = Some !current_acc
       ; line_hashes = Some !evolving_line_hashes
       ; b_lines =
@@ -436,7 +436,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
       }
     in
     let output_hash, acc_after, lh_after, gv_after, proof, side_vk =
-      Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+      Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
         ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
@@ -451,9 +451,9 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     Printf.eprintf "  zkp%d...\n%!" n ;
     let idx = n - 7 in
     let n_iters =
-      Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+      Proof_conversion.Groth16.Fupdate_circuit.iterations_per_circuit.(idx)
     in
-    let g_start = Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx) in
+    let g_start = Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx) in
     let all_lh = !evolving_line_hashes in
     let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
     let g_chunk = Array.sub !all_g_values ~pos:g_start ~len:n_iters in
@@ -461,8 +461,8 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     let rhs =
       Array.sub all_lh ~pos:rhs_start ~len:(Array.length all_lh - rhs_start)
     in
-    let witness : Proof_conversion.Groth16_requests.witness =
-      { Proof_conversion.Groth16_requests.empty_witness with
+    let witness : Proof_conversion.Groth16.Requests.witness =
+      { Proof_conversion.Groth16.Requests.empty_witness with
         accumulator = Some !current_acc
       ; g_chunk = Some g_chunk
       ; lhs_hashes = Some lhs
@@ -472,7 +472,7 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
     (* Use compile_prove_and_export_with_acc for acc + VK, but don't
        update line_hashes or g_values (f-update doesn't change them). *)
     let output_hash, acc_after, _lh, _gv, proof, side_vk =
-      Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+      Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
         ~skip_verify:true ~vk:vk_const ~n ~input_hash:!current_hash ~witness
     in
     base_proofs.(n) <- (!current_hash, output_hash, proof, side_vk) ;
@@ -483,15 +483,15 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Printf.eprintf "  zkp13...\n%!" ;
   let all_lh = !evolving_line_hashes in
   let lhs_13 = Array.sub all_lh ~pos:0 ~len:(n_total - 1) in
-  let witness_13 : Proof_conversion.Groth16_requests.witness =
-    { Proof_conversion.Groth16_requests.empty_witness with
+  let witness_13 : Proof_conversion.Groth16.Requests.witness =
+    { Proof_conversion.Groth16.Requests.empty_witness with
       accumulator = Some !current_acc
     ; lhs_hashes = Some lhs_13
     ; final_g = Some !all_g_values.(Array.length !all_g_values - 1)
     }
   in
   let output_hash_13, proof_13, vk_13 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
       ~vk:vk_const ~n:13 ~input_hash:!current_hash ~witness:witness_13
   in
   base_proofs.(13) <- (!current_hash, output_hash_13, proof_13, vk_13) ;
@@ -500,13 +500,13 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   Printf.eprintf "  zkp14...\n%!" ;
   let n_pi = WT.num_public_inputs tracker in
   let pis = Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i) in
-  let witness_14 : Proof_conversion.Groth16_requests.witness =
-    { Proof_conversion.Groth16_requests.empty_witness with
+  let witness_14 : Proof_conversion.Groth16.Requests.witness =
+    { Proof_conversion.Groth16.Requests.empty_witness with
       public_inputs = Some pis
     }
   in
   let output_hash_14, proof_14, vk_14 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
       ~vk:vk_const ~n:14 ~input_hash:!current_hash ~witness:witness_14
   in
   base_proofs.(14) <- (!current_hash, output_hash_14, proof_14, vk_14) ;
@@ -516,18 +516,18 @@ let run_risc0_to_groth16 ~proof_path ~vk_path =
   let pis_15 = Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i) in
   let pi = WT.get_pi tracker in
   let partial_acc = WT.get_partial_ic_acc tracker in
-  let g1_to_const (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+  let g1_to_const (p : WT.G1.t) : Proof_conversion.Bn254.G1.Constant.t =
     { x = p.x; y = p.y }
   in
-  let witness_15 : Proof_conversion.Groth16_requests.witness =
-    { Proof_conversion.Groth16_requests.empty_witness with
+  let witness_15 : Proof_conversion.Groth16.Requests.witness =
+    { Proof_conversion.Groth16.Requests.empty_witness with
       public_inputs = Some pis_15
     ; pi_point = Some (g1_to_const pi)
     ; partial_ic_acc = Some (g1_to_const partial_acc)
     }
   in
   let output_hash_15, proof_15, vk_15 =
-    Proof_conversion.Pickles_rules.compile_prove_and_export ~skip_verify:true
+    Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export ~skip_verify:true
       ~vk:vk_const ~n:15 ~input_hash:!current_hash ~witness:witness_15
   in
   base_proofs.(15) <- (!current_hash, output_hash_15, proof_15, vk_15) ;
@@ -692,33 +692,33 @@ let run_internal_generate_witness ~workdir =
                 true )
       in
       let acc_const =
-        if is_sp1 then Proof_conversion.Plonk_proof_json.load_sp1 input_path
+        if is_sp1 then Proof_conversion.Plonk.Proof_json.load_sp1 input_path
         else
           let acc, _aux =
-            Proof_conversion.Plonk_proof_json.load_fixture_with_aux input_path
+            Proof_conversion.Plonk.Proof_json.load_fixture_with_aux input_path
           in
           acc
       in
       let initial_hash =
-        Proof_conversion.Plonk_witness_tracker.hash_accumulator_const acc_const
+        Proof_conversion.Plonk.Witness_tracker.hash_accumulator_const acc_const
       in
       W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
       W.write_plonk_state ~workdir ~n:(-1) ~acc:acc_const
   | W.Groth16 _ ->
       let proof_path = Filename.concat workdir "proof.json" in
       let vk_path = Filename.concat workdir "vk.json" in
-      let proof = Proof_conversion.Proof_json.load_proof proof_path in
-      let vk = Proof_conversion.Proof_json.load_vk vk_path in
+      let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
+      let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
       let aux =
         Proof_conversion.Pairing_utils_bridge.groth16_aux_witness ~proof ~vk
       in
-      Proof_conversion.Proof_json.save_aux_witness
+      Proof_conversion.Groth16.Proof_json.save_aux_witness
         (Filename.concat workdir "aux_witness.json")
         aux ;
-      let module WT = Proof_conversion.Witness_tracker in
+      let module WT = Proof_conversion.Groth16.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
-      Proof_conversion.Circuit_config.set_tracker tracker ;
-      let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+      Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
+      let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
       let initial_acc =
         let acc = WT.get_accumulator_constant tracker in
         let initial_g_digest =
@@ -730,18 +730,18 @@ let run_internal_generate_witness ~workdir =
             { g_digest = initial_g_digest
             ; t_point = acc.proof.b
             ; f =
-                ( Proof_conversion.Fp6.Constant.zero
-                , Proof_conversion.Fp6.Constant.zero )
+                ( Proof_conversion.Bn254.Fp6.Constant.zero
+                , Proof_conversion.Bn254.Fp6.Constant.zero )
             }
         }
       in
       let initial_hash =
         Step.run_and_check_exn (fun () ->
             let acc =
-              Step.exists Proof_conversion.Accumulator.typ ~compute:(fun () ->
+              Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
                   initial_acc )
             in
-            let h = Proof_conversion.Accumulator.hash acc in
+            let h = Proof_conversion.Groth16.Accumulator.hash acc in
             fun () -> Step.As_prover.read_var h )
       in
       W.write_hash ~workdir ~n:(-1) ~hash:initial_hash ;
@@ -769,21 +769,21 @@ let run_internal_compute_aux_witness ~workdir =
         (* Extract KZG A/B points from state 11 via prepare_pairing_1
            (a few EC operations, fast). *)
         let a_x, a_y, neg_b_x, neg_b_y =
-          Proof_conversion.Plonk_witness_tracker.extract_kzg_points_from_state11
+          Proof_conversion.Plonk.Witness_tracker.extract_kzg_points_from_state11
             acc11
         in
         Printf.eprintf "  KZG points extracted from state 11.\n%!" ;
         let mlo =
-          Proof_conversion.Plonk_witness_tracker.compute_mlo_from_points ~a_x
+          Proof_conversion.Plonk.Witness_tracker.compute_mlo_from_points ~a_x
             ~a_y ~neg_b_x ~neg_b_y
         in
         Printf.eprintf "  Miller loop computed.\n%!" ;
-        let w27 = Proof_conversion.Bn254_params.w27 () in
+        let w27 = Proof_conversion.Bn254.Bn254_params.w27 () in
         let g_aux =
           Proof_conversion.Pairing_utils_bridge.compute_aux_witness_with_w27 mlo
             w27
         in
-        let aux : Proof_conversion.Plonk_proof_json.aux_witness =
+        let aux : Proof_conversion.Plonk.Proof_json.aux_witness =
           { shift_power = Step.Field.Constant.of_int g_aux.shift_power
           ; c_fp12 = g_aux.c
           }
@@ -792,7 +792,7 @@ let run_internal_compute_aux_witness ~workdir =
           `Assoc
             [ ( "shift_power"
               , `String (Step.Field.Constant.to_string aux.shift_power) )
-            ; ("c", Proof_conversion.Proof_json.fp12_to_json aux.c_fp12)
+            ; ("c", Proof_conversion.Groth16.Proof_json.fp12_to_json aux.c_fp12)
             ]
         in
         Yojson.Safe.to_file aux_file aux_json
@@ -811,7 +811,7 @@ let run_internal_compute_state ~workdir ~n =
   Snarky_backendless.Snark0.set_eval_constraints false ;
   ( match system with
   | W.Plonk _ ->
-      let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+      let ate_loop_len = Proof_conversion.Plonk.Kzg_accumulator.ate_loop_len in
       if n <= 11 then (
         (* Circuits 0-11: evolve Plonk_accumulator.
            Use fast path: inject acc as constants, skip Poseidon hashing,
@@ -820,15 +820,15 @@ let run_internal_compute_state ~workdir ~n =
         let result = ref cur_acc in
         Step.run_unchecked (fun () ->
             let acc_var =
-              Proof_conversion.Plonk_circuits.zkp_fast_fns.(n) cur_acc
+              Proof_conversion.Plonk.Circuits.zkp_fast_fns.(n) cur_acc
             in
             Step.as_prover (fun () ->
                 result :=
-                  Step.As_prover.read Proof_conversion.Plonk_accumulator.typ
+                  Step.As_prover.read Proof_conversion.Plonk.Accumulator.typ
                     acc_var ) ) ;
         let ac = !result in
         let oh =
-          Proof_conversion.Plonk_witness_tracker.hash_accumulator_const ac
+          Proof_conversion.Plonk.Witness_tracker.hash_accumulator_const ac
         in
         W.write_hash ~workdir ~n ~hash:oh ;
         W.write_plonk_state ~workdir ~n ~acc:ac )
@@ -843,23 +843,23 @@ let run_internal_compute_state ~workdir ~n =
             Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
         in
         let c_fp12 =
-          Proof_conversion.Proof_json.fp12_of_json
+          Proof_conversion.Groth16.Proof_json.fp12_of_json
             (Yojson.Safe.Util.member "c" aux_json)
         in
         let result12 =
-          ref (Obj.magic () : Proof_conversion.Kzg_accumulator.t_const)
+          ref (Obj.magic () : Proof_conversion.Plonk.Kzg_accumulator.t_const)
         in
         Step.run_unchecked (fun () ->
             let kzg =
-              Proof_conversion.Plonk_circuits.zkp12_fast cur_acc ~shift_power
+              Proof_conversion.Plonk.Circuits.zkp12_fast cur_acc ~shift_power
                 ~c_fp12
             in
             Step.as_prover (fun () ->
                 result12 :=
-                  Step.As_prover.read Proof_conversion.Kzg_accumulator.typ kzg ) ) ;
+                  Step.As_prover.read Proof_conversion.Plonk.Kzg_accumulator.typ kzg ) ) ;
         let kzg12 = !result12 in
         let oh12 =
-          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+          Proof_conversion.Plonk.Witness_tracker.hash_kzg_accumulator_const
             kzg12
         in
         W.write_hash ~workdir ~n:12 ~hash:oh12 ;
@@ -874,11 +874,11 @@ let run_internal_compute_state ~workdir ~n =
           W.read_plonk_kzg_state ~workdir ~n:(n - 1)
         in
         let result_kzg, result_lh, result_gv =
-          Proof_conversion.Plonk_circuits.zkp_lines_native ~circuit_index:n
+          Proof_conversion.Plonk.Circuits.zkp_lines_native ~circuit_index:n
             cur_kzg ~lines_hashes:cur_kzg_lh
         in
         let oh =
-          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+          Proof_conversion.Plonk.Witness_tracker.hash_kzg_accumulator_const
             result_kzg
         in
         W.write_hash ~workdir ~n ~hash:oh ;
@@ -909,11 +909,11 @@ let run_internal_compute_state ~workdir ~n =
           Array.sub g_values_snapshot ~pos:lhs_size ~len:chunk_size
         in
         let result_kzg =
-          Proof_conversion.Plonk_circuits.zkp_f_accum_native ~circuit_index:n
+          Proof_conversion.Plonk.Circuits.zkp_f_accum_native ~circuit_index:n
             cur_kzg ~g_chunk_const:g_chunk
         in
         let oh =
-          Proof_conversion.Plonk_witness_tracker.hash_kzg_accumulator_const
+          Proof_conversion.Plonk.Witness_tracker.hash_kzg_accumulator_const
             result_kzg
         in
         W.write_hash ~workdir ~n ~hash:oh ;
@@ -937,21 +937,21 @@ let run_internal_compute_state ~workdir ~n =
           Array.sub lines_hashes_snapshot ~pos:0 ~len:(ate_loop_len - 1)
         in
         let g_chunk_23 = [| g_values_snapshot.(ate_loop_len - 1) |] in
-        let w23 : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w23 : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             kzg_acc = Some cur_kzg
           ; lhs_hashes = Some lhs_hashes_23
           ; g_chunk = Some g_chunk_23
           }
         in
-        let handler23 = Proof_conversion.Plonk_requests.handler w23 in
+        let handler23 = Proof_conversion.Plonk.Requests.handler w23 in
         let result_hash23 = ref cur_hash in
         Step.run_unchecked (fun () ->
             Step.handle
               (fun () ->
                 let input_var = Step.Field.constant cur_hash in
                 let output_hash =
-                  Proof_conversion.Plonk_circuits.zkp23 input_var
+                  Proof_conversion.Plonk.Circuits.zkp23 input_var
                 in
                 Step.as_prover (fun () ->
                     result_hash23 := Step.As_prover.read_var output_hash ) )
@@ -962,23 +962,23 @@ let run_internal_compute_state ~workdir ~n =
   | W.Groth16 _ ->
       let proof_path = Filename.concat workdir "proof.json" in
       let vk_path = Filename.concat workdir "vk.json" in
-      let proof = Proof_conversion.Proof_json.load_proof proof_path in
-      let vk = Proof_conversion.Proof_json.load_vk vk_path in
-      let vk_const = Proof_conversion.Vk_constants.create vk in
+      let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
+      let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
+      let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
       let aux =
-        Proof_conversion.Proof_json.load_aux_witness
+        Proof_conversion.Groth16.Proof_json.load_aux_witness
           (Filename.concat workdir "aux_witness.json")
       in
-      let module WT = Proof_conversion.Witness_tracker in
+      let module WT = Proof_conversion.Groth16.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
-      Proof_conversion.Circuit_config.set_tracker tracker ;
-      let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+      Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
+      let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
       let b_lines = WT.get_all_b_lines tracker in
       let cur_hash = W.read_hash ~workdir ~n:(n - 1) in
       let cur_acc, cur_lh, cur_gv = W.read_groth16_state ~workdir ~n:(n - 1) in
-      let witness : Proof_conversion.Groth16_requests.witness =
+      let witness : Proof_conversion.Groth16.Requests.witness =
         if n <= 6 then
-          { Proof_conversion.Groth16_requests.empty_witness with
+          { Proof_conversion.Groth16.Requests.empty_witness with
             accumulator = Some cur_acc
           ; line_hashes = Some cur_lh
           ; b_lines =
@@ -989,10 +989,10 @@ let run_internal_compute_state ~workdir ~n =
         else if n <= 12 then
           let idx = n - 7 in
           let n_iters =
-            Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+            Proof_conversion.Groth16.Fupdate_circuit.iterations_per_circuit.(idx)
           in
           let g_start =
-            Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+            Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx)
           in
           let lhs = Array.sub cur_lh ~pos:0 ~len:g_start in
           let g_chunk = Array.sub cur_gv ~pos:g_start ~len:n_iters in
@@ -1001,21 +1001,21 @@ let run_internal_compute_state ~workdir ~n =
             Array.sub cur_lh ~pos:rhs_start
               ~len:(Array.length cur_lh - rhs_start)
           in
-          { Proof_conversion.Groth16_requests.empty_witness with
+          { Proof_conversion.Groth16.Requests.empty_witness with
             accumulator = Some cur_acc
           ; g_chunk = Some g_chunk
           ; lhs_hashes = Some lhs
           ; rhs_hashes = Some rhs
           }
         else if n = 13 then
-          { Proof_conversion.Groth16_requests.empty_witness with
+          { Proof_conversion.Groth16.Requests.empty_witness with
             accumulator = Some cur_acc
           ; lhs_hashes = Some (Array.sub cur_lh ~pos:0 ~len:(n_total - 1))
           ; final_g = Some cur_gv.(Array.length cur_gv - 1)
           }
         else if n = 14 then
           let n_pi = WT.num_public_inputs tracker in
-          { Proof_conversion.Groth16_requests.empty_witness with
+          { Proof_conversion.Groth16.Requests.empty_witness with
             public_inputs =
               Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
           }
@@ -1023,24 +1023,24 @@ let run_internal_compute_state ~workdir ~n =
           let n_pi = WT.num_public_inputs tracker in
           let pi = WT.get_pi tracker in
           let pa = WT.get_partial_ic_acc tracker in
-          let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+          let g1c (p : WT.G1.t) : Proof_conversion.Bn254.G1.Constant.t =
             { x = p.x; y = p.y }
           in
-          { Proof_conversion.Groth16_requests.empty_witness with
+          { Proof_conversion.Groth16.Requests.empty_witness with
             public_inputs =
               Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
           ; pi_point = Some (g1c pi)
           ; partial_ic_acc = Some (g1c pa)
           }
       in
-      let handler = Proof_conversion.Groth16_requests.handler witness in
+      let handler = Proof_conversion.Groth16.Requests.handler witness in
       let result_hash = ref cur_hash in
       let result_acc = ref cur_acc in
       let result_lh = ref cur_lh in
       let result_gv = ref cur_gv in
       ( if n <= 12 then (
         let body =
-          Proof_conversion.Circuits.build_circuit_body_with_acc ~vk:vk_const
+          Proof_conversion.Groth16.Circuits.build_circuit_body_with_acc ~vk:vk_const
             ~circuit_index:n
         in
         let res_gv = ref [||] in
@@ -1052,7 +1052,7 @@ let run_internal_compute_state ~workdir ~n =
                 Step.as_prover (fun () ->
                     result_hash := Step.As_prover.read_var output_hash ;
                     result_acc :=
-                      Step.As_prover.read Proof_conversion.Accumulator.typ
+                      Step.As_prover.read Proof_conversion.Groth16.Accumulator.typ
                         acc_var ;
                     result_lh :=
                       Step.As_prover.read
@@ -1060,7 +1060,7 @@ let run_internal_compute_state ~workdir ~n =
                         lh_var ;
                     res_gv :=
                       Array.map gv_arr ~f:(fun g ->
-                          Step.As_prover.read Proof_conversion.Fp12.typ g ) ) )
+                          Step.As_prover.read Proof_conversion.Bn254.Fp12.typ g ) ) )
               handler ) ;
         if n <= 6 then (
           result_lh := !result_lh ;
@@ -1068,7 +1068,7 @@ let run_internal_compute_state ~workdir ~n =
         else result_gv := cur_gv )
       else
         let body =
-          Proof_conversion.Circuits.build_circuit_body ~vk:vk_const
+          Proof_conversion.Groth16.Circuits.build_circuit_body ~vk:vk_const
             ~circuit_index:n
         in
         Step.run_unchecked (fun () ->
@@ -1109,19 +1109,19 @@ let run_internal_prove_zkp ~workdir ~n =
           ~vk_base64:vk_b64 ~vk_hash
       in
       let aux_path = Filename.concat workdir "aux_witness.json" in
-      let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
+      let ate_loop_len = Proof_conversion.Plonk.Kzg_accumulator.ate_loop_len in
       if n <= 11 then (
         (* PLONK verification circuits 0-11: Plonk_accumulator.
            State was already pre-computed by generate-witness; only need
            to compile, prove, and export the proof + VK. *)
         let acc = W.read_plonk_state ~workdir ~n:prev in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             plonk_acc = Some acc
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+          Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1135,18 +1135,18 @@ let run_internal_prove_zkp ~workdir ~n =
             Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
         in
         let c_fp12 =
-          Proof_conversion.Proof_json.fp12_of_json
+          Proof_conversion.Groth16.Proof_json.fp12_of_json
             (Yojson.Safe.Util.member "c" aux_json)
         in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             plonk_acc = Some acc
           ; shift_power = Some shift_power
           ; c_fp12 = Some c_fp12
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+          Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~n:12 ~input_hash ~witness:w
         in
         (* KZG state was already pre-computed by generate-witness. *)
@@ -1158,14 +1158,14 @@ let run_internal_prove_zkp ~workdir ~n =
         let kzg, lines_hashes, _g_values_prev =
           W.read_plonk_kzg_state ~workdir ~n:prev
         in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             kzg_acc = Some kzg
           ; lines_hashes = Some lines_hashes
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+          Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1194,15 +1194,15 @@ let run_internal_prove_zkp ~workdir ~n =
           Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
         in
         let flat_hashes = Array.append lhs_h rhs_h in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             kzg_acc = Some kzg
           ; g_chunk = Some g_chunk
           ; flat_hashes = Some flat_hashes
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+          Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~n ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1217,15 +1217,15 @@ let run_internal_prove_zkp ~workdir ~n =
           Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1)
         in
         let g_chunk = [| g_values.(ate_loop_len - 1) |] in
-        let w : Proof_conversion.Plonk_requests.witness =
-          { Proof_conversion.Plonk_requests.empty_witness with
+        let w : Proof_conversion.Plonk.Requests.witness =
+          { Proof_conversion.Plonk.Requests.empty_witness with
             kzg_acc = Some kzg
           ; lhs_hashes = Some lhs_hashes
           ; g_chunk = Some g_chunk
           }
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Plonk_pickles_rules.compile_prove_and_export
+          Proof_conversion.Plonk.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~n:23 ~input_hash ~witness:w
         in
         write_base_proof ~proof_out ~side_vk ;
@@ -1234,23 +1234,23 @@ let run_internal_prove_zkp ~workdir ~n =
         W.write_plonk_kzg_state ~workdir ~n ~kzg ~lines_hashes ~g_values )
   | W.Groth16 _ ->
       let vk_path = Filename.concat workdir "vk.json" in
-      let vk = Proof_conversion.Proof_json.load_vk vk_path in
-      let vk_const = Proof_conversion.Vk_constants.create vk in
+      let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
+      let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
       let proof_path = Filename.concat workdir "proof.json" in
-      let proof = Proof_conversion.Proof_json.load_proof proof_path in
+      let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
       let aux =
-        Proof_conversion.Proof_json.load_aux_witness
+        Proof_conversion.Groth16.Proof_json.load_aux_witness
           (Filename.concat workdir "aux_witness.json")
       in
-      let module WT = Proof_conversion.Witness_tracker in
+      let module WT = Proof_conversion.Groth16.Witness_tracker in
       let tracker = WT.create ~proof ~vk ~aux in
-      Proof_conversion.Circuit_config.set_tracker tracker ;
+      Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
       let acc, line_hashes, g_values = W.read_groth16_state ~workdir ~n:prev in
       let b_lines = WT.get_all_b_lines tracker in
       if n <= 6 then (
         (* Ate loop circuit *)
-        let witness : Proof_conversion.Groth16_requests.witness =
-          { Proof_conversion.Groth16_requests.empty_witness with
+        let witness : Proof_conversion.Groth16.Requests.witness =
+          { Proof_conversion.Groth16.Requests.empty_witness with
             accumulator = Some acc
           ; line_hashes = Some line_hashes
           ; b_lines =
@@ -1260,7 +1260,7 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, acc_after, lh_after, gv_after, proof_out, side_vk =
-          Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+          Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
             ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -1284,10 +1284,10 @@ let run_internal_prove_zkp ~workdir ~n =
         (* F-update circuit *)
         let idx = n - 7 in
         let n_iters =
-          Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+          Proof_conversion.Groth16.Fupdate_circuit.iterations_per_circuit.(idx)
         in
         let g_start =
-          Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+          Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx)
         in
         let all_lh = line_hashes in
         let lhs = Array.sub all_lh ~pos:0 ~len:g_start in
@@ -1296,8 +1296,8 @@ let run_internal_prove_zkp ~workdir ~n =
         let rhs =
           Array.sub all_lh ~pos:rhs_start ~len:(Array.length all_lh - rhs_start)
         in
-        let witness : Proof_conversion.Groth16_requests.witness =
-          { Proof_conversion.Groth16_requests.empty_witness with
+        let witness : Proof_conversion.Groth16.Requests.witness =
+          { Proof_conversion.Groth16.Requests.empty_witness with
             accumulator = Some acc
           ; g_chunk = Some g_chunk
           ; lhs_hashes = Some lhs
@@ -1305,7 +1305,7 @@ let run_internal_prove_zkp ~workdir ~n =
           }
         in
         let output_hash, acc_after, _lh, _gv, proof_out, side_vk =
-          Proof_conversion.Pickles_rules.compile_prove_and_export_with_acc
+          Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export_with_acc
             ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -1327,13 +1327,13 @@ let run_internal_prove_zkp ~workdir ~n =
       else
         (* Circuits 13-15 *)
         let n_total =
-          Array.length Proof_conversion.Bn254_params.ate_loop_count
+          Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count
         in
-        let witness : Proof_conversion.Groth16_requests.witness =
+        let witness : Proof_conversion.Groth16.Requests.witness =
           match n with
           | 13 ->
               let lhs_13 = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
-              { Proof_conversion.Groth16_requests.empty_witness with
+              { Proof_conversion.Groth16.Requests.empty_witness with
                 accumulator = Some acc
               ; lhs_hashes = Some lhs_13
               ; final_g = Some g_values.(Array.length g_values - 1)
@@ -1343,7 +1343,7 @@ let run_internal_prove_zkp ~workdir ~n =
               let pis =
                 Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i)
               in
-              { Proof_conversion.Groth16_requests.empty_witness with
+              { Proof_conversion.Groth16.Requests.empty_witness with
                 public_inputs = Some pis
               }
           | 15 ->
@@ -1353,19 +1353,19 @@ let run_internal_prove_zkp ~workdir ~n =
               in
               let pi = WT.get_pi tracker in
               let partial_acc = WT.get_partial_ic_acc tracker in
-              let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+              let g1c (p : WT.G1.t) : Proof_conversion.Bn254.G1.Constant.t =
                 { x = p.x; y = p.y }
               in
-              { Proof_conversion.Groth16_requests.empty_witness with
+              { Proof_conversion.Groth16.Requests.empty_witness with
                 public_inputs = Some pis
               ; pi_point = Some (g1c pi)
               ; partial_ic_acc = Some (g1c partial_acc)
               }
           | _ ->
-              Proof_conversion.Groth16_requests.empty_witness
+              Proof_conversion.Groth16.Requests.empty_witness
         in
         let output_hash, proof_out, side_vk =
-          Proof_conversion.Pickles_rules.compile_prove_and_export
+          Proof_conversion.Groth16.Pickles_rules.compile_prove_and_export
             ~skip_verify:true ~vk:vk_const ~n ~input_hash ~witness
         in
         let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -1851,11 +1851,11 @@ let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
       ~path:(W.vk_path workdir ~layer:0 ~index:n)
       ~vk_base64:vk_b64 ~vk_hash
   in
-  let ate_loop_len = Proof_conversion.Kzg_accumulator.ate_loop_len in
-  let w : Proof_conversion.Plonk_requests.witness =
+  let ate_loop_len = Proof_conversion.Plonk.Kzg_accumulator.ate_loop_len in
+  let w : Proof_conversion.Plonk.Requests.witness =
     if n <= 11 then
       let acc = W.read_plonk_state ~workdir ~n:prev in
-      { Proof_conversion.Plonk_requests.empty_witness with
+      { Proof_conversion.Plonk.Requests.empty_witness with
         plonk_acc = Some acc
       }
     else if n = 12 then
@@ -1867,17 +1867,17 @@ let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
           Yojson.Safe.Util.(member "shift_power" aux_json |> to_string)
       in
       let c_fp12 =
-        Proof_conversion.Proof_json.fp12_of_json
+        Proof_conversion.Groth16.Proof_json.fp12_of_json
           (Yojson.Safe.Util.member "c" aux_json)
       in
-      { Proof_conversion.Plonk_requests.empty_witness with
+      { Proof_conversion.Plonk.Requests.empty_witness with
         plonk_acc = Some acc
       ; shift_power = Some shift_power
       ; c_fp12 = Some c_fp12
       }
     else if n <= 16 then
       let kzg, lines_hashes, _gv = W.read_plonk_kzg_state ~workdir ~n:prev in
-      { Proof_conversion.Plonk_requests.empty_witness with
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some kzg
       ; lines_hashes = Some lines_hashes
       }
@@ -1902,7 +1902,7 @@ let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
       let rhs_h =
         Array.sub lines_hashes ~pos:rhs_start ~len:(ate_loop_len - rhs_start)
       in
-      { Proof_conversion.Plonk_requests.empty_witness with
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some kzg
       ; g_chunk = Some g_chunk
       ; flat_hashes = Some (Array.append lhs_h rhs_h)
@@ -1914,14 +1914,14 @@ let do_prove_zkp_plonk ~provers ~workdir ~n ~skip_verify =
       in
       let lhs_hashes = Array.sub lines_hashes ~pos:0 ~len:(ate_loop_len - 1) in
       let g_chunk = [| g_values.(ate_loop_len - 1) |] in
-      { Proof_conversion.Plonk_requests.empty_witness with
+      { Proof_conversion.Plonk.Requests.empty_witness with
         kzg_acc = Some kzg
       ; lhs_hashes = Some lhs_hashes
       ; g_chunk = Some g_chunk
       } )
   in
   let output_hash, proof_out =
-    Proof_conversion.Plonk_pickles_rules.prove_with_compiled ~n ~prover
+    Proof_conversion.Plonk.Pickles_rules.prove_with_compiled ~n ~prover
       ~proof_module ~skip_verify ~input_hash ~witness:w
   in
   write_base_proof ~proof_out ;
@@ -1936,22 +1936,22 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   let prev = n - 1 in
   let input_hash = W.read_hash ~workdir ~n:prev in
   let vk_path = Filename.concat workdir "vk.json" in
-  let vk = Proof_conversion.Proof_json.load_vk vk_path in
+  let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
   let proof_path = Filename.concat workdir "proof.json" in
-  let proof = Proof_conversion.Proof_json.load_proof proof_path in
+  let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
   let aux =
-    Proof_conversion.Proof_json.load_aux_witness
+    Proof_conversion.Groth16.Proof_json.load_aux_witness
       (Filename.concat workdir "aux_witness.json")
   in
-  let module WT = Proof_conversion.Witness_tracker in
+  let module WT = Proof_conversion.Groth16.Witness_tracker in
   let tracker = WT.create ~proof ~vk ~aux in
-  Proof_conversion.Circuit_config.set_tracker tracker ;
+  Proof_conversion.Groth16.Circuit_config.set_tracker tracker ;
   let acc, line_hashes, g_values = W.read_groth16_state ~workdir ~n:prev in
   let b_lines = WT.get_all_b_lines tracker in
-  let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
-  let w : Proof_conversion.Groth16_requests.witness =
+  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
+  let w : Proof_conversion.Groth16.Requests.witness =
     if n <= 6 then
-      { Proof_conversion.Groth16_requests.empty_witness with
+      { Proof_conversion.Groth16.Requests.empty_witness with
         accumulator = Some acc
       ; line_hashes = Some line_hashes
       ; b_lines =
@@ -1961,10 +1961,10 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
     else if n <= 12 then
       let idx = n - 7 in
       let n_iters =
-        Proof_conversion.Fupdate_circuit.iterations_per_circuit.(idx)
+        Proof_conversion.Groth16.Fupdate_circuit.iterations_per_circuit.(idx)
       in
       let g_start =
-        Proof_conversion.Fupdate_circuit.g_start_per_circuit.(idx)
+        Proof_conversion.Groth16.Fupdate_circuit.g_start_per_circuit.(idx)
       in
       let lhs = Array.sub line_hashes ~pos:0 ~len:g_start in
       let g_chunk = Array.sub g_values ~pos:g_start ~len:n_iters in
@@ -1973,7 +1973,7 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
         Array.sub line_hashes ~pos:rhs_start
           ~len:(Array.length line_hashes - rhs_start)
       in
-      { Proof_conversion.Groth16_requests.empty_witness with
+      { Proof_conversion.Groth16.Requests.empty_witness with
         accumulator = Some acc
       ; g_chunk = Some g_chunk
       ; lhs_hashes = Some lhs
@@ -1981,14 +1981,14 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
       }
     else if n = 13 then
       let lhs_13 = Array.sub line_hashes ~pos:0 ~len:(n_total - 1) in
-      { Proof_conversion.Groth16_requests.empty_witness with
+      { Proof_conversion.Groth16.Requests.empty_witness with
         accumulator = Some acc
       ; lhs_hashes = Some lhs_13
       ; final_g = Some g_values.(Array.length g_values - 1)
       }
     else if n = 14 then
       let n_pi = WT.num_public_inputs tracker in
-      { Proof_conversion.Groth16_requests.empty_witness with
+      { Proof_conversion.Groth16.Requests.empty_witness with
         public_inputs =
           Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
       }
@@ -1996,10 +1996,10 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
       let n_pi = WT.num_public_inputs tracker in
       let pi = WT.get_pi tracker in
       let partial_acc = WT.get_partial_ic_acc tracker in
-      let g1c (p : WT.G1.t) : Proof_conversion.G1.Constant.t =
+      let g1c (p : WT.G1.t) : Proof_conversion.Bn254.G1.Constant.t =
         { x = p.x; y = p.y }
       in
-      { Proof_conversion.Groth16_requests.empty_witness with
+      { Proof_conversion.Groth16.Requests.empty_witness with
         public_inputs =
           Some (Array.init n_pi ~f:(fun i -> WT.get_public_input tracker i))
       ; pi_point = Some (g1c pi)
@@ -2007,7 +2007,7 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
       }
   in
   let output_hash, proof_out =
-    Proof_conversion.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
+    Proof_conversion.Groth16.Pickles_rules.prove_with_compiled ~n ~prover ~proof_module
       ~skip_verify ~input_hash ~witness:w
   in
   let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
@@ -2090,24 +2090,24 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             if should_compile_base n then (
               Printf.eprintf "  Compiling plonk circuit %d/%d...\n%!" (n + 1)
                 base_count ;
-              Some (Proof_conversion.Plonk_pickles_rules.compile_circuit ~n) )
+              Some (Proof_conversion.Plonk.Pickles_rules.compile_circuit ~n) )
             else (
               Printf.eprintf "  Skipping plonk circuit %d/%d (on-demand)\n%!"
                 (n + 1) base_count ;
               None ) )
     | "groth16" ->
         let vk =
-          Proof_conversion.Proof_json.load_vk
+          Proof_conversion.Groth16.Proof_json.load_vk
             (Option.value_exn vk_path
                ~message:"Groth16 prove-daemon requires --vk-path" )
         in
-        let vk_const = Proof_conversion.Vk_constants.create vk in
+        let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
         Array.init base_count ~f:(fun n ->
             if should_compile_base n then (
               Printf.eprintf "  Compiling groth16 circuit %d/%d...\n%!" (n + 1)
                 base_count ;
               Some
-                (Proof_conversion.Pickles_rules.compile_circuit ~vk:vk_const ~n)
+                (Proof_conversion.Groth16.Pickles_rules.compile_circuit ~vk:vk_const ~n)
               )
             else (
               Printf.eprintf "  Skipping groth16 circuit %d/%d (on-demand)\n%!"
@@ -2858,7 +2858,7 @@ let () =
       Printf.eprintf "Using cache directory: %s\n%!" dir ;
       let () = Key_cache_native.linkme in
       Core_unix.mkdir_p dir ;
-      Proof_conversion.Cache_config.set_cache_dir dir
+      Proof_conversion.Circuit_kit.Cache_config.set_cache_dir dir
   | None ->
       () ) ;
   let argv = Array.of_list argv in

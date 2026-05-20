@@ -12,9 +12,9 @@
 open Core_kernel
 module Step = Pickles.Impls.Step
 
-let compile_circuit ~(vk : Proof_conversion.Vk_constants.t) ~(n : int) : string
+let compile_circuit ~(vk : Proof_conversion.Groth16.Vk_constants.t) ~(n : int) : string
     =
-  let rule = Proof_conversion.Pickles_rules.make_rule ~vk ~n in
+  let rule = Proof_conversion.Groth16.Pickles_rules.make_rule ~vk ~n in
   let tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
@@ -47,8 +47,8 @@ let () =
         eprintf "Set GROTH16_VK_PATH to the verification key JSON\n" ;
         exit 1
   in
-  let vk = Proof_conversion.Proof_json.load_vk vk_path in
-  let vk_const = Proof_conversion.Vk_constants.create vk in
+  let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
+  let vk_const = Proof_conversion.Groth16.Vk_constants.create vk in
   let circuits =
     match Stdlib.Sys.getenv_opt "CIRCUIT" with
     | Some s ->

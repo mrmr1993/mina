@@ -2,20 +2,20 @@
 open Core_kernel
 
 module Step = Pickles.Impls.Step
-module WT = Proof_conversion.Witness_tracker
+module WT = Proof_conversion.Groth16.Witness_tracker
 module FF = Snarky_foreign_field.Foreign_field
 
 let () =
   let proof =
-    Proof_conversion.Proof_json.load_proof "/tmp/groth16_test/proof.json"
+    Proof_conversion.Groth16.Proof_json.load_proof "/tmp/groth16_test/proof.json"
   in
-  let vk = Proof_conversion.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
+  let vk = Proof_conversion.Groth16.Proof_json.load_vk "/tmp/groth16_test/vk.json" in
   let aux =
-    Proof_conversion.Proof_json.load_aux_witness
+    Proof_conversion.Groth16.Proof_json.load_aux_witness
       "/tmp/groth16_test/aux_witness.json"
   in
   let tracker = WT.create ~proof ~vk ~aux in
-  let n_total = Array.length Proof_conversion.Bn254_params.ate_loop_count in
+  let n_total = Array.length Proof_conversion.Bn254.Bn254_params.ate_loop_count in
   let initial_g_digest =
     let zeros = Array.create ~len:n_total Step.Field.Constant.zero in
     Random_oracle.hash zeros
@@ -27,8 +27,8 @@ let () =
         { g_digest = initial_g_digest
         ; t_point = initial_acc.proof.b
         ; f =
-            ( Proof_conversion.Fp6.Constant.zero
-            , Proof_conversion.Fp6.Constant.zero )
+            ( Proof_conversion.Bn254.Fp6.Constant.zero
+            , Proof_conversion.Bn254.Fp6.Constant.zero )
         }
     }
   in
@@ -36,7 +36,7 @@ let () =
   let fields =
     Step.run_and_check_exn (fun () ->
         let acc =
-          Step.exists Proof_conversion.Accumulator.typ ~compute:(fun () ->
+          Step.exists Proof_conversion.Groth16.Accumulator.typ ~compute:(fun () ->
               initial_acc )
         in
         (* Extract all FpA fields from the accumulator *)
@@ -47,13 +47,13 @@ let () =
           in
           Queue.enqueue q l0 ; Queue.enqueue q l1 ; Queue.enqueue q l2
         in
-        let add_g1 (g : Proof_conversion.G1.Circuit.t) =
+        let add_g1 (g : Proof_conversion.Bn254.G1.Circuit.t) =
           add_fpa g.x ; add_fpa g.y
         in
-        let add_g2 (g : Proof_conversion.G2.Circuit.t) =
+        let add_g2 (g : Proof_conversion.Bn254.G2.Circuit.t) =
           add_fpa g.x.c0 ; add_fpa g.x.c1 ; add_fpa g.y.c0 ; add_fpa g.y.c1
         in
-        let add_fp12 (f : Proof_conversion.Fp12.Circuit.t) =
+        let add_fp12 (f : Proof_conversion.Bn254.Fp12.Circuit.t) =
           add_fpa f.c0.c0.c0 ;
           add_fpa f.c0.c0.c1 ;
           add_fpa f.c0.c1.c0 ;

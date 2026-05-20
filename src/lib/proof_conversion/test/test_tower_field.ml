@@ -1,7 +1,7 @@
 (** Test out-of-circuit tower field arithmetic correctness. *)
 
 open Core_kernel
-module WT = Proof_conversion.Witness_tracker
+module WT = Proof_conversion.Groth16.Witness_tracker
 
 let test_fp_arithmetic () =
   printf "Testing Fp arithmetic... %!" ;
@@ -124,10 +124,10 @@ let test_miller_loop () =
   if String.is_empty proof_path then printf "SKIPPED (set PROOF_JSON=path)\n"
   else
     let vk_path = Filename.dirname proof_path ^ "/vk.json" in
-    let proof = Proof_conversion.Proof_json.load_proof proof_path in
-    let vk = Proof_conversion.Proof_json.load_vk vk_path in
+    let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
+    let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
     let aux_path = Filename.dirname proof_path ^ "/aux_witness.json" in
-    let aux = Proof_conversion.Proof_json.load_aux_witness aux_path in
+    let aux = Proof_conversion.Groth16.Proof_json.load_aux_witness aux_path in
     let tracker = WT.create ~proof ~vk ~aux in
     (* Check that g_values were computed *)
     let g_vals = WT.get_g_values tracker in
@@ -152,10 +152,10 @@ let test_witness_tracker_creation () =
   if String.is_empty proof_path then printf "SKIPPED (set PROOF_JSON=path)\n"
   else
     let vk_path = Filename.dirname proof_path ^ "/vk.json" in
-    let proof = Proof_conversion.Proof_json.load_proof proof_path in
-    let vk = Proof_conversion.Proof_json.load_vk vk_path in
+    let proof = Proof_conversion.Groth16.Proof_json.load_proof proof_path in
+    let vk = Proof_conversion.Groth16.Proof_json.load_vk vk_path in
     let aux_path = Filename.dirname proof_path ^ "/aux_witness.json" in
-    let aux = Proof_conversion.Proof_json.load_aux_witness aux_path in
+    let aux = Proof_conversion.Groth16.Proof_json.load_aux_witness aux_path in
     let tracker = WT.create ~proof ~vk ~aux in
     printf "IC=%d PI=%d... " (WT.num_ic tracker) (WT.num_public_inputs tracker) ;
     let neg_a = WT.get_neg_a tracker in

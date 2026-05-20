@@ -92,7 +92,7 @@ let digest_circuit ~name ~step_dump =
   Digestif.SHA256.to_hex h
 
 let compile_plonk_circuit ~n =
-  let rule = Proof_conversion.Plonk_pickles_rules.make_rule ~n in
+  let rule = Proof_conversion.Plonk.Pickles_rules.make_rule ~n in
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
@@ -111,7 +111,7 @@ let compile_plonk_circuit ~n =
   ()
 
 let compile_groth16_circuit ~vk:vk_const ~n =
-  let rule = Proof_conversion.Pickles_rules.make_rule ~vk:vk_const ~n in
+  let rule = Proof_conversion.Groth16.Pickles_rules.make_rule ~vk:vk_const ~n in
   let _tag, _cache, (module Proof), _provers =
     Pickles.compile_promise
       ~public_input:
@@ -159,7 +159,7 @@ let () =
     entries := (circuit_name, `String digest) :: !entries
   in
   (* PLONK base circuits *)
-  for n = 0 to Proof_conversion.Plonk_circuits.num_circuits - 1 do
+  for n = 0 to Proof_conversion.Plonk.Circuits.num_circuits - 1 do
     log_and_digest
       ~circuit_name:(sprintf "plonk/zkp%d" n)
       ~pickles_name:(sprintf "plonk-zkp%d" n)
@@ -172,10 +172,10 @@ let () =
     ~compile:(fun () -> compile_compressor `Node) ;
   (* Groth16 base circuits *)
   let vk_const =
-    let vk = Proof_conversion.Proof_json.load_vk groth16_vk_path in
-    Proof_conversion.Vk_constants.create vk
+    let vk = Proof_conversion.Groth16.Proof_json.load_vk groth16_vk_path in
+    Proof_conversion.Groth16.Vk_constants.create vk
   in
-  for n = 0 to Proof_conversion.Circuits.num_circuits - 1 do
+  for n = 0 to Proof_conversion.Groth16.Circuits.num_circuits - 1 do
     log_and_digest
       ~circuit_name:(sprintf "groth16/zkp%d" n)
       ~pickles_name:(sprintf "groth16-zkp%d" n)
