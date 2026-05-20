@@ -7,6 +7,7 @@
 *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 module WT = Witness_tracker
 

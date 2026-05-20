@@ -4,6 +4,7 @@
     enabling independent process execution and future parallelism. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module BI = Bignum_bigint
 module Step = Pickles.Impls.Step
 

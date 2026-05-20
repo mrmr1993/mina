@@ -7,6 +7,8 @@
     Reference: nori-proof-conversion/src/plonk/recursion/prove_zkps.ts *)
 
 open Snarky_backendless.Request
+open Proof_conversion_bn254
+
 module Step = Pickles.Impls.Step
 
 (** Request for the PLONK accumulator (zkp0-11). *)

@@ -8,7 +8,7 @@ open Core_kernel
 (** Re-export key modules for external access. *)
 module Witness_tracker = Witness_tracker
 
-module Bn254_params = Bn254_params
+module Bn254_params = Proof_conversion_bn254.Bn254_params
 module Proof_json = Proof_json
 module Vk_constants = Vk_constants
 module Circuit_info = Circuit_info
@@ -23,10 +23,10 @@ module Circuit_utils = Proof_conversion_circuit_kit.Circuit_utils
 module Circuits = Circuits
 module Kzg_accumulator = Kzg_accumulator
 module Tree_compressor = Proof_conversion_compressor.Tree_compressor
-module G1 = G1
-module G2 = G2
-module Fp6 = Fp6
-module Fp12 = Fp12
+module G1 = Proof_conversion_bn254.G1
+module G2 = Proof_conversion_bn254.G2
+module Fp6 = Proof_conversion_bn254.Fp6
+module Fp12 = Proof_conversion_bn254.Fp12
 module Circuit_config = Circuit_config
 module Accumulator = Accumulator
 module Ate_circuit = Ate_circuit

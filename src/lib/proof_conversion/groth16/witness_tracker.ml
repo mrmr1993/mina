@@ -4,6 +4,7 @@
     circuits. Operates on pure bignum arithmetic (no circuit constraints). *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module BI = Bignum_bigint
 
 let p = Bn254_params.p

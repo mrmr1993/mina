@@ -5,6 +5,8 @@
     pattern-matches on these request constructors. *)
 
 open Snarky_backendless.Request
+open Proof_conversion_bn254
+
 module Step = Pickles.Impls.Step
 
 (** Request for the Groth16 accumulator. *)

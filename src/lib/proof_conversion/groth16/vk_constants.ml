@@ -9,6 +9,7 @@
     plus 2 frobenius lines at the end. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module WT = Witness_tracker
 
 type t =

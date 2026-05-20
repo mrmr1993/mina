@@ -4,6 +4,7 @@
     string format used by the raw FFI in proof_conversion_pairing_utils. *)
 
 open Core_kernel
+open Proof_conversion_bn254
 module BI = Bignum_bigint
 module Raw = Proof_conversion_pairing_utils.Pairing_utils_stubs
 

@@ -7,6 +7,7 @@
     The chain: zkp0 output → zkp1 input → ... → zkp15 output *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 module WT = Witness_tracker

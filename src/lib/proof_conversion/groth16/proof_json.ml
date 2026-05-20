@@ -4,6 +4,7 @@
     G2 points as {x_c0, x_c1, y_c0, y_c1}. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module BI = Bignum_bigint
 
 (** Re-export constant types for witness_tracker access. *)

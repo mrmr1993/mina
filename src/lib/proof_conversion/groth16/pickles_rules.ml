@@ -5,6 +5,7 @@
     The hash is a Poseidon digest of the accumulator state. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
 

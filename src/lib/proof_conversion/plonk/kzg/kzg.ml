@@ -13,6 +13,7 @@
     Reference: nori-proof-conversion/src/kzg/ *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module FF = Snarky_foreign_field.Foreign_field
 
 (** KZG proof accumulator state. *)

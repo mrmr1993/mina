@@ -6,6 +6,7 @@
     chain it to the next circuit without re-computing witnesses. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 open Proof_conversion_circuit_kit
 module Step = Pickles.Impls.Step
 

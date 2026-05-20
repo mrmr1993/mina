@@ -5,6 +5,7 @@
     via the PIOP and KZG pairing arguments. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module FF = Snarky_foreign_field.Foreign_field
 
 (** Parsed PLONK proof (27 uint256 values decoded from ABI encoding). *)

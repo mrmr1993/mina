@@ -6,6 +6,7 @@
     Reference: nori-proof-conversion/src/plonk/proof.ts *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module FF = Snarky_foreign_field.Foreign_field
 module Step = Pickles.Impls.Step
 

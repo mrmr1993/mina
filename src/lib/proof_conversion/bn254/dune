@@ -7,7 +7,6 @@
 
 (library
  (name proof_conversion_bn254)
- (wrapped false)
  (libraries
   core_kernel
   bignum_bigint

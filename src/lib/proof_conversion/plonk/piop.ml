@@ -9,6 +9,7 @@
     Reference: nori-proof-conversion/src/plonk/piop/plonk_utils.ts *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 

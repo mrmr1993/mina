@@ -5,6 +5,7 @@
     accumulator to produce the public output. *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 module FF = Snarky_foreign_field.Foreign_field
 module Sponge = Pickles.Step_main_inputs.Sponge

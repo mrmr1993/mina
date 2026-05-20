@@ -9,6 +9,7 @@
 *)
 
 open! Core_kernel
+open Proof_conversion_bn254
 module Step = Pickles.Impls.Step
 
 (** Fixed array size = ATE_LOOP_COUNT length. *)
