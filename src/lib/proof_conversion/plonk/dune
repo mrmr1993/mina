@@ -1,0 +1,32 @@
+;; PLONK proof-conversion: 24 base circuits (zkp0-23) that progressively
+;; verify a non-native PLONK proof, plus the transcript (SHA-256 / Fiat-
+;; Shamir) and KZG accumulator helpers consumed by them.
+;;
+;; Depends on [groth16] for the shared accumulator-hashing primitives
+;; ([Accumulator], [Accumulator_hash], [Witness_tracker]) that both
+;; proof systems reuse.
+
+(include_subdirs unqualified)
+
+(library
+ (name proof_conversion_plonk)
+ (wrapped false)
+ (libraries
+  core_kernel
+  bignum_bigint
+  digestif.ocaml
+  kimchi_pasta
+  pickles
+  pickles_types
+  promise
+  random_oracle
+  snarky.backendless
+  snarky_foreign_field
+  yojson
+  proof_conversion_bn254
+  proof_conversion_circuit_kit
+  proof_conversion_groth16)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
