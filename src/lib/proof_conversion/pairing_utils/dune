@@ -1,0 +1,20 @@
+;; Thin OCaml-side wrapper over the Rust pairing-utils FFI in
+;; [src/lib/proof_conversion_pairing_utils]. Converts between
+;; OCaml-native types ([Fp12], [G1], [G2], [Proof_json.t]) and the
+;; pipe-delimited string format the raw FFI uses.
+
+(include_subdirs no)
+
+(library
+ (name proof_conversion_pairing_utils_bridge)
+ (wrapped false)
+ (libraries
+  core_kernel
+  bignum_bigint
+  proof_conversion_pairing_utils
+  proof_conversion_bn254
+  proof_conversion_groth16)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))

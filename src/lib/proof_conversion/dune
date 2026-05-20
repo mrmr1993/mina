@@ -22,7 +22,8 @@
   proof_conversion_circuit_kit
   proof_conversion_bn254
   proof_conversion_compressor
-  proof_conversion_groth16)
+  proof_conversion_groth16
+  proof_conversion_pairing_utils_bridge)
  (instrumentation
   (backend bisect_ppx))
  (preprocess
