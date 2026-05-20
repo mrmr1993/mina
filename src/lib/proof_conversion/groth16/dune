@@ -1,0 +1,27 @@
+;; Groth16 proof-conversion: the recursive-Pickles circuit, witness
+;; tracker, VK constants, and JSON parsing for verifying a Risc0/SP1
+;; Groth16 proof inside Mina's proof-system.
+
+(include_subdirs no)
+
+(library
+ (name proof_conversion_groth16)
+ (wrapped false)
+ (libraries
+  core_kernel
+  bignum_bigint
+  digestif.ocaml
+  kimchi_pasta
+  pickles
+  pickles_types
+  promise
+  random_oracle
+  snarky.backendless
+  snarky_foreign_field
+  yojson
+  proof_conversion_bn254
+  proof_conversion_circuit_kit)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
