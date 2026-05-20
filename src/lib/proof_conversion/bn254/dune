@@ -1,0 +1,21 @@
+;; BN254 curve primitives: tower-field arithmetic (Fp2/Fp6/Fp12),
+;; elliptic-curve points (G1/G2), and pairing-line types.
+;;
+;; Depends on [circuit_kit] for the Boolean helpers used inside g1.
+
+(include_subdirs unqualified)
+
+(library
+ (name proof_conversion_bn254)
+ (wrapped false)
+ (libraries
+  core_kernel
+  bignum_bigint
+  pickles
+  snarky.backendless
+  snarky_foreign_field
+  proof_conversion_circuit_kit)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
