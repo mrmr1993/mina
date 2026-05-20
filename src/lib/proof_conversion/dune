@@ -24,7 +24,8 @@
   proof_conversion_compressor
   proof_conversion_groth16
   proof_conversion_pairing_utils_bridge
-  proof_conversion_plonk)
+  proof_conversion_plonk
+  proof_conversion_workdir)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

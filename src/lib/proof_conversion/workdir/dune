@@ -1,0 +1,25 @@
+;; Working-directory orchestration for the staged daemonised converter:
+;; per-stage JSON read/write of intermediate accumulator state, proof
+;; bundles and verification keys.
+;;
+;; Top of the dependency stack — depends on bn254/groth16/plonk so it
+;; can de/serialise their respective per-stage state types.
+
+(include_subdirs no)
+
+(library
+ (name proof_conversion_workdir)
+ (wrapped false)
+ (libraries
+  core_kernel
+  bignum_bigint
+  yojson
+  pickles
+  promise
+  proof_conversion_bn254
+  proof_conversion_groth16
+  proof_conversion_plonk)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version ppx_jane)))
