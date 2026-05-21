@@ -300,9 +300,10 @@ let of_constant (c : t_const) : t = Step.constant typ c
 let witness () : t = Step.exists typ ~compute:(fun () -> default_const)
 
 (** String-leaved, named mirror of {!t_const} for transfer across a process
-    boundary. Foreign-field elements and native field elements become decimal
-    strings; the [Fp12] components are kept as {!Fp12.Constant.t}, itself a
-    transparent tuple of bigints. The field layout mirrors {!t_const}. *)
+    boundary. Every leaf is a decimal string; the [Fp12] components are
+    flattened to 12-element arrays of component strings — [c0] then [c1],
+    each [Fp6] as [c0; c1; c2], each [Fp2] as [c0; c1]. The field layout
+    mirrors {!t_const}. *)
 module Wire = struct
   type proof =
     { a_x : string
@@ -310,16 +311,79 @@ module Wire = struct
     ; neg_b_x : string
     ; neg_b_y : string
     ; shift_power : string
-    ; c : Fp12.Constant.t
-    ; c_inv : Fp12.Constant.t
+    ; c : string array
+    ; c_inv : string array
     ; pi0 : string
     ; pi1 : string
     }
 
-  type state = { f : Fp12.Constant.t; lines_hashes_digest : string }
+  type state = { f : string array; lines_hashes_digest : string }
 
   type t = { proof : proof; state : state }
+
+  let to_json (w : t) : Yojson.Safe.t =
+    let s x : Yojson.Safe.t = `String x in
+    let sa a : Yojson.Safe.t =
+      `List
+        (Array.to_list (Array.map a ~f:(fun x : Yojson.Safe.t -> `String x)))
+    in
+    `Assoc
+      [ ( "proof"
+        , `Assoc
+            [ ("a_x", s w.proof.a_x)
+            ; ("a_y", s w.proof.a_y)
+            ; ("neg_b_x", s w.proof.neg_b_x)
+            ; ("neg_b_y", s w.proof.neg_b_y)
+            ; ("shift_power", s w.proof.shift_power)
+            ; ("c", sa w.proof.c)
+            ; ("c_inv", sa w.proof.c_inv)
+            ; ("pi0", s w.proof.pi0)
+            ; ("pi1", s w.proof.pi1)
+            ] )
+      ; ( "state"
+        , `Assoc
+            [ ("f", sa w.state.f)
+            ; ("lines_hashes_digest", s w.state.lines_hashes_digest)
+            ] )
+      ]
+
+  let of_json (j : Yojson.Safe.t) : t =
+    let open Yojson.Safe.Util in
+    let sa j = to_list j |> List.map ~f:to_string |> Array.of_list in
+    let proof = member "proof" j in
+    let state = member "state" j in
+    let ps k = to_string (member k proof) in
+    { proof =
+        { a_x = ps "a_x"
+        ; a_y = ps "a_y"
+        ; neg_b_x = ps "neg_b_x"
+        ; neg_b_y = ps "neg_b_y"
+        ; shift_power = ps "shift_power"
+        ; c = sa (member "c" proof)
+        ; c_inv = sa (member "c_inv" proof)
+        ; pi0 = ps "pi0"
+        ; pi1 = ps "pi1"
+        }
+    ; state =
+        { f = sa (member "f" state)
+        ; lines_hashes_digest = to_string (member "lines_hashes_digest" state)
+        }
+    }
 end
+
+let fp12_to_strings (x : Fp12.Constant.t) : string array =
+  let c0, c1 = x in
+  let fp2 ((a, b) : Fp2.Constant.t) =
+    [ Bignum_bigint.to_string a; Bignum_bigint.to_string b ]
+  in
+  let fp6 ((d0, d1, d2) : Fp6.Constant.t) = fp2 d0 @ fp2 d1 @ fp2 d2 in
+  Array.of_list (fp6 c0 @ fp6 c1)
+
+let fp12_of_strings (s : string array) : Fp12.Constant.t =
+  let g i = Bignum_bigint.of_string s.(i) in
+  let fp2 i : Fp2.Constant.t = (g i, g (i + 1)) in
+  let fp6 i : Fp6.Constant.t = (fp2 i, fp2 (i + 2), fp2 (i + 4)) in
+  ((fp6 0, fp6 6) : Fp12.Constant.t)
 
 (** Reduce a KZG accumulator constant to its {!Wire.t} form. *)
 let to_wire (acc : t_const) : Wire.t =
@@ -331,13 +395,13 @@ let to_wire (acc : t_const) : Wire.t =
       ; neg_b_x = bi acc.proof.neg_b_x
       ; neg_b_y = bi acc.proof.neg_b_y
       ; shift_power = f acc.proof.shift_power
-      ; c = acc.proof.c
-      ; c_inv = acc.proof.c_inv
+      ; c = fp12_to_strings acc.proof.c
+      ; c_inv = fp12_to_strings acc.proof.c_inv
       ; pi0 = bi acc.proof.pi0
       ; pi1 = bi acc.proof.pi1
       }
   ; state =
-      { Wire.f = acc.state.f
+      { Wire.f = fp12_to_strings acc.state.f
       ; lines_hashes_digest = f acc.state.lines_hashes_digest
       }
   }
@@ -352,11 +416,13 @@ let of_wire (w : Wire.t) : t_const =
       ; neg_b_x = bi w.proof.neg_b_x
       ; neg_b_y = bi w.proof.neg_b_y
       ; shift_power = f w.proof.shift_power
-      ; c = w.proof.c
-      ; c_inv = w.proof.c_inv
+      ; c = fp12_of_strings w.proof.c
+      ; c_inv = fp12_of_strings w.proof.c_inv
       ; pi0 = bi w.proof.pi0
       ; pi1 = bi w.proof.pi1
       }
   ; state =
-      { f = w.state.f; lines_hashes_digest = f w.state.lines_hashes_digest }
+      { f = fp12_of_strings w.state.f
+      ; lines_hashes_digest = f w.state.lines_hashes_digest
+      }
   }

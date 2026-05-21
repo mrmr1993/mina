@@ -69,8 +69,8 @@ val of_constant : t_const -> t
 val witness : unit -> t
 
 (** String-leaved, named mirror of {!t_const} for transfer across a process
-    boundary. Foreign-field and native field elements become decimal strings;
-    the [Fp12] components are kept as {!Fp12.Constant.t}. The field layout
+    boundary. Every leaf is a decimal string; the [Fp12] components are
+    flattened to 12-element arrays of component strings. The field layout
     mirrors {!t_const}. *)
 module Wire : sig
   type proof =
@@ -79,15 +79,21 @@ module Wire : sig
     ; neg_b_x : string
     ; neg_b_y : string
     ; shift_power : string
-    ; c : Fp12.Constant.t
-    ; c_inv : Fp12.Constant.t
+    ; c : string array
+    ; c_inv : string array
     ; pi0 : string
     ; pi1 : string
     }
 
-  type state = { f : Fp12.Constant.t; lines_hashes_digest : string }
+  type state = { f : string array; lines_hashes_digest : string }
 
   type t = { proof : proof; state : state }
+
+  (** JSON encoding of the wire form. *)
+  val to_json : t -> Yojson.Safe.t
+
+  (** Decode the wire form from JSON. *)
+  val of_json : Yojson.Safe.t -> t
 end
 
 (** Reduce a KZG accumulator constant to its {!Wire.t} form. *)
