@@ -1698,13 +1698,49 @@ type dag_task =
   ; mutable status : task_status
   }
 
+(** A worker's advertised capability: which base circuits and compression
+    levels it has compiled (from its [.circuits] manifest). [serves_base]
+    answers whether base circuit [n] can be proved on this worker. *)
+type worker_cap =
+  { socket : string
+  ; serves_base : int -> bool
+  ; serves_layer1 : bool
+  ; serves_node : bool
+  }
+
+(** What a task needs from a worker, derived from its inner command. *)
+type task_req = Any_worker | Base_circuit of int | Compress_layer1 | Compress_node
+
+(** Derive the capability a task's inner command requires. Witness/state
+    tasks run on any worker; only proving and compression are circuit-bound. *)
+let task_requirement cmd =
+  match
+    String.split cmd ~on:' ' |> List.filter ~f:(Fn.non String.is_empty)
+  with
+  | "prove-zkp" :: _workdir :: n :: _ ->
+      Base_circuit (Int.of_string n)
+  | "compress" :: _workdir :: _base_count :: layer :: _ ->
+      if String.equal layer "1" then Compress_layer1 else Compress_node
+  | _ ->
+      Any_worker
+
+let worker_serves cap = function
+  | Any_worker ->
+      true
+  | Base_circuit n ->
+      cap.serves_base n
+  | Compress_layer1 ->
+      cap.serves_layer1
+  | Compress_node ->
+      cap.serves_node
+
 (** Run a DAG of tasks with bounded parallelism.
     When [~worker_dispatch] is provided, tasks are dispatched to workers
     from the pool.  Each task's [cmd] is the inner command (e.g.
-    "prove-zkp /tmp/w 3"); the scheduler wraps it with the
-    dispatch-to-worker invocation using whichever worker is next free.
+    "prove-zkp /tmp/w 3"); the scheduler wraps it with the dispatch-to-worker
+    invocation, choosing a free worker that has compiled the relevant circuit.
     Without [~worker_dispatch], tasks are forked as shell commands. *)
-let run_dag ~parallelism ?(worker_dispatch : string array option)
+let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
     (tasks : dag_task array) =
   let n = Array.length tasks in
   if n = 0 then ()
@@ -1719,11 +1755,12 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
         let self = Filename.quote Sys.argv.(0) in
         let next_worker = ref 0 in
         Array.iter tasks ~f:(fun t ->
-            let socket = workers.(!next_worker mod Array.length workers) in
+            let worker = workers.(!next_worker mod Array.length workers) in
             incr next_worker ;
             run_cmd
               (sprintf "%s internal dispatch-to-worker %s %s" self
-                 (Filename.quote socket) (Filename.quote t.cmd) ) ;
+                 (Filename.quote worker.socket)
+                 (Filename.quote t.cmd) ) ;
             t.status <- Done )
   else
     (* Parallel mode *)
@@ -1732,15 +1769,28 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
     in
     (* Worker pool: tracks which workers are free.
        Only used when worker_dispatch is Some. *)
-    let free_workers : string Queue.t = Queue.create () in
-    let pid_to_worker : (Pid.t, string) Hashtbl.t =
+    let free_workers : worker_cap list ref = ref [] in
+    let pid_to_worker : (Pid.t, worker_cap) Hashtbl.t =
       Hashtbl.create (module Pid) ~size:parallelism
     in
     ( match worker_dispatch with
     | Some workers ->
-        Array.iter workers ~f:(fun w -> Queue.enqueue free_workers w)
+        free_workers := Array.to_list workers
     | None ->
         () ) ;
+    (* Remove and return the first free worker that can serve [req], if any. *)
+    let take_free req =
+      let rec go acc = function
+        | [] ->
+            None
+        | w :: rest ->
+            if worker_serves w req then (
+              free_workers := List.rev_append acc rest ;
+              Some w )
+            else go (w :: acc) rest
+      in
+      go [] !free_workers
+    in
     let running = ref 0 in
     let completed = ref 0 in
     let failures = ref [] in
@@ -1752,20 +1802,16 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
       | _ ->
           false
     in
-    let start_task i =
-      let cmd, worker_used =
-        match worker_dispatch with
+    let start_task i worker_used =
+      let cmd =
+        match worker_used with
         | None ->
-            (tasks.(i).cmd, None)
-        | Some _ ->
-            let worker = Queue.dequeue_exn free_workers in
+            tasks.(i).cmd
+        | Some worker ->
             let self = Filename.quote Sys.argv.(0) in
-            let full_cmd =
-              sprintf "%s internal dispatch-to-worker %s %s" self
-                (Filename.quote worker)
-                (Filename.quote tasks.(i).cmd)
-            in
-            (full_cmd, Some worker)
+            sprintf "%s internal dispatch-to-worker %s %s" self
+              (Filename.quote worker.socket)
+              (Filename.quote tasks.(i).cmd)
       in
       Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n cmd ;
       match Core_unix.fork () with
@@ -1779,26 +1825,40 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
               Hashtbl.set pid_to_worker ~key:pid ~data:w ) ;
           incr running
     in
-    let can_start () =
-      match worker_dispatch with
-      | None ->
-          !running < parallelism
-      | Some _ ->
-          !running < parallelism && not (Queue.is_empty free_workers)
-    in
-    (* Fill slots with ready tasks, highest priority first.
-       Among equal-priority tasks, preserve index order. *)
+    (* Start the highest-priority ready task that a free worker can serve,
+       then repeat. With [worker_dispatch = None] there is no capability
+       constraint: any free slot runs the next-highest-priority ready task.
+       With workers, a ready task is only startable if some free worker has
+       compiled its circuit, so a blocked high-priority task does not stall
+       lower-priority tasks that a different shard can run. *)
     let fill_slots () =
-      let found = ref true in
-      while can_start () && !found do
+      let again = ref true in
+      while !again && !running < parallelism do
+        again := false ;
         let best = ref (-1) in
         let best_pri = ref Int.min_value in
         for i = 0 to n - 1 do
-          if is_ready i && tasks.(i).priority > !best_pri then (
-            best := i ;
-            best_pri := tasks.(i).priority )
+          if is_ready i && tasks.(i).priority > !best_pri then
+            let startable =
+              match worker_dispatch with
+              | None ->
+                  true
+              | Some _ ->
+                  List.exists !free_workers ~f:(fun w ->
+                      worker_serves w (task_requirement tasks.(i).cmd) )
+            in
+            if startable then (
+              best := i ;
+              best_pri := tasks.(i).priority )
         done ;
-        if !best >= 0 then start_task !best else found := false
+        if !best >= 0 then (
+          ( match worker_dispatch with
+          | None ->
+              start_task !best None
+          | Some _ ->
+              let w = take_free (task_requirement tasks.(!best).cmd) in
+              start_task !best w ) ;
+          again := true )
       done
     in
     fill_slots () ;
@@ -1812,7 +1872,7 @@ let run_dag ~parallelism ?(worker_dispatch : string array option)
           (* Return worker to free pool *)
           ( match Hashtbl.find_and_remove pid_to_worker pid with
           | Some w ->
-              Queue.enqueue free_workers w
+              free_workers := w :: !free_workers
           | None ->
               () ) ;
           decr running ;
@@ -2322,7 +2382,7 @@ let run_internal_dispatch_to_worker ~socket_path ~command =
     failwith (sprintf "dispatch-to-worker failed: %s" response)
 
 (** Discover worker sockets in a directory. *)
-let discover_workers ~socket_dir =
+let discover_workers ~base_count ~socket_dir =
   let entries = Stdlib.Sys.readdir socket_dir in
   let sockets =
     Array.filter entries ~f:(fun name ->
@@ -2330,7 +2390,24 @@ let discover_workers ~socket_dir =
         && not (String.is_suffix name ~suffix:".ready") )
   in
   Array.sort sockets ~compare:String.compare ;
-  Array.map sockets ~f:(fun name -> Filename.concat socket_dir name)
+  Array.map sockets ~f:(fun name ->
+      let socket = Filename.concat socket_dir name in
+      (* Read the worker's advertised circuit set; a missing manifest (e.g. an
+         older worker) is treated as "all" so it can serve anything. *)
+      let spec =
+        let manifest = socket ^ ".circuits" in
+        if Stdlib.Sys.file_exists manifest then
+          String.strip (In_channel.read_all manifest)
+        else "all"
+      in
+      let base_set, layer1, node = parse_circuits_spec ~base_count spec in
+      { socket
+      ; serves_base =
+          (fun n ->
+            match base_set with None -> true | Some s -> Hash_set.mem s n )
+      ; serves_layer1 = layer1
+      ; serves_node = node
+      } )
 
 (** Run a proof conversion using pre-started worker daemons.
     Same DAG structure as [run_parallel_pipeline] but dispatches to
@@ -2987,7 +3064,7 @@ let () =
               failwith "Missing --workers <socket-dir>"
         in
         let dir = find_workers (Array.to_list argv) in
-        discover_workers ~socket_dir:dir
+        discover_workers ~base_count:24 ~socket_dir:dir
       in
       run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"plonk"
         ~base_count:24 ~max_layer:5 ~input_path ~vk_path:None
@@ -3006,7 +3083,7 @@ let () =
               failwith "Missing --workers <socket-dir>"
         in
         let dir = find_workers (Array.to_list argv) in
-        discover_workers ~socket_dir:dir
+        discover_workers ~base_count:16 ~socket_dir:dir
       in
       run_daemonised_pipeline ~cache_dir ~worker_sockets ~system:"groth16"
         ~base_count:16 ~max_layer:4 ~input_path:proof_path ~vk_path:(Some vk_p)
