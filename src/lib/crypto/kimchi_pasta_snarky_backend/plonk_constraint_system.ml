@@ -1488,6 +1488,12 @@ end = struct
         Hashtbl.clear sys.equivalence_classes ;
         Hashtbl.clear sys.union_finds ;
 
+        (* [cached_constants] dedups constant materialisation while the circuit
+           is being built. Once finalized no further constraints are added, so
+           it is never read again, and unlike [rows_rev] / [internal_vars] it is
+           not part of the serialised circuit data. Drop it too. *)
+        Hashtbl.clear sys.cached_constants ;
+
         (* return the gates *)
         (rust_gates, fixed_lookup_tables, runtime_tables_cfg)
 
