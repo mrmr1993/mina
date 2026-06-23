@@ -2168,6 +2168,13 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
       None )
   in
   Printf.eprintf "Prove daemon: compilation finished.\n%!" ;
+  (* Advertise which circuits this worker can serve, so the dispatcher only
+     routes a prove/compress task to a worker that has compiled the relevant
+     circuit. Written before the readiness marker so a consumer that observes
+     [.ready] can rely on [.circuits] already being present. *)
+  Out_channel.write_all
+    (socket_path ^ ".circuits")
+    ~data:(Option.value circuits_spec ~default:"all") ;
   (* Write readiness marker *)
   Out_channel.write_all (socket_path ^ ".ready") ~data:"ready\n" ;
   (* Listen on socket *)
@@ -2285,6 +2292,7 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
   done ;
   Core_unix.close socket ;
   (try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> ()) ;
+  (try Stdlib.Sys.remove (socket_path ^ ".circuits") with _ -> ()) ;
   Printf.eprintf "Prove daemon: shutdown.\n%!"
 
 (** Send a command to a worker daemon via Unix socket.
@@ -2494,6 +2502,7 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
         (* Clean up stale socket/ready files *)
         (try Stdlib.Sys.remove socket_path with _ -> ()) ;
         (try Stdlib.Sys.remove (socket_path ^ ".ready") with _ -> ()) ;
+        (try Stdlib.Sys.remove (socket_path ^ ".circuits") with _ -> ()) ;
         match Core_unix.fork () with
         | `In_the_child ->
             run_internal_prove_daemon ~socket_path ~system ~vk_path
