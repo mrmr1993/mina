@@ -1480,6 +1480,14 @@ end = struct
         (* drop the gates, we don't need them anymore *)
         sys.gates <- Compiled (md5_digest, rust_gates) ;
 
+        (* The wiring has now been baked into the gates' [wired_to] fields, so
+           the permutation-construction bookkeeping is dead. These tables hold
+           one entry per wired cell and would otherwise be retained for the
+           whole life of the constraint system (e.g. by Pickles, which keeps the
+           system around for proving). Drop them. *)
+        Hashtbl.clear sys.equivalence_classes ;
+        Hashtbl.clear sys.union_finds ;
+
         (* return the gates *)
         (rust_gates, fixed_lookup_tables, runtime_tables_cfg)
 
