@@ -87,6 +87,12 @@ module Groth16_ser : sig
        * Fp12.Constant.t array
 end
 
+(** Write any OCaml value to a file using [Marshal]. *)
+val marshal_to_file : path:string -> 'a -> unit
+
+(** Read a marshalled value from a file. *)
+val marshal_from_file : path:string -> 'a
+
 (** Write Groth16 accumulator state as JSON. *)
 val write_groth16_state :
      workdir:string

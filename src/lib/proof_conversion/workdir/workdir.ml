@@ -186,6 +186,22 @@ end
 
 (* ---- PLONK accumulator serialization ---- *)
 
+(* ---- Generic Marshal-based serialization for complex types ---- *)
+
+(** Write any OCaml value to a file using Marshal.
+    Used for accumulator state where manual JSON serialization would be
+    fragile. Safe for inter-process communication within the same binary. *)
+let marshal_to_file ~path value =
+  let oc = Out_channel.create path in
+  Marshal.to_channel oc value [] ;
+  Out_channel.close oc
+
+(** Read a marshalled value from a file. *)
+let marshal_from_file ~path =
+  let ic = In_channel.create path in
+  let v = Marshal.from_channel ic in
+  In_channel.close ic ; v
+
 (* ---- Accumulator state read/write ---- *)
 
 (** Write Groth16 accumulator state as JSON. *)
@@ -205,15 +221,14 @@ let read_groth16_state ~workdir ~n :
 (** Write PLONK accumulator state. *)
 let write_plonk_state ~workdir ~n
     ~(acc : Proof_conversion_plonk.Accumulator.t_const) =
-  Yojson.Safe.to_file (acc_path workdir n)
-    (Proof_conversion_plonk.Accumulator.Wire.to_json
-       (Proof_conversion_plonk.Accumulator.to_wire acc) )
+  marshal_to_file ~path:(acc_path workdir n)
+    (Proof_conversion_plonk.Accumulator.to_wire acc)
 
 (** Read PLONK accumulator state. *)
 let read_plonk_state ~workdir ~n : Proof_conversion_plonk.Accumulator.t_const =
   Proof_conversion_plonk.Accumulator.of_wire
-    (Proof_conversion_plonk.Accumulator.Wire.of_json
-       (Yojson.Safe.from_file (acc_path workdir n)) )
+    ( marshal_from_file ~path:(acc_path workdir n)
+      : Proof_conversion_plonk.Accumulator.Wire.t )
 
 (** Write PLONK KZG accumulator state (for circuits 12+). *)
 let write_plonk_kzg_state ~workdir ~n ~(kzg : Kzg_accumulator.t_const)
@@ -221,24 +236,26 @@ let write_plonk_kzg_state ~workdir ~n ~(kzg : Kzg_accumulator.t_const)
     ~(g_values : Fp12.Constant.t array) =
   let j =
     `Assoc
-      [ ("kzg", Kzg_accumulator.Wire.to_json (Kzg_accumulator.to_wire kzg))
-      ; ( "lines_hashes"
+      [ ( "lines_hashes"
         , `List (Array.to_list (Array.map lines_hashes ~f:field_to_json)) )
       ; ("g_values", `List (Array.to_list (Array.map g_values ~f:fp12_to_json)))
       ]
   in
-  Yojson.Safe.to_file (acc_path workdir n) j
+  marshal_to_file ~path:(acc_path workdir n)
+    (Kzg_accumulator.to_wire kzg, Yojson.Safe.to_string j)
 
 (** Read PLONK KZG accumulator state. *)
 let read_plonk_kzg_state ~workdir ~n :
     Kzg_accumulator.t_const
     * Step.Field.Constant.t array
     * Fp12.Constant.t array =
-  let j = Yojson.Safe.from_file (acc_path workdir n) in
-  let open Yojson.Safe.Util in
-  let kzg =
-    Kzg_accumulator.of_wire (Kzg_accumulator.Wire.of_json (member "kzg" j))
+  let (kzg_wire, j_str) =
+    ( marshal_from_file ~path:(acc_path workdir n)
+      : Kzg_accumulator.Wire.t * string )
   in
+  let kzg = Kzg_accumulator.of_wire kzg_wire in
+  let j = Yojson.Safe.from_string j_str in
+  let open Yojson.Safe.Util in
   let lines_hashes =
     member "lines_hashes" j |> to_list |> List.to_array
     |> Array.map ~f:field_of_json
