@@ -2492,12 +2492,16 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
 
 (** Start N worker daemons. *)
 let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
-    ~skip_verify ~background =
+    ~skip_verify ~background ~start_index =
   Core_unix.mkdir_p socket_dir ;
+  (* The on-disk worker index, so several start-workers invocations can share
+     one socket directory (e.g. heterogeneous shards holding disjoint circuit
+     sets) without clobbering each other's sockets. *)
+  let widx i = start_index + i in
   let pids =
     Array.init count ~f:(fun i ->
         let socket_path =
-          Filename.concat socket_dir (sprintf "worker.%d.sock" i)
+          Filename.concat socket_dir (sprintf "worker.%d.sock" (widx i))
         in
         (* Clean up stale socket/ready files *)
         (try Stdlib.Sys.remove socket_path with _ -> ()) ;
@@ -2509,7 +2513,8 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
               ~circuits_spec ~skip_verify ;
             Stdlib.exit 0
         | `In_the_parent pid ->
-            Printf.eprintf "  Worker %d started (pid %d)\n%!" i (Pid.to_int pid) ;
+            Printf.eprintf "  Worker %d started (pid %d)\n%!" (widx i)
+              (Pid.to_int pid) ;
             pid )
   in
   (* Wait for all workers to be ready *)
@@ -2517,8 +2522,8 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
     Array.for_all
       (Array.init count ~f:(fun i ->
            Stdlib.Sys.file_exists
-             (Filename.concat socket_dir (sprintf "worker.%d.sock.ready" i)) )
-      )
+             (Filename.concat socket_dir
+                (sprintf "worker.%d.sock.ready" (widx i)) ) ) )
       ~f:Fn.id
   in
   Printf.eprintf "Waiting for %d workers to compile circuits...\n%!" count ;
@@ -2529,8 +2534,9 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
   if background then
     (* Print PIDs and exit *)
     Array.iteri pids ~f:(fun i pid ->
-        Printf.eprintf "  worker.%d: pid %d, socket %s\n%!" i (Pid.to_int pid)
-          (Filename.concat socket_dir (sprintf "worker.%d.sock" i)) )
+        Printf.eprintf "  worker.%d: pid %d, socket %s\n%!" (widx i)
+          (Pid.to_int pid)
+          (Filename.concat socket_dir (sprintf "worker.%d.sock" (widx i))) )
   else
     (* Foreground: wait for SIGINT, then shut down *)
     let interrupted = ref false in
@@ -2544,7 +2550,7 @@ let run_start_workers ~system ~count ~socket_dir ~vk_path ~circuits_spec
     Printf.eprintf "Shutting down workers...\n%!" ;
     Array.iteri
       (Array.init count ~f:(fun i ->
-           Filename.concat socket_dir (sprintf "worker.%d.sock" i) ) )
+           Filename.concat socket_dir (sprintf "worker.%d.sock" (widx i)) ) )
       ~f:(fun _i sp -> shutdown_compress_daemon ~socket_path:sp) ;
     Array.iter pids ~f:(fun pid ->
         try ignore (Core_unix.waitpid pid : Core.Unix.Exit_or_signal.t)
@@ -3006,32 +3012,37 @@ let () =
         ~base_count:16 ~max_layer:4 ~input_path:proof_path ~vk_path:(Some vk_p)
   | _ when Array.length argv >= 2 && String.equal argv.(1) "start-workers" ->
       let args = Array.to_list argv in
-      let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg =
+      let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg ~si =
         function
         | "--system" :: s :: rest ->
-            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
+            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg ~si
               rest
         | "--count" :: n :: rest ->
             parse ~system
               ~count:(Some (Int.of_string n))
-              ~socket_dir ~vk_p ~circuits ~sv ~bg rest
+              ~socket_dir ~vk_p ~circuits ~sv ~bg ~si rest
         | "--socket-dir" :: d :: rest ->
-            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg
+            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg ~si
               rest
         | "--vk-path" :: p :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~sv ~bg
+            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~sv ~bg ~si
               rest
         | "--circuits" :: c :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~sv ~bg
+            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~sv ~bg ~si
               rest
+        | "--start-index" :: n :: rest ->
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
+              ~si:(Int.of_string n) rest
         | "--background" :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg:true rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg:true ~si
+              rest
         | "--skip-verify" :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv:true ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv:true ~bg ~si
+              rest
         | _ :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg ~si rest
         | [] ->
-            (system, count, socket_dir, vk_p, circuits, sv, bg)
+            (system, count, socket_dir, vk_p, circuits, sv, bg, si)
       in
       let ( system
           , count
@@ -3039,9 +3050,10 @@ let () =
           , vk_p
           , circuits_spec
           , skip_verify
-          , background ) =
+          , background
+          , start_index ) =
         parse ~system:None ~count:None ~socket_dir:None ~vk_p:None
-          ~circuits:None ~sv:false ~bg:false args
+          ~circuits:None ~sv:false ~bg:false ~si:0 args
       in
       let system =
         Option.value_exn system ~message:"start-workers requires --system"
@@ -3054,7 +3066,7 @@ let () =
           ~message:"start-workers requires --socket-dir"
       in
       run_start_workers ~system ~count ~socket_dir ~vk_path:vk_p ~circuits_spec
-        ~skip_verify ~background
+        ~skip_verify ~background ~start_index
   | _ when Array.length argv >= 2 && String.equal argv.(1) "stop-workers" ->
       let rec find_socket_dir = function
         | "--socket-dir" :: d :: _ ->
@@ -3085,7 +3097,7 @@ let () =
       Printf.eprintf
         "  start-workers --system <system> --count <n> --socket-dir <dir>\n\
         \                [--vk-path <path>] [--circuits <spec>] [--background]\n\
-        \                [--skip-verify]\n" ;
+        \                [--skip-verify] [--start-index <n>]\n" ;
       Printf.eprintf "  stop-workers --socket-dir <dir>\n\n" ;
       Printf.eprintf "Internal commands (for staged/parallel execution):\n" ;
       Printf.eprintf "  internal init-workdir <workdir> plonk <input.json>\n" ;
