@@ -884,6 +884,10 @@ end = struct
 
   let post_stall_retry_delay = Time.Span.of_min 1.
 
+  (* Fallback period for re-checking peer availability when the loop is parked
+     waiting for progress, guarding against dropped best-effort wakeups. *)
+  let no_progress_recheck_delay = Time.Span.of_min 1.
+
   let rec step t =
     if Q.length t.pending = 0 then (
       [%log' debug t.logger] "Downloader: no jobs. waiting" ;
@@ -894,12 +898,35 @@ end = struct
       | `Ok () ->
           step t )
     else
+      let read p =
+        Pipe.read_choice_single_consumer_exn
+          (Strict_pipe.Reader.to_linear_pipe p).pipe [%here]
+      in
+      (* The [useful_peers] and [got_new_peers] signals are best-effort
+         (capacity-0, drop-head): a wakeup is lost if it fires before we are
+         parked on the read. Racing the signals against a timeout ensures that a
+         dropped wakeup cannot leave the loop parked indefinitely after the peer
+         set has in fact recovered. *)
+      let wait_for_change pipes =
+        Deferred.choose
+          ( Deferred.choice (after no_progress_recheck_delay) (fun () -> `Ok ())
+          :: List.map pipes ~f:read )
+      in
       match
         Useful_peers.useful_peer t.useful_peers
           ~pending_jobs:(Q.to_list t.pending)
       with
       | `No_peers -> (
-          match%bind Strict_pipe.Reader.read t.got_new_peers_r with
+          [%log' debug t.logger]
+            "Downloader: Waiting. No known peer has the remaining jobs" ;
+          (* Wake on new peers, on any change to peer usefulness (e.g. a
+             temporary-ignore expiring), or on the fallback timeout. Previously
+             this waited on new peers only, so once every job had been tried
+             against every peer the loop could park here forever even after the
+             ignored peers became usable again. *)
+          match%bind
+            wait_for_change [ t.got_new_peers_r; t.useful_peers.r ]
+          with
           | `Eof ->
               [%log' debug t.logger] "Downloader: new peers eof" ;
               Deferred.unit
@@ -907,13 +934,7 @@ end = struct
               step t )
       | `Useful_but_busy -> (
           [%log' debug t.logger] "Downloader: Waiting. All useful peers busy" ;
-          let read p =
-            Pipe.read_choice_single_consumer_exn
-              (Strict_pipe.Reader.to_linear_pipe p).pipe [%here]
-          in
-          match%bind
-            Deferred.choose [ read t.flush_r; read t.useful_peers.r ]
-          with
+          match%bind wait_for_change [ t.flush_r; t.useful_peers.r ] with
           | `Eof ->
               [%log' debug t.logger] "Downloader: flush eof" ;
               Deferred.unit
