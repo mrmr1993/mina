@@ -6,7 +6,8 @@ Sorted fastest-first; OOM/failed runs at the bottom. Target makespan ~105s.
 
 | makespan (s) | cores | peak RAM | minAvail | config | slots | env | commit (main/sub) | date | vk | note |
 |---:|---:|---:|---:|---|---:|---|---|---|---|---|
-| 132 | 17.6 | 25.01 GB | 6.9 GB | **baseline-K8-R5-444**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 888d8756b9/7613a9ebdf | 2026-06-28T14:34 | ✓ | d8-free ON (committed); confirmation run via nori_3pt.sh pre-harness |
+| 132 | 17.6 | 25.01 GB | 6.9 GB | **baseline-K8-R5-444**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 888d8756b9/7613a9ebdf | 2026-06-28T14:34 | ✓ | d8-free ON; pre-harness confirmation (nori_3pt.sh) |
+| **OOM** | 17.6 | 25.07 GB | - | **baseline-no-d8free**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 09bd170d49/cf300e586f | 2026-06-28T15:05 | ✓ | A/B: d8-free OFF. hot-1 131s ~= d8-free 132s, but hot-2 OOM'd -> d8-free restored. (buggy first-run 15s artifact corrected) |
 
 <!-- FINDINGS -->
 

@@ -72,7 +72,7 @@ export PICKLES_PROVE_SLOTS="$SLOTS"
 # shellcheck disable=SC2086
 [ -n "$EXTRA_ENV" ] && export $EXTRA_ENV
 
-RAMF=$(mktemp); echo 0 >"$RAMF"; OOMF=$(mktemp); rm -f "$OOMF"
+RAMF=$(mktemp); echo 0 >"$RAMF"; OOMF=$(mktemp); rm -f "$OOMF"; AVAILF=$(mktemp); echo 999999 >"$AVAILF"
 rm -f "$SOCK"/worker.*.sock* "$SOCK"/prove_slot.* 2>/dev/null || true
 rm -rf "$SOCK"/wrap_waiting 2>/dev/null || true
 mkdir -p "$SOCK" "$CACHE"
@@ -107,24 +107,25 @@ done
 echo "==> [$NAME] $TOTAL workers ready"
 
 # peak-RAM sampler (sum of worker RssAnon) + OOM watchdog
-( max=0; while :; do
+( max=0; min=$(cat "$AVAILF"); while :; do
     s=$(for p in $(pgrep -f nori_proof_converter.exe 2>/dev/null); do
           awk '/^RssAnon/{print $2}' /proc/$p/status 2>/dev/null; done | awk '{t+=$1}END{print t+0}')
-    [ "${s:-0}" -gt "$max" ] && { max=$s; echo "$max" >"$RAMF"; }; sleep 0.5
+    [ "${s:-0}" -gt "$max" ] && { max=$s; echo "$max" >"$RAMF"; }
+    a=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
+    [ "${a:-999999}" -lt "$min" ] && { min=$a; echo "$min" >"$AVAILF"; }
+    sleep 0.5
   done ) & SAMP=$!
 ( while :; do m=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
     [ "$m" -lt 700 ] && { echo "$m" >"$OOMF"; pkill -9 -f nori_proof_converter.exe 2>/dev/null; break; }
     sleep 0.5; done ) & WD=$!
 
 read_stat(){ awk '/^cpu /{idle=$5+$6;tot=0;for(i=2;i<=NF;i++)tot+=$i;print idle,tot}' /proc/stat; }
-MIN_AVAIL=999999
 hot(){
   local t0=$SECONDS i0 a0 i1 a1
   read i0 a0 < <(read_stat)
   "$EXE" sp1ToPlonkDaemonised "$PROOF" --workers "$SOCK" >/tmp/nori_bench_out.log 2>&1
   local rc=$?
   read i1 a1 < <(read_stat)
-  local m; m=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo); [ "$m" -lt "$MIN_AVAIL" ] && MIN_AVAIL=$m
   local b; b=$(awk -v i0=$i0 -v i1=$i1 -v a0=$a0 -v a1=$a1 -v n=$NCPU 'BEGIN{printf "%.1f",n*(1-(i1-i0)/(a1-a0))}')
   echo "$((SECONDS-t0)) $rc $b"
 }
@@ -139,10 +140,13 @@ if [ ! -f "$OOMF" ]; then
   for ((r=0; r<HOT; r++)); do
     [ -f "$OOMF" ] && break
     read t rc b < <(hot); echo "    hot $((r+1)): ${t}s rc=$rc cores=$b"
-    TIMES+=("$t"); CORES+=("$b"); RCS+=("$rc")
+    RCS+=("$rc")
+    if [ "$rc" -eq 0 ] && [ ! -f "$OOMF" ]; then TIMES+=("$t"); CORES+=("$b")
+    else echo "    (rc=$rc / oom — excluded from makespan)"; fi
   done
 fi
 kill "$SAMP" "$WD" 2>/dev/null || true; SAMP=""; WD=""
+MIN_AVAIL=$(cat "$AVAILF" 2>/dev/null || echo 999999)
 
 VK=$(python3 -c "import json;a=json.load(open('${PROOF%.json}.sp1ToPlonk.json'));b=json.load(open('$REF'));print(str(a.get('vkData',{}).get('hash')==b.get('vkData',{}).get('hash')).lower())" 2>/dev/null || echo "unknown")
 PEAK=$(awk -v k="$(cat "$RAMF")" 'BEGIN{printf "%.2f", k/1048576}')
