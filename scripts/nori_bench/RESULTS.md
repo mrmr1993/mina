@@ -6,7 +6,9 @@ Sorted fastest-first; OOM/failed runs at the bottom. Target makespan ~105s.
 
 | makespan (s) | cores | peak RAM | minAvail | config | slots | env | commit (main/sub) | date | vk | note |
 |---:|---:|---:|---:|---|---:|---|---|---|---|---|
+| 130–131 (med 130.5) | 17.6 | 24.57 GB | 1.6 GB | **amp-1**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | ORACLE_AMPLIFY=1 | f7b5ca851e/02a7d5f81a ⚠main | 2026-06-28T15:53 | ✓ | O.create amplification baseline |
 | 132 | 17.6 | 25.01 GB | 6.9 GB | **baseline-K8-R5-444**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 888d8756b9/7613a9ebdf | 2026-06-28T14:34 | ✓ | d8-free ON; pre-harness confirmation (nori_3pt.sh) |
+| 137–138 (med 137.5) | 17.4 | 23.33 GB | 2.6 GB | **amp-20**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | ORACLE_AMPLIFY=20 | f7b5ca851e/02a7d5f81a ⚠main | 2026-06-28T16:04 | ✓ | O.create x20 amplification |
 | **OOM** | 17.6 | 25.07 GB | - | **baseline-no-d8free**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 09bd170d49/cf300e586f | 2026-06-28T15:05 | ✓ | A/B: d8-free OFF. hot-1 131s ~= d8-free 132s, but hot-2 OOM'd -> d8-free restored. (buggy first-run 15s artifact corrected) |
 
 <!-- FINDINGS -->

@@ -73,6 +73,9 @@ export PICKLES_PROVE_SLOTS="$SLOTS"
 [ -n "$EXTRA_ENV" ] && export $EXTRA_ENV
 
 RAMF=$(mktemp); echo 0 >"$RAMF"; OOMF=$(mktemp); rm -f "$OOMF"; AVAILF=$(mktemp); echo 999999 >"$AVAILF"
+# Kill any leaked worker daemons from a previous (crashed/killed) run so we
+# never silently oversubscribe and corrupt a measurement.
+pkill -9 -f 'nori_proof_converter.exe' 2>/dev/null || true; sleep 1
 rm -f "$SOCK"/worker.*.sock* "$SOCK"/prove_slot.* 2>/dev/null || true
 rm -rf "$SOCK"/wrap_waiting 2>/dev/null || true
 mkdir -p "$SOCK" "$CACHE"
@@ -168,7 +171,7 @@ here=sys.argv[1]
 rec={"name":"$NAME","pools":$POOLS_JSON,"slots":int("$SLOTS"),"env":"$EXTRA_ENV",
      "makespan_s":$TIMES_JSON,"cores":$CORES_JSON,"peak_ram_gb":float("$PEAK"),
      "min_memavail_mb":int("$MIN_AVAIL") if "$MIN_AVAIL".isdigit() else None,
-     "vk_match":"$VK","oom":$OOM,"rcs":[int(x) for x in "${RCS[*]:-}".split()],
+     "vk_match":"$VK","oom":"$OOM"=="true","rcs":[int(x) for x in "${RCS[*]:-}".split()],
      "commit_main":"$CMAIN","commit_sub":"$CSUB","dirty":"$DIRTY","date":"$DATE","note":"$NOTE"}
 with open(os.path.join(here,"results.jsonl"),"a") as f: f.write(json.dumps(rec)+"\n")
 PY
