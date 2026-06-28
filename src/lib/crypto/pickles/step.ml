@@ -822,6 +822,17 @@ struct
             Common.time "step finish witness" (fun () ->
                 builder.finish_computation res )
           in
+          (* Synthetic RAM test: when PICKLES_HANG_BEFORE_PROVE is set, hang here
+             with the step witness (auxiliary_inputs/public_inputs) resident,
+             before the kimchi FFI prover allocates its working set. The promise
+             never resolves (the ivar is never filled). *)
+          let%bind.Promise () =
+            match Sys.getenv_opt "PICKLES_HANG_BEFORE_PROVE" with
+            | Some _ ->
+                Promise.create (fun _ -> ())
+            | None ->
+                Promise.return ()
+          in
           [%log internal] "Backend_tick_proof_create_async" ;
           let create_proof () =
             Common.time_async "step create proof" (fun () ->
