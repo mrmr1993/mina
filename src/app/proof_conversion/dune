@@ -6,6 +6,7 @@
  (libraries
   core
   core_unix
+  unix
   proof_conversion
   pickles
   pickles_types

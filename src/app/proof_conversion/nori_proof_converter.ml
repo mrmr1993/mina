@@ -1706,10 +1706,34 @@ type worker_cap =
   ; serves_base : int -> bool
   ; serves_layer1 : bool
   ; serves_node : bool
+  ; serves_tip : bool
   }
 
-(** What a task needs from a worker, derived from its inner command. *)
-type task_req = Any_worker | Base_circuit of int | Compress_layer1 | Compress_node
+(** What a task needs from a worker, derived from its inner command. The tip
+    (root of the compression tree) is its own class so it can be pinned to a
+    dedicated fat worker that proves it at full core width. *)
+type task_req =
+  | Any_worker
+  | Base_circuit of int
+  | Compress_layer1
+  | Compress_node
+  | Compress_tip
+
+(** The top (root) layer of the compression tree for [base_count] leaves. The
+    tree is built over the next power of two, so this is [log2] of that. *)
+let max_compression_layer base_count =
+  let rec next_pow2 x = if x >= base_count then x else next_pow2 (x * 2) in
+  let padded = next_pow2 1 in
+  let rec log2 x acc = if x <= 1 then acc else log2 (x / 2) (acc + 1) in
+  log2 padded 0
+
+(** How many of the top compression layers are routed to the dedicated tip
+    worker(s) (configurable via [TIP_LAYERS]; default 1 = the root only). These
+    are the low-parallelism layers where fat provers fill otherwise-idle cores. *)
+let tip_layers =
+  match Stdlib.Sys.getenv_opt "TIP_LAYERS" with
+  | Some s -> ( try Int.of_string s with _ -> 1 )
+  | None -> 1
 
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
@@ -1719,8 +1743,12 @@ let task_requirement cmd =
   with
   | "prove-zkp" :: _workdir :: n :: _ ->
       Base_circuit (Int.of_string n)
-  | "compress" :: _workdir :: _base_count :: layer :: _ ->
-      if String.equal layer "1" then Compress_layer1 else Compress_node
+  | "compress" :: _workdir :: base_count :: layer :: _ ->
+      let l = Int.of_string layer in
+      let ml = max_compression_layer (Int.of_string base_count) in
+      if l = 1 then Compress_layer1
+      else if l >= ml - tip_layers + 1 then Compress_tip
+      else Compress_node
   | _ ->
       Any_worker
 
@@ -1733,6 +1761,8 @@ let worker_serves cap = function
       cap.serves_layer1
   | Compress_node ->
       cap.serves_node
+  | Compress_tip ->
+      cap.serves_tip
 
 (** Run a DAG of tasks with bounded parallelism.
     When [~worker_dispatch] is provided, tasks are dispatched to workers
@@ -1778,27 +1808,28 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
         free_workers := Array.to_list workers
     | None ->
         () ) ;
-    (* Remove and return the first free worker that can serve [req], if any. *)
-    let take_free req =
-      let rec go acc = function
-        | [] ->
-            None
-        | w :: rest ->
-            if worker_serves w req then (
-              free_workers := List.rev_append acc rest ;
-              Some w )
-            else go (w :: acc) rest
-      in
-      go [] !free_workers
-    in
     let running = ref 0 in
     let completed = ref 0 in
     let failures = ref [] in
+    (* [BASE_FIRST]: hold back every compression task until all base proofs have
+       started proving, so the prove-capacity gate is never shared between base
+       proofs and the compression of already-finished shards. *)
+    let base_first = Option.is_some (Stdlib.Sys.getenv_opt "BASE_FIRST") in
+    let is_compress_task t = String.is_prefix t.cmd ~prefix:"compress" in
+    let all_base_started () =
+      not
+        (Array.exists tasks ~f:(fun t ->
+             String.is_prefix t.cmd ~prefix:"prove-zkp"
+             && match t.status with Pending -> true | _ -> false ) )
+    in
     let is_ready i =
       match tasks.(i).status with
       | Pending ->
           Array.for_all tasks.(i).deps ~f:(fun d ->
               match tasks.(d).status with Done -> true | _ -> false )
+          && ( (not base_first)
+             || (not (is_compress_task tasks.(i)))
+             || all_base_started () )
       | _ ->
           false
     in
@@ -1825,40 +1856,64 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
               Hashtbl.set pid_to_worker ~key:pid ~data:w ) ;
           incr running
     in
-    (* Start the highest-priority ready task that a free worker can serve,
-       then repeat. With [worker_dispatch = None] there is no capability
-       constraint: any free slot runs the next-highest-priority ready task.
-       With workers, a ready task is only startable if some free worker has
-       compiled its circuit, so a blocked high-priority task does not stall
-       lower-priority tasks that a different shard can run. *)
+    (* Highest-priority ready task satisfying [serves], or -1 if none. *)
+    let best_task_for serves =
+      let best = ref (-1) in
+      let best_pri = ref Int.min_value in
+      for i = 0 to n - 1 do
+        if is_ready i && tasks.(i).priority > !best_pri && serves i then (
+          best := i ;
+          best_pri := tasks.(i).priority )
+      done ;
+      !best
+    in
+    (* Fill free capacity with work. With [worker_dispatch = None] there are no
+       capability constraints, so each slot runs the next-highest-priority ready
+       task. With workers, we assign worker-centrically: process the free
+       workers least-flexible-first (fewest serveable ready tasks) and give each
+       the highest-priority ready task it can serve. This keeps every worker on
+       its best feasible work without a flexible worker grabbing the only task a
+       specialist could run, and never stalls a worker that has work it can do. *)
     let fill_slots () =
       let again = ref true in
       while !again && !running < parallelism do
         again := false ;
-        let best = ref (-1) in
-        let best_pri = ref Int.min_value in
-        for i = 0 to n - 1 do
-          if is_ready i && tasks.(i).priority > !best_pri then
-            let startable =
-              match worker_dispatch with
-              | None ->
-                  true
-              | Some _ ->
-                  List.exists !free_workers ~f:(fun w ->
-                      worker_serves w (task_requirement tasks.(i).cmd) )
+        match worker_dispatch with
+        | None ->
+            let best = best_task_for (fun _ -> true) in
+            if best >= 0 then (
+              start_task best None ;
+              again := true )
+        | Some _ ->
+            let serveable w i =
+              worker_serves w (task_requirement tasks.(i).cmd)
             in
-            if startable then (
-              best := i ;
-              best_pri := tasks.(i).priority )
-        done ;
-        if !best >= 0 then (
-          ( match worker_dispatch with
-          | None ->
-              start_task !best None
-          | Some _ ->
-              let w = take_free (task_requirement tasks.(!best).cmd) in
-              start_task !best w ) ;
-          again := true )
+            let flexibility w =
+              let c = ref 0 in
+              for i = 0 to n - 1 do
+                if is_ready i && serveable w i then incr c
+              done ;
+              !c
+            in
+            let ordered =
+              List.sort !free_workers ~compare:(fun a b ->
+                  Int.compare (flexibility a) (flexibility b) )
+            in
+            let rec pick = function
+              | [] ->
+                  ()
+              | w :: rest -> (
+                  match best_task_for (serveable w) with
+                  | -1 ->
+                      pick rest
+                  | best ->
+                      free_workers :=
+                        List.filter !free_workers ~f:(fun x ->
+                            not (String.equal x.socket w.socket) ) ;
+                      start_task best (Some w) ;
+                      again := true )
+            in
+            pick ordered
       done
     in
     fill_slots () ;
@@ -2113,19 +2168,22 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
     Returns (base_circuit_set option, compile_layer1, compile_node).
     None for base set means compile all base circuits. *)
 let parse_circuits_spec ~base_count spec =
-  if String.equal spec "all" then (None, true, true)
+  if String.equal spec "all" then (None, true, true, true)
   else
     let base_set = Hash_set.create (module Int) in
     let layer1 = ref false in
     let node = ref false in
+    let tip = ref false in
     let parts = String.split spec ~on:',' in
     List.iter parts ~f:(fun part ->
         let part = String.strip part in
         if String.equal part "layer1" then layer1 := true
         else if String.equal part "node" then node := true
+        else if String.equal part "tip" then tip := true
         else if String.equal part "compress" then (
           layer1 := true ;
-          node := true )
+          node := true ;
+          tip := true )
         else
           match String.split part ~on:'-' with
           | [ a; b ] ->
@@ -2140,10 +2198,13 @@ let parse_circuits_spec ~base_count spec =
           | _ ->
               failwith (sprintf "Bad --circuits component: %s" part) ) ;
     let base =
-      if Hash_set.is_empty base_set && (not !layer1) && not !node then None
+      if
+        Hash_set.is_empty base_set && (not !layer1) && (not !node)
+        && not !tip
+      then None
       else Some base_set
     in
-    (base, !layer1, !node)
+    (base, !layer1, !node, !tip)
 
 (** Unified prove daemon: compiles circuits at startup (optionally a subset),
     then serves prove-zkp, compress, compute-state, generate-witness, and
@@ -2151,6 +2212,7 @@ let parse_circuits_spec ~base_count spec =
     Circuits not pre-compiled are compiled on demand (slower but saves RAM). *)
 let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
     ~skip_verify =
+  Prove_gate_native.setup ~socket_path ;
   Printf.eprintf "Prove daemon: compiling circuits for %s...\n%!" system ;
   let base_count =
     match system with "plonk" -> 24 | "groth16" -> 16 | _ -> assert false
@@ -2158,7 +2220,10 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
   let base_set, compile_layer1_flag, compile_node_flag =
     match circuits_spec with
     | Some spec ->
-        parse_circuits_spec ~base_count spec
+        let base, layer1, node, tip = parse_circuits_spec ~base_count spec in
+        (* A tip-only worker still needs the node circuit compiled to prove the
+           root merge (the tip uses the same circuit as other node layers). *)
+        (base, layer1, node || tip)
     | None ->
         (None, true, true)
   in
@@ -2400,13 +2465,14 @@ let discover_workers ~base_count ~socket_dir =
           String.strip (In_channel.read_all manifest)
         else "all"
       in
-      let base_set, layer1, node = parse_circuits_spec ~base_count spec in
+      let base_set, layer1, node, tip = parse_circuits_spec ~base_count spec in
       { socket
       ; serves_base =
           (fun n ->
             match base_set with None -> true | Some s -> Hash_set.mem s n )
       ; serves_layer1 = layer1
       ; serves_node = node
+      ; serves_tip = tip
       } )
 
 (** Run a proof conversion using pre-started worker daemons.
