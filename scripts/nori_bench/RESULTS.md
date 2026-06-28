@@ -12,6 +12,8 @@ Sorted fastest-first; OOM/failed runs at the bottom. Target makespan ~105s.
 | 133–136 (med 134.5) | 17.6 | 24.15 GB | 1.6 GB | **K9-R5**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 9 | - | 36ef74c0ba/70af702a00 ⚠main+sub | 2026-06-28T19:01 | ✓ | K=9 staggering test, subsample+d8-free binary |
 | 137–138 (med 137.5) | 17.4 | 23.33 GB | 2.6 GB | **amp-20**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | ORACLE_AMPLIFY=20 | f7b5ca851e/02a7d5f81a ⚠main | 2026-06-28T16:04 | ✓ | O.create x20 amplification |
 | **OOM** | 17.6 | 25.07 GB | - | **baseline-no-d8free**<br>0-7,layer1,node,tip:5:4<br>8-15,layer1,node,tip:5:4<br>16-23,layer1,node,tip:5:4 | 8 | - | 09bd170d49/cf300e586f | 2026-06-28T15:05 | ✓ | A/B: d8-free OFF. hot-1 131s ~= d8-free 132s, but hot-2 OOM'd -> d8-free restored. (buggy first-run 15s artifact corrected) |
+| **OOM** | - | 24.94 GB | 0.8 GB | **K9-R4**<br>0-7,layer1,node,tip:4:4<br>8-15,layer1,node,tip:4:4<br>16-23,layer1,node,tip:4:4 | 9 | - | dd578ada63/70af702a00 | 2026-06-28T19:37 | ✓ | core-contention: 9 slots x R4 = 36 threads |
+| **OOM** | - | 25.55 GB | 0.4 GB | **K10-R4**<br>0-7,layer1,node,tip:4:4<br>8-15,layer1,node,tip:4:4<br>16-23,layer1,node,tip:4:4 | 10 | - | dd578ada63/70af702a00 ⚠main | 2026-06-28T19:44 | ✓ | core-contention: 10 slots x R4 = 40 threads |
 
 <!-- FINDINGS -->
 
