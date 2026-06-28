@@ -103,6 +103,13 @@ module Proof = Plonk_dlog_proof.Make (struct
       let computed_witness, runtime_tables =
         R1CS_constraint_system.compute_witness pk.cs external_values
       in
+      (* The auxiliary witness is consumed; free its (large) Rust buffer now,
+         since OCaml only sees the pointer and won't reclaim it under pressure. *)
+      ( match Stdlib.Sys.getenv_opt "RESET_AUX_VECTOR" with
+      | Some _ ->
+          Kimchi_bindings.FieldVectors.Fq.clear auxiliary
+      | None ->
+          () ) ;
       let num_rows = Array.length computed_witness.(0) in
 
       (* convert to Rust vector *)

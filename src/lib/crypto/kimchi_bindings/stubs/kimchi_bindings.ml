@@ -15,6 +15,8 @@ module FieldVectors = struct
     external get : t -> int -> elt = "caml_fp_vector_get"
 
     external set : t -> int -> elt -> unit = "caml_fp_vector_set"
+
+    external clear : t -> unit = "caml_fp_vector_clear"
   end
 
   module Fq = struct
@@ -31,6 +33,8 @@ module FieldVectors = struct
     external get : t -> int -> elt = "caml_fq_vector_get"
 
     external set : t -> int -> elt -> unit = "caml_fq_vector_set"
+
+    external clear : t -> unit = "caml_fq_vector_clear"
   end
 end
 
