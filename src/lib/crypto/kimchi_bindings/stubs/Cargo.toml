@@ -12,7 +12,7 @@ ocaml = { version = "0.22.2", features = ["no-caml-startup"] }
 ocaml-gen = "1.0.0"
 
 # proof-systems
-kimchi = { path = "../../proof-systems/kimchi", features = ["ocaml_types"] }
+kimchi = { path = "../../proof-systems/kimchi", features = ["ocaml_types", "internal_tracing"] }
 kimchi-stubs = { path = "../../proof-systems/kimchi-stubs" }
 
 [[bin]]
