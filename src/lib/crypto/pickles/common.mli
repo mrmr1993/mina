@@ -40,6 +40,14 @@ val time : string -> (unit -> 'a) -> 'a
 
 val time_async : string -> (unit -> 'a Promise.t) -> 'a Promise.t
 
+(** Cross-process admission control for the kimchi FFI prover, injected by the
+    native runtime (default: no gate). [!acquire stage] resolves once a proving
+    slot is free and yields a [release] thunk to call when the prove finishes.
+    [stage] is ["step"] or ["wrap"]. *)
+module Prove_gate : sig
+  val acquire : (string -> (unit -> unit) Promise.t) ref
+end
+
 (** {2 FFT Coset Shifts} *)
 
 (** [tick_shifts ~log2_size] computes the coset shifts for FFT operations

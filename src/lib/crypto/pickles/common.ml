@@ -78,6 +78,17 @@ let time_async lab f =
       x )
     f ()
 
+(* Cross-process admission control for the kimchi FFI prover. The native runtime
+   injects an implementation (keeping pickles core Unix-free / JS-safe); by
+   default there is no gate. [!acquire stage] resolves once a proving slot is
+   free and yields a [release] thunk to call when the prove finishes. [stage] is
+   ["step"] or ["wrap"], letting the gate prioritise completing in-flight proofs
+   (wraps) over starting new ones (steps). *)
+module Prove_gate = struct
+  let acquire : (string -> (unit -> unit) Promise.t) ref =
+    ref (fun _stage -> Promise.return (fun () -> ()))
+end
+
 let bits_to_bytes bits =
   let byte_of_bits bs =
     List.foldi bs ~init:0 ~f:(fun i acc b ->

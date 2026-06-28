@@ -520,6 +520,7 @@ let wrap
                   Backend.Tock.Proof.create_async ~primary:public_inputs
                     ~auxiliary:auxiliary_inputs pk ~message:next_accumulator )
             in
+            let%bind.Promise release = !Common.Prove_gate.acquire "wrap" in
             let%map.Promise proof =
               match proof_cache with
               | None ->
@@ -543,6 +544,7 @@ let wrap
                         ( { proof; public_evals = None }
                           : Tock.Proof.with_public_evals ) )
             in
+            release () ;
             [%log internal] "Backend_tock_proof_create_async_done" ;
             proof )
           ~input_typ:input ~return_typ:Impls.Wrap.Typ.unit

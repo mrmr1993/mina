@@ -830,6 +830,7 @@ struct
                   ~message:(Lazy.force prev_challenge_polynomial_commitments)
                   pk )
           in
+          let%bind.Promise release = !Common.Prove_gate.acquire "step" in
           let%map.Promise proof =
             match proof_cache with
             | None ->
@@ -851,6 +852,7 @@ struct
                       ( { proof; public_evals = None }
                         : Tick.Proof.with_public_evals ) )
           in
+          release () ;
           [%log internal] "Backend_tick_proof_create_async_done" ;
           (proof, next_statement_hashed) )
     in
