@@ -15,6 +15,7 @@ Sorted fastest-first; OOM/failed runs at the bottom. Target makespan ~105s.
 | **OOM** | - | 24.94 GB | 0.8 GB | **K9-R4**<br>0-7,layer1,node,tip:4:4<br>8-15,layer1,node,tip:4:4<br>16-23,layer1,node,tip:4:4 | 9 | - | dd578ada63/70af702a00 | 2026-06-28T19:37 | ✓ | core-contention: 9 slots x R4 = 36 threads |
 | **OOM** | - | 25.55 GB | 0.4 GB | **K10-R4**<br>0-7,layer1,node,tip:4:4<br>8-15,layer1,node,tip:4:4<br>16-23,layer1,node,tip:4:4 | 10 | - | dd578ada63/70af702a00 ⚠main | 2026-06-28T19:44 | ✓ | core-contention: 10 slots x R4 = 40 threads |
 | **OOM** | 17.8 | 24.68 GB | 1.1 GB | **K9-R6**<br>0-7,layer1,node,tip:6:4<br>8-15,layer1,node,tip:6:4<br>16-23,layer1,node,tip:6:4 | 9 | - | 4522982db4/70af702a00 | 2026-06-28T20:00 | ✓ | core-contention: 9 slots x R6 = 54 threads; staggering(faster) vs per-thread scratch |
+| **OOM** | - | 24.94 GB | 0.7 GB | **fat-tip-R20**<br>0-7,layer1,node:5:4<br>8-15,layer1,node:5:4<br>16-23,layer1,node:5:4<br>tip:20:1 | 8 | TIP_LAYERS=2 | 0cb1a0d256/70af702a00 | 2026-06-28T20:10 | ✓ | fat R20 tip worker, last 2 layers, subsample binary |
 
 <!-- FINDINGS -->
 
