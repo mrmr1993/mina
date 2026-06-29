@@ -93,8 +93,8 @@ trap cleanup EXIT
 echo "==> [$NAME] starting pools: ${POOLS[*]}  (slots=$SLOTS env='$EXTRA_ENV')"
 IDX=0; TOTAL=0
 for spec in "${POOLS[@]}"; do
-  CIRC="${spec%%:*}"; rest="${spec#*:}"; RAYON="${rest%%:*}"; CNT="${rest##*:}"
-  RAYON_NUM_THREADS="$RAYON" "$EXE" start-workers --system plonk --count "$CNT" \
+  IFS=':' read -r CIRC RAYON CNT PENV <<< "$spec"
+  RAYON_NUM_THREADS="$RAYON" env $PENV "$EXE" start-workers --system plonk --count "$CNT" \
     --socket-dir "$SOCK" --cache-dir "$CACHE" --circuits "$CIRC" \
     --skip-verify --start-index "$IDX" >/tmp/nori_bench_pool_$IDX.log 2>&1 &
   PIDS+=($!); IDX=$((IDX+CNT)); TOTAL=$((TOTAL+CNT))
