@@ -1742,6 +1742,12 @@ let tip_layers =
    low concurrency makes it pay. *)
 let tip_fuse = Option.is_some (Stdlib.Sys.getenv_opt "TIP_FUSE")
 
+(* When [TIP_COMMIT_SPLIT=N] is set, the daemon sets KIMCHI_COMMIT_SPLIT=N for
+   tip-layer compress proofs (1 otherwise), so the small sub-SRS MSMs of those
+   proofs split N ways instead of committing as a single un-saturating MSM.
+   Same per-task hook as [tip_fuse]. *)
+let tip_commit_split = Stdlib.Sys.getenv_opt "TIP_COMMIT_SPLIT"
+
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
 let task_requirement cmd =
@@ -2334,6 +2340,8 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             let n = Int.of_string n_str in
             if tip_fuse then
               Core_unix.putenv ~key:"KIMCHI_FUSE_GATES" ~data:"0" ;
+            if Option.is_some tip_commit_split then
+              Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT" ~data:"1" ;
             ( match base_provers.(n) with
             | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
@@ -2394,11 +2402,18 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   in
                   (prove, vk)
             in
-            ( if tip_fuse then
-                let ml = max_compression_layer (Int.of_string base_count_s) in
-                let is_tip = Int.of_string layer_s >= ml - tip_layers + 1 in
-                Core_unix.putenv ~key:"KIMCHI_FUSE_GATES"
-                  ~data:(if is_tip then "1" else "0") ) ;
+            let is_tip =
+              let ml = max_compression_layer (Int.of_string base_count_s) in
+              Int.of_string layer_s >= ml - tip_layers + 1
+            in
+            if tip_fuse then
+              Core_unix.putenv ~key:"KIMCHI_FUSE_GATES"
+                ~data:(if is_tip then "1" else "0") ;
+            ( match tip_commit_split with
+            | Some n ->
+                Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT"
+                  ~data:(if is_tip then n else "1")
+            | None -> () ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
