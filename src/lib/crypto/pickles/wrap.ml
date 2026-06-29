@@ -291,7 +291,12 @@ let wrap
     ~dlog_plonk_index wrap_main ~(typ : _ Impls.Step.Typ.t) ~step_vk
     ~actual_wrap_domains ~step_plonk_indices:_ ~feature_flags
     ~actual_feature_flags ?tweak_statement pk
-    ({ statement = prev_statement; prev_evals; proof; index = which_index } :
+    ({ statement = prev_statement
+     ; prev_evals
+     ; proof
+     ; index = which_index
+     ; oracles = _
+     } :
       ( _
       , _
       , (_, actual_proofs_verified) Vector.t

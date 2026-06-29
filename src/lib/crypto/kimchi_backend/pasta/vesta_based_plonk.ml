@@ -66,7 +66,7 @@ module Keypair = Dlog_plonk_based_keypair.Make (struct
   module Constraint_system = R1CS_constraint_system
 end)
 
-module Proof = Plonk_dlog_proof.Make (struct
+module Vesta_inputs = struct
   let id = "pasta_vesta"
 
   module Scalar_field = Field
@@ -139,6 +139,16 @@ module Proof = Plonk_dlog_proof.Make (struct
     let create (pk : Keypair.t) ~primary ~auxiliary ~prev_chals ~prev_comms =
       create_aux pk primary auxiliary prev_chals prev_comms
         ~f:Kimchi_bindings.Protocol.Proof.Fp.create
+
+    (* Fat-proof variant of [create_async]: also returns the oracle challenges
+       the prover already computed, so the wrap can skip recomputing them. *)
+    let create_with_oracles_async (pk : Keypair.t) ~primary ~auxiliary
+        ~prev_chals ~prev_comms =
+      create_aux pk primary auxiliary prev_chals prev_comms
+        ~f:(fun index witness runtime_tables prev_chals prev_sgs ->
+          Promise.run_in_thread (fun () ->
+              Kimchi_bindings_extra.fp_proof_create_with_oracles index witness
+                runtime_tables prev_chals prev_sgs ) )
   end
 
   module Verifier_index = Kimchi_bindings.Protocol.VerifierIndex.Fp
@@ -154,7 +164,21 @@ module Proof = Plonk_dlog_proof.Make (struct
 
   module Poly_comm = Fp_poly_comm
   module Curve = Curve
-end)
+end
+
+module Proof = struct
+  include Plonk_dlog_proof.Make (Vesta_inputs)
+
+  (* Fat-proof variant of [create_async]: also returns the prover-computed
+     oracle challenges, threaded to the wrap to skip recomputation. *)
+  let create_with_oracles_async ?message pk ~primary ~auxiliary =
+    let prev_chals, prev_comms = extract_challenges_and_commitments ~message in
+    let%map.Promise res, oracles =
+      Vesta_inputs.Backend.create_with_oracles_async pk ~primary ~auxiliary
+        ~prev_chals ~prev_comms
+    in
+    (of_backend_with_public_evals res, oracles)
+end
 
 module Proving_key = struct
   type t = Keypair.t
@@ -179,19 +203,24 @@ module Proving_key = struct
   let of_string _ = failwith "TODO"
 end
 
-module Oracles = Plonk_dlog_oracles.Make (struct
-  module Verifier_index = Verification_key
-  module Field = Field
-  module Proof = Proof
+module Oracles = struct
+  include Plonk_dlog_oracles.Make (struct
+    module Verifier_index = Verification_key
+    module Field = Field
+    module Proof = Proof
 
-  module Backend = struct
-    include Kimchi_bindings.Protocol.Oracles.Fp
+    module Backend = struct
+      include Kimchi_bindings.Protocol.Oracles.Fp
 
-    let create = with_lagrange create
+      let create = with_lagrange create
 
-    let create_with_public_evals = with_lagrange create_with_public_evals
-  end
-end)
+      let create_with_public_evals = with_lagrange create_with_public_evals
+    end
+  end)
+
+  (* The oracle type, exposed for callers such as the fat-proof path. *)
+  type t = Field.t Kimchi_types.oracles
+end
 
 module Cvar = Kimchi_pasta_snarky_backend.Vesta_based_plonk.Cvar
 

@@ -25,6 +25,9 @@ module Base = struct
       ; index : int
       ; prev_evals : 'prev_evals
       ; proof : Tick.Proof.with_public_evals
+      ; oracles : Tick.Oracles.t option
+            (* The step prover's already-computed oracle challenges, when
+               available; the wrap uses these instead of recomputing them. *)
       }
   end
 

@@ -20,6 +20,7 @@
   kimchi_backend_common
   promise
   kimchi_bindings
+  kimchi_bindings.extra
   kimchi_pasta_basic
   mina_stdlib
   kimchi_pasta_constraint_system

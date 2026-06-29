@@ -798,6 +798,7 @@ struct
            |> to_list) )
     in
     let%map.Promise ( (next_proof : Tick.Proof.with_public_evals)
+                    , next_oracles
                     , _next_statement_hashed ) =
       let (T (input, _conv, conv_inv)) =
         Impls.Step.input ~proofs_verified:Max_proofs_verified.n
@@ -836,16 +837,17 @@ struct
           [%log internal] "Backend_tick_proof_create_async" ;
           let create_proof () =
             Common.time_async "step create proof" (fun () ->
-                Backend.Tick.Proof.create_async ~primary:public_inputs
-                  ~auxiliary:auxiliary_inputs
+                Backend.Tick.Proof.create_with_oracles_async
+                  ~primary:public_inputs ~auxiliary:auxiliary_inputs
                   ~message:(Lazy.force prev_challenge_polynomial_commitments)
                   pk )
           in
           let%bind.Promise release = !Common.Prove_gate.acquire "step" in
-          let%map.Promise proof =
+          let%map.Promise proof, oracles =
             match proof_cache with
             | None ->
-                create_proof ()
+                let%map.Promise proof, oracles = create_proof () in
+                (proof, Some oracles)
             | Some proof_cache -> (
                 match
                   Proof_cache.get_step_proof proof_cache ~keypair:pk
@@ -854,18 +856,20 @@ struct
                 | None ->
                     if Proof_cache.is_env_var_set_requesting_error_for_proofs ()
                     then failwith "Regenerated proof" ;
-                    let%map.Promise proof = create_proof () in
+                    let%map.Promise proof, oracles = create_proof () in
                     Proof_cache.set_step_proof proof_cache ~keypair:pk
                       ~public_input:public_inputs proof.proof ;
-                    proof
+                    (proof, Some oracles)
                 | Some proof ->
+                    (* Cached proofs carry no oracles; the wrap recomputes. *)
                     Promise.return
-                      ( { proof; public_evals = None }
-                        : Tick.Proof.with_public_evals ) )
+                      ( ( { proof; public_evals = None }
+                          : Tick.Proof.with_public_evals )
+                      , None ) )
           in
           release () ;
           [%log internal] "Backend_tick_proof_create_async_done" ;
-          (proof, next_statement_hashed) )
+          (proof, oracles, next_statement_hashed) )
     in
     let prev_evals =
       extract_from_proofs
@@ -901,6 +905,7 @@ struct
     in
     [%log internal] "Pickles_step_proof_done" ;
     ( { Proof.Base.Step.proof = next_proof
+      ; oracles = next_oracles
       ; statement = next_statement
       ; index = branch_data.index
       ; prev_evals =

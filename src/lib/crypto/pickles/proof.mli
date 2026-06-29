@@ -22,6 +22,7 @@ module Base : sig
       ; index : int
       ; prev_evals : 'prev_evals
       ; proof : Backend.Tick.Proof.with_public_evals
+      ; oracles : Backend.Tick.Oracles.t option
       }
   end
 

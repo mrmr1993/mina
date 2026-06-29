@@ -833,6 +833,7 @@ module Make_str (_ : Wire_types.Concrete) = struct
                        ; prev_evals = _
                        ; proof
                        ; index = _which_index
+                       ; oracles = supplied_oracles
                        } :
                         ( _
                         , _
@@ -925,38 +926,44 @@ module Make_str (_ : Wire_types.Concrete) = struct
                         (Length.to_nat Max_local_max_proofs_verifieds.length)
                     in
                     let o =
-                      let sgs =
-                        let module M =
-                          H1.Map
-                            (P.Base.Messages_for_next_proof_over_same_field.Wrap
-                             .Prepared)
-                            (E01 (Tick.Curve.Affine))
-                            (struct
-                              let f :
-                                  type n.
-                                     n
-                                     P.Base
-                                     .Messages_for_next_proof_over_same_field
-                                     .Wrap
-                                     .Prepared
-                                     .t
-                                  -> _ =
-                               fun t -> t.challenge_polynomial_commitment
-                            end)
-                        in
-                        let module V = H1.To_vector (Tick.Curve.Affine) in
-                        V.f Max_local_max_proofs_verifieds.length
-                          (M.f prev_messages_for_next_wrap_proof)
-                      in
-                      O.create_with_public_evals pairing_vk
-                        Vector.(
-                          map2 (Vector.trim_front sgs lte) prev_challenges
-                            ~f:(fun commitment cs ->
-                              { Tick.Proof.Challenge_polynomial.commitment
-                              ; challenges = Vector.to_array cs
-                              } )
-                          |> to_list)
-                        public_input proof
+                      match supplied_oracles with
+                      | Some o ->
+                          (* Already computed by the step prover; skip O.create. *)
+                          o
+                      | None ->
+                          let sgs =
+                            let module M =
+                              H1.Map
+                                (P.Base.Messages_for_next_proof_over_same_field
+                                 .Wrap
+                                 .Prepared)
+                                (E01 (Tick.Curve.Affine))
+                                (struct
+                                  let f :
+                                      type n.
+                                         n
+                                         P.Base
+                                         .Messages_for_next_proof_over_same_field
+                                         .Wrap
+                                         .Prepared
+                                         .t
+                                      -> _ =
+                                   fun t -> t.challenge_polynomial_commitment
+                                end)
+                            in
+                            let module V = H1.To_vector (Tick.Curve.Affine) in
+                            V.f Max_local_max_proofs_verifieds.length
+                              (M.f prev_messages_for_next_wrap_proof)
+                          in
+                          O.create_with_public_evals pairing_vk
+                            Vector.(
+                              map2 (Vector.trim_front sgs lte) prev_challenges
+                                ~f:(fun commitment cs ->
+                                  { Tick.Proof.Challenge_polynomial.commitment
+                                  ; challenges = Vector.to_array cs
+                                  } )
+                              |> to_list)
+                            public_input proof
                     in
                     let x_hat = O.(p_eval_1 o, p_eval_2 o) in
                     let%bind.Promise step_vk, _ = Lazy.force step_vk in
