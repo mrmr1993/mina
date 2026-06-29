@@ -126,6 +126,18 @@
  (preprocess
   (pps ppx_version ppx_inline_test)))
 
+;; Hand-written bindings that ocaml_gen cannot emit (see kimchi_bindings_extra.ml).
+
+(library
+ (public_name kimchi_bindings.extra)
+ (name kimchi_bindings_extra)
+ (modules kimchi_bindings_extra)
+ (libraries kimchi_bindings pasta_bindings kimchi_types mina_stdlib)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_version)))
+
 (library
  (public_name pasta_bindings.backend.native)
  (name pasta_bindings_backend_native)
