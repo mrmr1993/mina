@@ -1735,6 +1735,13 @@ let tip_layers =
   | Some s -> ( try Int.of_string s with _ -> 1 )
   | None -> 1
 
+(* When [TIP_FUSE] is set, the prove daemon toggles [KIMCHI_FUSE_GATES] per
+   task: on for tip-layer compress proofs, off otherwise. This keeps the
+   all-workers architecture (each worker climbs the tree in-process, no
+   cross-worker handoff) while applying the gate fusion only where the tail's
+   low concurrency makes it pay. *)
+let tip_fuse = Option.is_some (Stdlib.Sys.getenv_opt "TIP_FUSE")
+
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
 let task_requirement cmd =
@@ -2325,6 +2332,8 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             running := false
         | [ "prove-zkp"; workdir; n_str ] ->
             let n = Int.of_string n_str in
+            if tip_fuse then
+              Core_unix.putenv ~key:"KIMCHI_FUSE_GATES" ~data:"0" ;
             ( match base_provers.(n) with
             | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
@@ -2385,6 +2394,11 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   in
                   (prove, vk)
             in
+            ( if tip_fuse then
+                let ml = max_compression_layer (Int.of_string base_count_s) in
+                let is_tip = Int.of_string layer_s >= ml - tip_layers + 1 in
+                Core_unix.putenv ~key:"KIMCHI_FUSE_GATES"
+                  ~data:(if is_tip then "1" else "0") ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
