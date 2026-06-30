@@ -1704,20 +1704,18 @@ type dag_task =
 type worker_cap =
   { socket : string
   ; serves_base : int -> bool
-  ; serves_layer1 : bool
-  ; serves_node : bool
-  ; serves_tip : bool
+  ; serves_layer : int -> bool
   }
 
-(** What a task needs from a worker, derived from its inner command. The tip
-    (root of the compression tree) is its own class so it can be pinned to a
-    dedicated fat worker that proves it at full core width. *)
+(** What a task needs from a worker, derived from its inner command. Each
+    compression layer is its own class: layers are interchangeable within
+    themselves but a worker that mixes layers accumulates a separate warm prove
+    pool per layer's ramp thread-count, so pinning a worker to specific layers
+    keeps its pool set minimal. *)
 type task_req =
   | Any_worker
   | Base_circuit of int
-  | Compress_layer1
-  | Compress_node
-  | Compress_tip
+  | Compress_layer of int
 
 (** The top (root) layer of the compression tree for [base_count] leaves. The
     tree is built over the next power of two, so this is [log2] of that. *)
@@ -1770,12 +1768,8 @@ let task_requirement cmd =
   with
   | "prove-zkp" :: _workdir :: n :: _ ->
       Base_circuit (Int.of_string n)
-  | "compress" :: _workdir :: base_count :: layer :: _ ->
-      let l = Int.of_string layer in
-      let ml = max_compression_layer (Int.of_string base_count) in
-      if l = 1 then Compress_layer1
-      else if l >= ml - tip_layers + 1 then Compress_tip
-      else Compress_node
+  | "compress" :: _workdir :: _base_count :: layer :: _ ->
+      Compress_layer (Int.of_string layer)
   | _ ->
       Any_worker
 
@@ -1784,12 +1778,8 @@ let worker_serves cap = function
       true
   | Base_circuit n ->
       cap.serves_base n
-  | Compress_layer1 ->
-      cap.serves_layer1
-  | Compress_node ->
-      cap.serves_node
-  | Compress_tip ->
-      cap.serves_tip
+  | Compress_layer l ->
+      cap.serves_layer l
 
 (** Run a DAG of tasks with bounded parallelism.
     When [~worker_dispatch] is provided, tasks are dispatched to workers
@@ -2191,47 +2181,48 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   W.write_hash ~workdir ~n ~hash:output_hash ;
   Printf.eprintf "Daemon proved groth16 zkp%d.\n%!" n
 
-(** Parse a --circuits spec like "0-11,layer1,node" or "all".
-    Returns (base_circuit_set option, compile_layer1, compile_node).
-    None for base set means compile all base circuits. *)
+(** Parse a --circuits spec like "0-11,layer1,layer2" or "all". Compression
+    labels: [layerN] serves compression layer N; [node]/[tip] remain shorthands
+    for the intermediate / top-[tip_layers] layers; [compress] is every layer.
+    Returns (base_circuit_set option, served_compression_layers). None for base
+    set means compile all base circuits. *)
 let parse_circuits_spec ~base_count spec =
-  if String.equal spec "all" then (None, true, true, true)
+  let ml = max_compression_layer base_count in
+  let tip_lo = ml - tip_layers + 1 in
+  let range lo hi = List.init (max 0 (hi - lo + 1)) ~f:(fun i -> lo + i) in
+  if String.equal spec "all" then (None, Int.Set.of_list (range 1 ml))
   else
     let base_set = Hash_set.create (module Int) in
-    let layer1 = ref false in
-    let node = ref false in
-    let tip = ref false in
+    let layers = ref Int.Set.empty in
+    let add_layers ls = layers := List.fold ls ~init:!layers ~f:Set.add in
     let parts = String.split spec ~on:',' in
     List.iter parts ~f:(fun part ->
         let part = String.strip part in
-        if String.equal part "layer1" then layer1 := true
-        else if String.equal part "node" then node := true
-        else if String.equal part "tip" then tip := true
-        else if String.equal part "compress" then (
-          layer1 := true ;
-          node := true ;
-          tip := true )
+        if String.equal part "node" then add_layers (range 2 (tip_lo - 1))
+        else if String.equal part "tip" then add_layers (range tip_lo ml)
+        else if String.equal part "compress" then add_layers (range 1 ml)
         else
-          match String.split part ~on:'-' with
-          | [ a; b ] ->
-              let lo = Int.of_string a in
-              let hi = Int.of_string b in
-              for i = lo to hi do
-                if i >= 0 && i < base_count then Hash_set.add base_set i
-              done
-          | [ a ] ->
-              let n = Int.of_string a in
-              if n >= 0 && n < base_count then Hash_set.add base_set n
-          | _ ->
-              failwith (sprintf "Bad --circuits component: %s" part) ) ;
+          match String.chop_prefix part ~prefix:"layer" with
+          | Some n ->
+              add_layers [ Int.of_string n ]
+          | None -> (
+              match String.split part ~on:'-' with
+              | [ a; b ] ->
+                  let lo = Int.of_string a in
+                  let hi = Int.of_string b in
+                  for i = lo to hi do
+                    if i >= 0 && i < base_count then Hash_set.add base_set i
+                  done
+              | [ a ] ->
+                  let n = Int.of_string a in
+                  if n >= 0 && n < base_count then Hash_set.add base_set n
+              | _ ->
+                  failwith (sprintf "Bad --circuits component: %s" part) ) ) ;
     let base =
-      if
-        Hash_set.is_empty base_set && (not !layer1) && (not !node)
-        && not !tip
-      then None
+      if Hash_set.is_empty base_set && Set.is_empty !layers then None
       else Some base_set
     in
-    (base, !layer1, !node, !tip)
+    (base, !layers)
 
 (** Unified prove daemon: compiles circuits at startup (optionally a subset),
     then serves prove-zkp, compress, compute-state, generate-witness, and
@@ -2247,10 +2238,10 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
   let base_set, compile_layer1_flag, compile_node_flag =
     match circuits_spec with
     | Some spec ->
-        let base, layer1, node, tip = parse_circuits_spec ~base_count spec in
-        (* A tip-only worker still needs the node circuit compiled to prove the
-           root merge (the tip uses the same circuit as other node layers). *)
-        (base, layer1, node || tip)
+        let base, layers = parse_circuits_spec ~base_count spec in
+        (* layer1 has its own circuit; every layer >= 2 shares the node circuit
+           (the tip is just the top layer, proved on the same node circuit). *)
+        (base, Set.mem layers 1, Set.exists layers ~f:(fun l -> l >= 2))
     | None ->
         (None, true, true)
   in
@@ -2524,14 +2515,12 @@ let discover_workers ~base_count ~socket_dir =
           String.strip (In_channel.read_all manifest)
         else "all"
       in
-      let base_set, layer1, node, tip = parse_circuits_spec ~base_count spec in
+      let base_set, layers = parse_circuits_spec ~base_count spec in
       { socket
       ; serves_base =
           (fun n ->
             match base_set with None -> true | Some s -> Hash_set.mem s n )
-      ; serves_layer1 = layer1
-      ; serves_node = node
-      ; serves_tip = tip
+      ; serves_layer = (fun l -> Set.mem layers l)
       } )
 
 (** Run a proof conversion using pre-started worker daemons.
