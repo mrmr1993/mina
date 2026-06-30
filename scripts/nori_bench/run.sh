@@ -39,6 +39,15 @@ for k, v in cfg["jobs"].items():
         workers.setdefault(v["worker"], [])
         if k.isdigit():
             workers[v["worker"]].append(int(k))
+covered = set()
+for cs in workers.values():
+    covered |= set(cs)
+missing = [n for n in range(24) if n not in covered]
+if missing:
+    sys.stderr.write(
+        f"ERROR: base circuits {missing} have no 'worker' in the config -- "
+        "no worker would serve them and the DAG deadlocks. Add them.\n")
+    sys.exit(2)
 for wid in sorted(workers):
     circs = ",".join(str(c) for c in sorted(workers[wid]))
     shard = (circs + ",") if circs else ""
