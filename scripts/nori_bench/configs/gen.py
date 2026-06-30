@@ -62,7 +62,26 @@ def oversub_head():
     return {"budget": 20, "jobs": jobs}
 
 
-CONFIGS = {"oversub_head": oversub_head}
+def het():
+    """Het oversubscribed head: heavy base (slow witness) get more threads than
+    light, and light cost less so the head leaves a little budget headroom for
+    early layer-1 merges to overlap. Heavy 5-thread / light 3-thread; head wave
+    (6 heavy + 8 light) draws 6*1.5 + 8*1.2 = 18.6, leaving ~1.4 for overlap.
+    """
+    jobs = {}
+    heavy = {8, 9, 10, 11, 14, 15, 16, 17, 20, 21, 22, 23}
+    for n in range(24):
+        if n in heavy:
+            jobs[str(n)] = {"cores": 5, "cost": 1.5, "priority": PRI_BASE,
+                            "worker": WORKER_OF[n]}
+        else:
+            jobs[str(n)] = {"cores": 3, "cost": 1.2, "priority": PRI_BASE,
+                            "worker": WORKER_OF[n]}
+    _tail(jobs, {2: 2, 3: 4, 4: 6, 5: 8})
+    return {"budget": 20, "jobs": jobs}
+
+
+CONFIGS = {"oversub_head": oversub_head, "het": het}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "oversub_head"
