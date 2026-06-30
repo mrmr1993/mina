@@ -1806,42 +1806,72 @@ let compress_cores =
     (Stdlib.Sys.getenv_opt "COMPRESS_CORES")
 
 (* Resource-aware scheduler configuration, loaded from the JSON file named by
-   [SCHEDULER_CONFIG]. [cores] is the total core budget the scheduler allocates
-   across concurrently-running jobs; [rayon] explicitly assigns cores per
-   individual job, keyed by job identity (base index, "layer1:<i>",
-   "node:<layer>:<i>"), with an optional "default" fallback. When
-   [SCHEDULER_CONFIG] is unset the scheduler keeps its legacy greedy behaviour
-   (per-task rayon from env flags). *)
-type scheduler_config = { cores : int; rayon : int String.Map.t }
+   [SCHEDULER_CONFIG]. [budget] is the total the scheduler allocates across
+   concurrently-running jobs. [jobs] assigns each individual job (keyed by
+   identity: base index, "layer1:<i>", "node:<layer>:<i>", with a "default"
+   fallback) an allocation: [cores] is the rayon the worker runs the job at,
+   [cost] is what the job draws from [budget]. [cores] > [cost] models
+   oversubscription -- a job running on more threads than its effective core
+   cost. A bare integer [N] is shorthand for [{ cores = N; cost = N }] (1:1).
+   When [SCHEDULER_CONFIG] is unset the scheduler keeps its legacy behaviour. *)
+type job_alloc = { cores : int; cost : float }
+
+type scheduler_config = { budget : float; jobs : job_alloc String.Map.t }
 
 let scheduler_config : scheduler_config option =
+  let to_float = function
+    | `Int n ->
+        Some (float_of_int n)
+    | `Float f ->
+        Some f
+    | _ ->
+        None
+  in
   match Stdlib.Sys.getenv_opt "SCHEDULER_CONFIG" with
   | None ->
       None
   | Some path ->
       let json = Yojson.Safe.from_file path in
-      let int_field name default =
-        match Yojson.Safe.Util.member name json with
-        | `Int n ->
-            n
-        | _ ->
-            default
+      let budget =
+        Option.value
+          (to_float (Yojson.Safe.Util.member "budget" json))
+          ~default:20.
       in
-      let rayon =
-        match Yojson.Safe.Util.member "rayon" json with
+      let parse_alloc = function
+        | `Int n ->
+            Some { cores = n; cost = float_of_int n }
+        | `Assoc _ as o ->
+            let cores =
+              match Yojson.Safe.Util.member "cores" o with `Int n -> n | _ -> 1
+            in
+            let cost =
+              Option.value
+                (to_float (Yojson.Safe.Util.member "cost" o))
+                ~default:(float_of_int cores)
+            in
+            Some { cores; cost }
+        | _ ->
+            None
+      in
+      let jobs =
+        match Yojson.Safe.Util.member "jobs" json with
         | `Assoc kvs ->
             List.fold kvs ~init:String.Map.empty ~f:(fun m (k, v) ->
-                match v with `Int n -> Map.set m ~key:k ~data:n | _ -> m )
+                match parse_alloc v with
+                | Some a ->
+                    Map.set m ~key:k ~data:a
+                | None ->
+                    m )
         | _ ->
             String.Map.empty
       in
-      Some { cores = int_field "cores" 20; rayon }
+      Some { budget; jobs }
 
-(* Cores to allocate a task under the resource-aware scheduler: an explicit
-   per-job assignment from the config, keyed by the job's identity -- base
+(* The {cores; cost} allocation for a task under the resource-aware scheduler:
+   an explicit per-job assignment from the config, keyed by job identity -- base
    circuit index ("0".."23"), "layer1:<index>", or "node:<layer>:<index>" --
-   falling back to a "default" entry, then to 1 core. *)
-let config_task_rayon cfg cmd =
+   falling back to a "default" entry, then to one core at 1:1 cost. *)
+let config_task_alloc cfg cmd =
   let key =
     match
       String.split cmd ~on:' ' |> List.filter ~f:(Fn.non String.is_empty)
@@ -1854,11 +1884,13 @@ let config_task_rayon cfg cmd =
     | _ ->
         None
   in
-  match Option.bind key ~f:(Map.find cfg.rayon) with
-  | Some n ->
-      n
+  match Option.bind key ~f:(Map.find cfg.jobs) with
+  | Some a ->
+      a
   | None ->
-      Option.value (Map.find cfg.rayon "default") ~default:1
+      Option.value
+        (Map.find cfg.jobs "default")
+        ~default:{ cores = 1; cost = 1. }
 
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
@@ -1939,15 +1971,15 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
     let running = ref 0 in
     let completed = ref 0 in
     let failures = ref [] in
-    (* Resource-aware scheduler core budget: a job dispatches only when
-       [free_cores] covers its [job_rayon]; cores are released on completion.
-       With no [scheduler_config], both are 0 so the gate is a no-op. *)
-    let free_cores =
-      ref (Option.value_map scheduler_config ~default:0 ~f:(fun c -> c.cores))
+    (* Resource-aware scheduler budget: a job dispatches only when [free_budget]
+       covers its [job_cost]; the cost is released on completion. With no
+       [scheduler_config], both are 0 so the gate is a no-op. *)
+    let free_budget =
+      ref (Option.value_map scheduler_config ~default:0. ~f:(fun c -> c.budget))
     in
-    let job_rayon i =
-      Option.value_map scheduler_config ~default:0 ~f:(fun c ->
-          Int.min c.cores (config_task_rayon c tasks.(i).cmd) )
+    let job_cost i =
+      Option.value_map scheduler_config ~default:0. ~f:(fun c ->
+          Float.min c.budget (config_task_alloc c tasks.(i).cmd).cost )
     in
     let is_ready i =
       match tasks.(i).status with
@@ -1958,14 +1990,14 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           false
     in
     let start_task i worker_used =
-      let cfg_rayon =
+      let cfg_cores =
         Option.map scheduler_config ~f:(fun c ->
-            config_task_rayon c tasks.(i).cmd )
+            (config_task_alloc c tasks.(i).cmd).cores )
       in
       (* With a resource-aware config active, append the job's allocated rayon
          so the worker sizes its prove pool to match. *)
       let inner_cmd =
-        match cfg_rayon with
+        match cfg_cores with
         | Some r ->
             sprintf "%s --rayon %d" tasks.(i).cmd r
         | None ->
@@ -1983,7 +2015,7 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
       Printf.eprintf "  [%.3f] #%d starting [%d/%d]%s $ %s\n%!"
         (Core_unix.gettimeofday ())
         (i + 1) !completed n
-        (Option.value_map cfg_rayon ~default:"" ~f:(sprintf " rayon=%d"))
+        (Option.value_map cfg_cores ~default:"" ~f:(sprintf " rayon=%d"))
         cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
@@ -1995,7 +2027,7 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           Option.iter worker_used ~f:(fun w ->
               Hashtbl.set pid_to_worker ~key:pid ~data:w ) ;
           incr running ;
-          free_cores := !free_cores - job_rayon i
+          free_budget := !free_budget -. job_cost i
     in
     (* Highest-priority ready task satisfying [serves], or -1 if none. *)
     let best_task_for serves =
@@ -2004,7 +2036,7 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
       for i = 0 to n - 1 do
         if
           is_ready i && tasks.(i).priority > !best_pri && serves i
-          && job_rayon i <= !free_cores
+          && Float.(job_cost i <= !free_budget)
         then (
           best := i ;
           best_pri := tasks.(i).priority )
@@ -2075,7 +2107,7 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           | None ->
               () ) ;
           decr running ;
-          free_cores := !free_cores + job_rayon task_idx ;
+          free_budget := !free_budget +. job_cost task_idx ;
           ( match status with
           | Ok () ->
               tasks.(task_idx).status <- Done ;
