@@ -1748,6 +1748,13 @@ let tip_fuse = Option.is_some (Stdlib.Sys.getenv_opt "TIP_FUSE")
    Same per-task hook as [tip_fuse]. *)
 let tip_commit_split = Stdlib.Sys.getenv_opt "TIP_COMMIT_SPLIT"
 
+(* When [COMPRESS_THREADS=N] is set, the daemon sets KIMCHI_PROVE_THREADS=N for
+   tip-layer compress proofs (0 -- the worker's own global rayon -- otherwise),
+   so those low-concurrency proofs run in a scoped N-thread pool while the many
+   parallel base proofs keep the worker's lean global rayon. Same per-task hook
+   as [tip_fuse]; the tail layers are those selected by [tip_layers]. *)
+let compress_threads = Stdlib.Sys.getenv_opt "COMPRESS_THREADS"
+
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
 let task_requirement cmd =
@@ -2342,6 +2349,8 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
               Core_unix.putenv ~key:"KIMCHI_FUSE_GATES" ~data:"0" ;
             if Option.is_some tip_commit_split then
               Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT" ~data:"1" ;
+            if Option.is_some compress_threads then
+              Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ;
             ( match base_provers.(n) with
             | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
@@ -2413,6 +2422,11 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             | Some n ->
                 Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT"
                   ~data:(if is_tip then n else "1")
+            | None -> () ) ;
+            ( match compress_threads with
+            | Some n ->
+                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
+                  ~data:(if is_tip then n else "0")
             | None -> () ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
