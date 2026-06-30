@@ -33,13 +33,18 @@ export MALLOC_ARENA_MAX=2
 mapfile -t POOLS < <(python3 - "$CONFIG" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
-workers = {}
+workers = {}  # label -> base circuits it serves (may be empty: merge/state-only)
 for k, v in cfg["jobs"].items():
-    if k.isdigit() and isinstance(v, dict) and "worker" in v:
-        workers.setdefault(v["worker"], []).append(int(k))
+    if isinstance(v, dict) and "worker" in v:
+        workers.setdefault(v["worker"], [])
+        if k.isdigit():
+            workers[v["worker"]].append(int(k))
 for wid in sorted(workers):
     circs = ",".join(str(c) for c in sorted(workers[wid]))
-    print(f"{circs},compress:2:1")
+    shard = (circs + ",") if circs else ""
+    # @<label> pins this worker's identity so the config can target merge/state
+    # jobs at it; the shard + compress is its capability.
+    print(f"@{wid},{shard}compress:2:1")
 PY
 )
 SLOTS=${#POOLS[@]}
