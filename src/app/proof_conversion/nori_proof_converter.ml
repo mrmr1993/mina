@@ -1868,7 +1868,9 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
               (Filename.quote worker.socket)
               (Filename.quote tasks.(i).cmd)
       in
-      Printf.eprintf "  #%d starting [%d/%d] $ %s\n%!" (i + 1) !completed n cmd ;
+      Printf.eprintf "  [%.3f] #%d starting [%d/%d] $ %s\n%!"
+        (Core_unix.gettimeofday ())
+        (i + 1) !completed n cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
           let exit_code = Stdlib.Sys.command cmd in
@@ -1959,8 +1961,9 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           | Ok () ->
               tasks.(task_idx).status <- Done ;
               incr completed ;
-              Printf.eprintf "  #%d completed [%d/%d]\n%!" (task_idx + 1)
-                !completed n
+              Printf.eprintf "  [%.3f] #%d completed [%d/%d] $ %s\n%!"
+                (Core_unix.gettimeofday ())
+                (task_idx + 1) !completed n tasks.(task_idx).cmd
           | Error (`Exit_non_zero code) ->
               tasks.(task_idx).status <- Failed code ;
               failures := (task_idx, code) :: !failures
