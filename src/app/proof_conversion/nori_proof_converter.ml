@@ -1413,6 +1413,26 @@ let do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
     ~base_count ~layer ~index =
   Printf.eprintf "Compressing: base=%d layer=%d index=%d in %s\n%!" base_count
     layer index workdir ;
+  let canonical = (base_count + (1 lsl layer) - 1) lsr layer in
+  if index lsl layer >= base_count && index > canonical then (
+    (* Duplicate full-dummy node: every full-dummy node at a layer proves the
+       same no-op statement, so copy the canonical layer dummy's outputs
+       (proof, vk, carry) rather than re-prove an identical proof. The DAG makes
+       this node depend on the canonical, so its outputs are already written. *)
+    let cp a b = Out_channel.write_all b ~data:(In_channel.read_all a) in
+    cp
+      (W.proof_path workdir ~layer ~index:canonical)
+      (W.proof_path workdir ~layer ~index) ;
+    cp
+      (W.vk_path workdir ~layer ~index:canonical)
+      (W.vk_path workdir ~layer ~index) ;
+    let carry i =
+      Filename.concat (W.state_dir workdir) (sprintf "carry_%d_%d.bin" layer i)
+    in
+    cp (carry canonical) (carry index) ;
+    Printf.eprintf "Layer %d index %d copied from canonical dummy %d.\n%!" layer
+      index canonical )
+  else
   let system = W.detect_system ~workdir in
   let left_idx = index * 2 in
   let right_idx = (index * 2) + 1 in
@@ -2694,8 +2714,14 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     for index = 0 to n_merges - 1 do
       let left_child = index * 2 in
       let right_child = (index * 2) + 1 in
+      let is_pad = index lsl layer >= base_count in
+      let canonical = (base_count + (1 lsl layer) - 1) lsr layer in
       let deps =
-        if layer = 1 then
+        if is_pad && index > canonical then
+          (* Duplicate full-dummy node: copies the canonical layer dummy's
+             outputs, so it depends only on that canonical node. *)
+          [| layer_start.(layer) + canonical |]
+        else if layer = 1 then
           (* A padding child (index >= base_count) is read as base 0, the dummy
              proof (see [read_base]'s [else 0]). Depend on base 0 to match, so a
              padding merge can't be dispatched before base 0 is written and then
@@ -2713,7 +2739,6 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
          and real merges (0): they fill head spare-capacity early -- narrow,
          under PAD_THREADS -- without delaying base proving or the real merge
          tree on the critical path. *)
-      let is_pad = index lsl layer >= base_count in
       tasks.(!task_idx) <-
         { cmd = sprintf "compress %s %d %d %d" workdir base_count layer index
         ; deps
@@ -3064,8 +3089,13 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
     for index = 0 to n_merges - 1 do
       let left_child = index * 2 in
       let right_child = (index * 2) + 1 in
+      let canonical = (base_count + (1 lsl layer) - 1) lsr layer in
       let deps =
-        if layer = 1 then
+        if index lsl layer >= base_count && index > canonical then
+          (* Duplicate full-dummy node: copies the canonical layer dummy's
+             outputs, so it depends only on that canonical node. *)
+          [| layer_start.(layer) + canonical |]
+        else if layer = 1 then
           (* A padding child (index >= base_count) is read as base 0, the dummy
              proof (see [read_base]'s [else 0]). Depend on base 0 to match, so a
              padding merge can't be dispatched before base 0 is written and then
