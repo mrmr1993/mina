@@ -1795,6 +1795,61 @@ let compress_cores =
   Option.value_map ~default:20 ~f:Int.of_string
     (Stdlib.Sys.getenv_opt "COMPRESS_CORES")
 
+(* Resource-aware scheduler configuration, loaded from the JSON file named by
+   [SCHEDULER_CONFIG]. [cores] is the total core budget the scheduler allocates
+   across concurrently-running jobs; [rayon] explicitly assigns cores per
+   individual job, keyed by job identity (base index, "layer1:<i>",
+   "node:<layer>:<i>"), with an optional "default" fallback. When
+   [SCHEDULER_CONFIG] is unset the scheduler keeps its legacy greedy behaviour
+   (per-task rayon from env flags). *)
+type scheduler_config = { cores : int; rayon : int String.Map.t }
+
+let scheduler_config : scheduler_config option =
+  match Stdlib.Sys.getenv_opt "SCHEDULER_CONFIG" with
+  | None ->
+      None
+  | Some path ->
+      let json = Yojson.Safe.from_file path in
+      let int_field name default =
+        match Yojson.Safe.Util.member name json with
+        | `Int n ->
+            n
+        | _ ->
+            default
+      in
+      let rayon =
+        match Yojson.Safe.Util.member "rayon" json with
+        | `Assoc kvs ->
+            List.fold kvs ~init:String.Map.empty ~f:(fun m (k, v) ->
+                match v with `Int n -> Map.set m ~key:k ~data:n | _ -> m )
+        | _ ->
+            String.Map.empty
+      in
+      Some { cores = int_field "cores" 20; rayon }
+
+(* Cores to allocate a task under the resource-aware scheduler: an explicit
+   per-job assignment from the config, keyed by the job's identity -- base
+   circuit index ("0".."23"), "layer1:<index>", or "node:<layer>:<index>" --
+   falling back to a "default" entry, then to 1 core. *)
+let config_task_rayon cfg cmd =
+  let key =
+    match
+      String.split cmd ~on:' ' |> List.filter ~f:(Fn.non String.is_empty)
+    with
+    | "prove-zkp" :: _workdir :: n :: _ ->
+        Some n
+    | "compress" :: _workdir :: _base_count :: layer :: index :: _ ->
+        if String.equal layer "1" then Some ("layer1:" ^ index)
+        else Some (sprintf "node:%s:%s" layer index)
+    | _ ->
+        None
+  in
+  match Option.bind key ~f:(Map.find cfg.rayon) with
+  | Some n ->
+      n
+  | None ->
+      Option.value (Map.find cfg.rayon "default") ~default:1
+
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
 let task_requirement cmd =
@@ -1907,9 +1962,15 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
               (Filename.quote worker.socket)
               (Filename.quote tasks.(i).cmd)
       in
-      Printf.eprintf "  [%.3f] #%d starting [%d/%d] $ %s\n%!"
+      let cfg_rayon =
+        Option.map scheduler_config ~f:(fun c ->
+            config_task_rayon c tasks.(i).cmd )
+      in
+      Printf.eprintf "  [%.3f] #%d starting [%d/%d]%s $ %s\n%!"
         (Core_unix.gettimeofday ())
-        (i + 1) !completed n cmd ;
+        (i + 1) !completed n
+        (Option.value_map cfg_rayon ~default:"" ~f:(sprintf " rayon=%d"))
+        cmd ;
       match Core_unix.fork () with
       | `In_the_child ->
           let exit_code = Stdlib.Sys.command cmd in
