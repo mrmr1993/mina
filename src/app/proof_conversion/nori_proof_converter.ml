@@ -1754,6 +1754,13 @@ let tip_commit_split = Stdlib.Sys.getenv_opt "TIP_COMMIT_SPLIT"
    hook as [tip_fuse]. *)
 let compress_threads = Stdlib.Sys.getenv_opt "COMPRESS_THREADS"
 
+(* When [BASE_THREADS=N] is set, the daemon inverts the per-task pool usage:
+   base proofs run in a scoped N-thread pool (lean) while compression proofs use
+   the worker's global pool. With RAYON_NUM_THREADS sized for the merges, this
+   gives R5-style global merge threads with no per-merge pool allocation -- only
+   cheap lean base pools. Mutually exclusive with [COMPRESS_THREADS]. *)
+let base_threads = Stdlib.Sys.getenv_opt "BASE_THREADS"
+
 (* Core count the compression ramp targets at each layer; defaults to this
    machine's core count. *)
 let compress_cores =
@@ -2347,8 +2354,12 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
               Core_unix.putenv ~key:"KIMCHI_FUSE_GATES" ~data:"0" ;
             if Option.is_some tip_commit_split then
               Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT" ~data:"1" ;
-            if Option.is_some compress_threads then
-              Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ;
+            ( match base_threads with
+            | Some t ->
+                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:t
+            | None ->
+                if Option.is_some compress_threads then
+                  Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ;
             ( match base_provers.(n) with
             | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
@@ -2434,7 +2445,9 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                 let rayon = Int.min cap (Int.max 1 ramp) in
                 Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
                   ~data:(Int.to_string rayon)
-            | None -> () ) ;
+            | None ->
+                if Option.is_some base_threads then
+                  Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
