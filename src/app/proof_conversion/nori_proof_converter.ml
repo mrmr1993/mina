@@ -1814,7 +1814,7 @@ let compress_cores =
    oversubscription -- a job running on more threads than its effective core
    cost. A bare integer [N] is shorthand for [{ cores = N; cost = N }] (1:1).
    When [SCHEDULER_CONFIG] is unset the scheduler keeps its legacy behaviour. *)
-type job_alloc = { cores : int; cost : float }
+type job_alloc = { cores : int; cost : float; priority : int }
 
 type scheduler_config = { budget : float; jobs : job_alloc String.Map.t }
 
@@ -1839,7 +1839,7 @@ let scheduler_config : scheduler_config option =
       in
       let parse_alloc = function
         | `Int n ->
-            Some { cores = n; cost = float_of_int n }
+            Some { cores = n; cost = float_of_int n; priority = 0 }
         | `Assoc _ as o ->
             let cores =
               match Yojson.Safe.Util.member "cores" o with `Int n -> n | _ -> 1
@@ -1849,7 +1849,14 @@ let scheduler_config : scheduler_config option =
                 (to_float (Yojson.Safe.Util.member "cost" o))
                 ~default:(float_of_int cores)
             in
-            Some { cores; cost }
+            let priority =
+              match Yojson.Safe.Util.member "priority" o with
+              | `Int n ->
+                  n
+              | _ ->
+                  0
+            in
+            Some { cores; cost; priority }
         | _ ->
             None
       in
@@ -1890,7 +1897,7 @@ let config_task_alloc cfg cmd =
   | None ->
       Option.value
         (Map.find cfg.jobs "default")
-        ~default:{ cores = 1; cost = 1. }
+        ~default:{ cores = 1; cost = 1.; priority = 0 }
 
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
@@ -1932,6 +1939,16 @@ let worker_serves cap = function
     Without [~worker_dispatch], tasks are forked as shell commands. *)
 let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
     (tasks : dag_task array) =
+  (* Override per-task priorities from the resource-aware config when present,
+     so scheduling order is part of the config rather than hard-coded. *)
+  ( match scheduler_config with
+  | Some c ->
+      Array.iteri tasks ~f:(fun i t ->
+          if not (String.is_empty t.cmd) then
+            tasks.(i) <-
+              { t with priority = (config_task_alloc c t.cmd).priority } )
+  | None ->
+      () ) ;
   let n = Array.length tasks in
   if n = 0 then ()
   else if parallelism <= 1 then
