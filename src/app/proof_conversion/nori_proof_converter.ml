@@ -1614,7 +1614,17 @@ let run_internal_compress_daemon ~socket_path =
     let oc = Core_unix.out_channel_of_descr client_fd in
     ( try
         let line = In_channel.input_line_exn ic in
-        let parts = String.split line ~on:' ' in
+        let raw_parts = String.split line ~on:' ' in
+        (* A trailing "--rayon N" (appended by the resource-aware scheduler)
+           sizes this task's prove pool; strip it before matching the command. *)
+        let parts =
+          match List.rev raw_parts with
+          | n :: "--rayon" :: rest ->
+              Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:n ;
+              List.rev rest
+          | _ ->
+              raw_parts
+        in
         match parts with
         | [ "shutdown" ] ->
             Out_channel.output_string oc "OK\n" ;
@@ -1952,19 +1962,27 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           false
     in
     let start_task i worker_used =
-      let cmd =
-        match worker_used with
-        | None ->
-            tasks.(i).cmd
-        | Some worker ->
-            let self = Filename.quote Sys.argv.(0) in
-            sprintf "%s internal dispatch-to-worker %s %s" self
-              (Filename.quote worker.socket)
-              (Filename.quote tasks.(i).cmd)
-      in
       let cfg_rayon =
         Option.map scheduler_config ~f:(fun c ->
             config_task_rayon c tasks.(i).cmd )
+      in
+      (* With a resource-aware config active, append the job's allocated rayon
+         so the worker sizes its prove pool to match. *)
+      let inner_cmd =
+        match cfg_rayon with
+        | Some r ->
+            sprintf "%s --rayon %d" tasks.(i).cmd r
+        | None ->
+            tasks.(i).cmd
+      in
+      let cmd =
+        match worker_used with
+        | None ->
+            inner_cmd
+        | Some worker ->
+            let self = Filename.quote Sys.argv.(0) in
+            sprintf "%s internal dispatch-to-worker %s %s" self
+              (Filename.quote worker.socket) (Filename.quote inner_cmd)
       in
       Printf.eprintf "  [%.3f] #%d starting [%d/%d]%s $ %s\n%!"
         (Core_unix.gettimeofday ())
@@ -2453,7 +2471,17 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
     let oc = Core_unix.out_channel_of_descr client_fd in
     ( try
         let line = In_channel.input_line_exn ic in
-        let parts = String.split line ~on:' ' in
+        let raw_parts = String.split line ~on:' ' in
+        (* A trailing "--rayon N" (appended by the resource-aware scheduler)
+           sizes this task's prove pool; strip it before matching the command. *)
+        let parts =
+          match List.rev raw_parts with
+          | n :: "--rayon" :: rest ->
+              Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:n ;
+              List.rev rest
+          | _ ->
+              raw_parts
+        in
         match parts with
         | [ "shutdown" ] ->
             Out_channel.output_string oc "OK\n" ;
