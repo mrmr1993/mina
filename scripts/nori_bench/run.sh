@@ -77,4 +77,4 @@ timeout 1800 scripts/nori_bench/bench.sh --name "$NAME" --slots "$SLOTS" \
 cp /tmp/nori_bench_out.log "$LOG" 2>/dev/null || true
 
 echo "## Gantt ($LOG):"
-python3 scripts/nori_bench/gantt.py "$LOG" --config "$CONFIG" --width 100 || true
+python3 scripts/nori_bench/gantt.py "$LOG" --config "$CONFIG" --width 100 --by-worker || true
