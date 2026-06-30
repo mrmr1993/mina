@@ -1763,6 +1763,12 @@ let compress_threads = Stdlib.Sys.getenv_opt "COMPRESS_THREADS"
    cheap lean base pools. Mutually exclusive with [COMPRESS_THREADS]. *)
 let base_threads = Stdlib.Sys.getenv_opt "BASE_THREADS"
 
+(* When [PAD_THREADS=N] is set, full-dummy padding compression nodes prove in a
+   scoped N-thread pool. Combined with a dedicated [pad] worker, this computes
+   the data-independent dummy subtree narrow during the head, off the tail's
+   critical path, instead of letting it congest the tail. *)
+let pad_threads = Stdlib.Sys.getenv_opt "PAD_THREADS"
+
 (* Core count the compression ramp targets at each layer; defaults to this
    machine's core count. *)
 let compress_cores =
@@ -2456,22 +2462,32 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                 Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT"
                   ~data:(if is_tip then n else "1")
             | None -> () ) ;
-            ( match compress_threads with
-            | Some cap_s ->
-                let cap = Int.of_string cap_s in
-                let layer = Int.of_string layer_s in
-                let base_count = Int.of_string base_count_s in
-                let merges =
-                  Int.max 1
-                    ((base_count + (1 lsl layer) - 1) / (1 lsl layer))
-                in
-                let ramp = (compress_cores + merges - 1) / merges in
-                let rayon = Int.min cap (Int.max 1 ramp) in
-                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
-                  ~data:(Int.to_string rayon)
-            | None ->
-                if Option.is_some base_threads then
-                  Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ;
+            let is_pad =
+              Int.of_string index_s lsl Int.of_string layer_s
+              >= Int.of_string base_count_s
+            in
+            ( match pad_threads with
+            | Some p when is_pad ->
+                (* Full-dummy padding node: prove narrow so it fills spare head
+                   capacity without trampling base proofs. *)
+                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:p
+            | _ -> (
+                match compress_threads with
+                | Some cap_s ->
+                    let cap = Int.of_string cap_s in
+                    let layer = Int.of_string layer_s in
+                    let base_count = Int.of_string base_count_s in
+                    let merges =
+                      Int.max 1
+                        ((base_count + (1 lsl layer) - 1) / (1 lsl layer))
+                    in
+                    let ramp = (compress_cores + merges - 1) / merges in
+                    let rayon = Int.min cap (Int.max 1 ramp) in
+                    Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
+                      ~data:(Int.to_string rayon)
+                | None ->
+                    if Option.is_some base_threads then
+                      Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
