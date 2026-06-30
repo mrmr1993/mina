@@ -1736,6 +1736,9 @@ type worker_cap =
   ; serves_base : int -> bool
   ; serves_layer : int -> bool
   ; serves_pad : bool
+  ; label : string option
+        (** Worker id ("w0"..), from the [@<label>] component of its circuit
+            spec; lets a job pin itself to this worker via the config. *)
   }
 
 (** What a task needs from a worker, derived from its inner command. Each
@@ -1814,7 +1817,8 @@ let compress_cores =
    oversubscription -- a job running on more threads than its effective core
    cost. A bare integer [N] is shorthand for [{ cores = N; cost = N }] (1:1).
    When [SCHEDULER_CONFIG] is unset the scheduler keeps its legacy behaviour. *)
-type job_alloc = { cores : int; cost : float; priority : int }
+type job_alloc =
+  { cores : int; cost : float; priority : int; worker : string option }
 
 type scheduler_config = { budget : float; jobs : job_alloc String.Map.t }
 
@@ -1839,7 +1843,7 @@ let scheduler_config : scheduler_config option =
       in
       let parse_alloc = function
         | `Int n ->
-            Some { cores = n; cost = float_of_int n; priority = 0 }
+            Some { cores = n; cost = float_of_int n; priority = 0; worker = None }
         | `Assoc _ as o ->
             let cores =
               match Yojson.Safe.Util.member "cores" o with `Int n -> n | _ -> 1
@@ -1856,7 +1860,14 @@ let scheduler_config : scheduler_config option =
               | _ ->
                   0
             in
-            Some { cores; cost; priority }
+            let worker =
+              match Yojson.Safe.Util.member "worker" o with
+              | `String s ->
+                  Some s
+              | _ ->
+                  None
+            in
+            Some { cores; cost; priority; worker }
         | _ ->
             None
       in
@@ -1888,6 +1899,8 @@ let config_task_alloc cfg cmd =
     | "compress" :: _workdir :: _base_count :: layer :: index :: _ ->
         if String.equal layer "1" then Some ("layer1:" ^ index)
         else Some (sprintf "node:%s:%s" layer index)
+    | "compute-state" :: _workdir :: n :: _ ->
+        Some ("state:" ^ n)
     | _ ->
         None
   in
@@ -1897,7 +1910,10 @@ let config_task_alloc cfg cmd =
   | None ->
       Option.value
         (Map.find cfg.jobs "default")
-        ~default:{ cores = 1; cost = 1.; priority = 0 }
+        ~default:{ cores = 1; cost = 1.; priority = 0; worker = None }
+
+(* The worker a job is pinned to in the config, if any. *)
+let config_task_worker cfg cmd = (config_task_alloc cfg cmd).worker
 
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
@@ -2078,8 +2094,26 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
               start_task best None ;
               again := true )
         | Some _ ->
+            (* A job pinned to a worker in the config (its [worker] field) is
+               only serveable by the worker whose label matches; unpinned jobs
+               keep the capability-based behaviour. *)
+            let pin_ok w cmd =
+              match
+                Option.bind scheduler_config ~f:(fun c ->
+                    config_task_worker c cmd )
+              with
+              | Some jw -> (
+                  match w.label with
+                  | Some wl ->
+                      String.equal wl jw
+                  | None ->
+                      false )
+              | None ->
+                  true
+            in
             let serveable w i =
               worker_serves w (task_requirement tasks.(i).cmd)
+              && pin_ok w tasks.(i).cmd
             in
             let flexibility w =
               let c = ref 0 in
@@ -2369,11 +2403,13 @@ let parse_circuits_spec ~base_count spec =
   let ml = max_compression_layer base_count in
   let tip_lo = ml - tip_layers + 1 in
   let range lo hi = List.init (max 0 (hi - lo + 1)) ~f:(fun i -> lo + i) in
-  if String.equal spec "all" then (None, Int.Set.of_list (range 1 ml), false)
+  if String.equal spec "all" then
+    (None, Int.Set.of_list (range 1 ml), false, None)
   else
     let base_set = Hash_set.create (module Int) in
     let layers = ref Int.Set.empty in
     let pad = ref false in
+    let label = ref None in
     let add_layers ls = layers := List.fold ls ~init:!layers ~f:Set.add in
     let parts = String.split spec ~on:',' in
     List.iter parts ~f:(fun part ->
@@ -2382,6 +2418,8 @@ let parse_circuits_spec ~base_count spec =
         else if String.equal part "tip" then add_layers (range tip_lo ml)
         else if String.equal part "compress" then add_layers (range 1 ml)
         else if String.equal part "pad" then pad := true
+        else if String.is_prefix part ~prefix:"@" then
+          label := Some (String.drop_prefix part 1)
         else
           match String.chop_prefix part ~prefix:"layer" with
           | Some n ->
@@ -2404,7 +2442,7 @@ let parse_circuits_spec ~base_count spec =
         None
       else Some base_set
     in
-    (base, !layers, !pad)
+    (base, !layers, !pad, !label)
 
 (** Unified prove daemon: compiles circuits at startup (optionally a subset),
     then serves prove-zkp, compress, compute-state, generate-witness, and
@@ -2420,7 +2458,7 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
   let base_set, compile_layer1_flag, compile_node_flag =
     match circuits_spec with
     | Some spec ->
-        let base, layers, pad = parse_circuits_spec ~base_count spec in
+        let base, layers, pad, _label = parse_circuits_spec ~base_count spec in
         (* layer1 has its own circuit; every layer >= 2 shares the node circuit
            (the tip is just the top layer, proved on the same node circuit). A
            pad worker proves dummy nodes spanning layer1 and the node layers, so
@@ -2727,13 +2765,16 @@ let discover_workers ~base_count ~socket_dir =
           String.strip (In_channel.read_all manifest)
         else "all"
       in
-      let base_set, layers, pad = parse_circuits_spec ~base_count spec in
+      let base_set, layers, pad, label =
+        parse_circuits_spec ~base_count spec
+      in
       { socket
       ; serves_base =
           (fun n ->
             match base_set with None -> true | Some s -> Hash_set.mem s n )
       ; serves_layer = (fun l -> Set.mem layers l)
       ; serves_pad = pad
+      ; label
       } )
 
 (** Run a proof conversion using pre-started worker daemons.
