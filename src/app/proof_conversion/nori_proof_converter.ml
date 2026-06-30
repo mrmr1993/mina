@@ -2671,7 +2671,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     tasks.(cs_start + n) <-
       { cmd = sprintf "compute-state %s %d" workdir n
       ; deps
-      ; priority = 2
+      ; priority = 3
       ; status = Pending
       }
   done ;
@@ -2679,7 +2679,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
     tasks.(prove_start + n) <-
       { cmd = sprintf "prove-zkp %s %d" workdir n
       ; deps = [| cs_start + n |]
-      ; priority = 1
+      ; priority = 2
       ; status = Pending
       }
   done ;
@@ -2709,10 +2709,15 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
           let prev_start = layer_start.(layer - 1) in
           [| prev_start + left_child; prev_start + right_child |]
       in
+      (* Full-dummy padding nodes get a priority tier between base proofs (2)
+         and real merges (0): they fill head spare-capacity early -- narrow,
+         under PAD_THREADS -- without delaying base proving or the real merge
+         tree on the critical path. *)
+      let is_pad = index lsl layer >= base_count in
       tasks.(!task_idx) <-
         { cmd = sprintf "compress %s %d %d %d" workdir base_count layer index
         ; deps
-        ; priority = 0
+        ; priority = (if is_pad then 1 else 0)
         ; status = Pending
         } ;
       incr task_idx
