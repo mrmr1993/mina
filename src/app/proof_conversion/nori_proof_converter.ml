@@ -1705,6 +1705,7 @@ type worker_cap =
   { socket : string
   ; serves_base : int -> bool
   ; serves_layer : int -> bool
+  ; serves_pad : bool
   }
 
 (** What a task needs from a worker, derived from its inner command. Each
@@ -1716,6 +1717,7 @@ type task_req =
   | Any_worker
   | Base_circuit of int
   | Compress_layer of int
+  | Pad_node of int
 
 (** The top (root) layer of the compression tree for [base_count] leaves. The
     tree is built over the next power of two, so this is [log2] of that. *)
@@ -1775,8 +1777,14 @@ let task_requirement cmd =
   with
   | "prove-zkp" :: _workdir :: n :: _ ->
       Base_circuit (Int.of_string n)
-  | "compress" :: _workdir :: _base_count :: layer :: _ ->
-      Compress_layer (Int.of_string layer)
+  | "compress" :: _workdir :: base_count :: layer :: index :: _ ->
+      let l = Int.of_string layer in
+      (* A full-dummy (padding) node -- every leaf under it is a padding slot --
+         is identified by [index lsl layer >= base_count]. It proves the same
+         no-op statement regardless of the conversion's data, so it can run
+         early and narrow, off the critical path. *)
+      if Int.of_string index lsl l >= Int.of_string base_count then Pad_node l
+      else Compress_layer l
   | _ ->
       Any_worker
 
@@ -1787,6 +1795,11 @@ let worker_serves cap = function
       cap.serves_base n
   | Compress_layer l ->
       cap.serves_layer l
+  | Pad_node l ->
+      (* A pad node prefers a dedicated pad worker, but any worker that serves
+         layer [l] can also prove it (it is a layer-[l] compress over dummies),
+         so configs without a pad worker still complete. *)
+      cap.serves_pad || cap.serves_layer l
 
 (** Run a DAG of tasks with bounded parallelism.
     When [~worker_dispatch] is provided, tasks are dispatched to workers
@@ -2193,17 +2206,19 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
 
 (** Parse a --circuits spec like "0-11,layer1,layer2" or "all". Compression
     labels: [layerN] serves compression layer N; [node]/[tip] remain shorthands
-    for the intermediate / top-[tip_layers] layers; [compress] is every layer.
-    Returns (base_circuit_set option, served_compression_layers). None for base
-    set means compile all base circuits. *)
+    for the intermediate / top-[tip_layers] layers; [compress] is every layer;
+    [pad] dedicates the worker to full-dummy padding nodes and serves no real
+    layer. Returns (base_circuit_set option, served_compression_layers, pad).
+    None for base set means compile all base circuits. *)
 let parse_circuits_spec ~base_count spec =
   let ml = max_compression_layer base_count in
   let tip_lo = ml - tip_layers + 1 in
   let range lo hi = List.init (max 0 (hi - lo + 1)) ~f:(fun i -> lo + i) in
-  if String.equal spec "all" then (None, Int.Set.of_list (range 1 ml))
+  if String.equal spec "all" then (None, Int.Set.of_list (range 1 ml), false)
   else
     let base_set = Hash_set.create (module Int) in
     let layers = ref Int.Set.empty in
+    let pad = ref false in
     let add_layers ls = layers := List.fold ls ~init:!layers ~f:Set.add in
     let parts = String.split spec ~on:',' in
     List.iter parts ~f:(fun part ->
@@ -2211,6 +2226,7 @@ let parse_circuits_spec ~base_count spec =
         if String.equal part "node" then add_layers (range 2 (tip_lo - 1))
         else if String.equal part "tip" then add_layers (range tip_lo ml)
         else if String.equal part "compress" then add_layers (range 1 ml)
+        else if String.equal part "pad" then pad := true
         else
           match String.chop_prefix part ~prefix:"layer" with
           | Some n ->
@@ -2229,10 +2245,11 @@ let parse_circuits_spec ~base_count spec =
               | _ ->
                   failwith (sprintf "Bad --circuits component: %s" part) ) ) ;
     let base =
-      if Hash_set.is_empty base_set && Set.is_empty !layers then None
+      if Hash_set.is_empty base_set && Set.is_empty !layers && not !pad then
+        None
       else Some base_set
     in
-    (base, !layers)
+    (base, !layers, !pad)
 
 (** Unified prove daemon: compiles circuits at startup (optionally a subset),
     then serves prove-zkp, compress, compute-state, generate-witness, and
@@ -2248,10 +2265,14 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
   let base_set, compile_layer1_flag, compile_node_flag =
     match circuits_spec with
     | Some spec ->
-        let base, layers = parse_circuits_spec ~base_count spec in
+        let base, layers, pad = parse_circuits_spec ~base_count spec in
         (* layer1 has its own circuit; every layer >= 2 shares the node circuit
-           (the tip is just the top layer, proved on the same node circuit). *)
-        (base, Set.mem layers 1, Set.exists layers ~f:(fun l -> l >= 2))
+           (the tip is just the top layer, proved on the same node circuit). A
+           pad worker proves dummy nodes spanning layer1 and the node layers, so
+           it compiles both even though it serves no real layer. *)
+        ( base
+        , Set.mem layers 1 || pad
+        , Set.exists layers ~f:(fun l -> l >= 2) || pad )
     | None ->
         (None, true, true)
   in
@@ -2531,12 +2552,13 @@ let discover_workers ~base_count ~socket_dir =
           String.strip (In_channel.read_all manifest)
         else "all"
       in
-      let base_set, layers = parse_circuits_spec ~base_count spec in
+      let base_set, layers, pad = parse_circuits_spec ~base_count spec in
       { socket
       ; serves_base =
           (fun n ->
             match base_set with None -> true | Some s -> Hash_set.mem s n )
       ; serves_layer = (fun l -> Set.mem layers l)
+      ; serves_pad = pad
       } )
 
 (** Run a proof conversion using pre-started worker daemons.
