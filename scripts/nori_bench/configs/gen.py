@@ -81,7 +81,32 @@ def het():
     return {"budget": 20, "jobs": jobs}
 
 
-CONFIGS = {"oversub_head": oversub_head, "het": het}
+def het12():
+    """Clean rebalance after het11 drifted (w7 had 3 base, scattered cores).
+
+    Even het-14 shards (no worker > 2 base), oversubscribed head: heavy base on
+    5 threads (cost 1.5), light on 4 (cost 1.3) -- the light bump uses the head's
+    budget headroom (6*1.5 + 8*1.3 = 19.4) to shorten the second base wave.
+    Keeps the tail tweaks that helped in manual tuning: the padding-canonical
+    nodes node:2:6 and node:3:3 (which gate the root's half-padding child) get
+    more cores so the root isn't waiting on a 1-thread dummy.
+    """
+    jobs = {}
+    heavy = {8, 9, 10, 11, 14, 15, 16, 17, 20, 21, 22, 23}
+    for n in range(24):
+        if n in heavy:
+            jobs[str(n)] = {"cores": 5, "cost": 1.5, "priority": PRI_BASE,
+                            "worker": WORKER_OF[n]}
+        else:
+            jobs[str(n)] = {"cores": 4, "cost": 1.3, "priority": PRI_BASE,
+                            "worker": WORKER_OF[n]}
+    _tail(jobs, {2: 2, 3: 4, 4: 6, 5: 8})
+    jobs["node:2:6"] = {"cores": 2, "cost": 2, "priority": PRI_MERGE}
+    jobs["node:3:3"] = {"cores": 4, "cost": 4, "priority": PRI_MERGE}
+    return {"budget": 20, "jobs": jobs}
+
+
+CONFIGS = {"oversub_head": oversub_head, "het": het, "het12": het12}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "oversub_head"
