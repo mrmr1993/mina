@@ -1949,25 +1949,11 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
       Option.value_map scheduler_config ~default:0 ~f:(fun c ->
           Int.min c.cores (config_task_rayon c tasks.(i).cmd) )
     in
-    (* [BASE_FIRST]: hold back every compression task until all base proofs have
-       started proving, so the prove-capacity gate is never shared between base
-       proofs and the compression of already-finished shards. *)
-    let base_first = Option.is_some (Stdlib.Sys.getenv_opt "BASE_FIRST") in
-    let is_compress_task t = String.is_prefix t.cmd ~prefix:"compress" in
-    let all_base_started () =
-      not
-        (Array.exists tasks ~f:(fun t ->
-             String.is_prefix t.cmd ~prefix:"prove-zkp"
-             && match t.status with Pending -> true | _ -> false ) )
-    in
     let is_ready i =
       match tasks.(i).status with
       | Pending ->
           Array.for_all tasks.(i).deps ~f:(fun d ->
               match tasks.(d).status with Done -> true | _ -> false )
-          && ( (not base_first)
-             || (not (is_compress_task tasks.(i)))
-             || all_base_started () )
       | _ ->
           false
     in
@@ -2811,21 +2797,6 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
   let layer_start = Array.create ~len:(max_layer + 1) 0 in
   layer_start.(0) <- prove_start ;
   let task_idx = ref compress_start in
-  let delay_merges_on_pad =
-    Option.is_some (Stdlib.Sys.getenv_opt "DELAY_MERGES_ON_PAD")
-  in
-  (* Optional artificial barrier: gate the real merge tree behind the canonical
-     layer-2 padding node, so base proofs own the head uncontested and the real
-     merges then run unblocked at full rayon. The padding subtree depends only
-     on the last state hash, never on the real proofs, so this adds no cycle. *)
-  let pad_l2_barrier =
-    let canonical2 = (base_count + 3) lsr 2 in
-    if
-      delay_merges_on_pad && max_layer >= 2
-      && canonical2 < compression_counts.(1)
-    then Some (compress_start + compression_counts.(0) + canonical2)
-    else None
-  in
   for li = 0 to max_layer - 1 do
     let layer = li + 1 in
     layer_start.(layer) <- !task_idx ;
@@ -2849,14 +2820,7 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
           let dep_src i = if i < base_count then i else 0 in
           let dep_l = prove_start + dep_src left_child in
           let dep_r = prove_start + dep_src right_child in
-          let base_deps =
-            if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
-          in
-          ( match pad_l2_barrier with
-          | Some b when not is_pad ->
-              (* Real layer-1 merge: also wait on the padding barrier. *)
-              Array.append base_deps [| b |]
-          | _ -> base_deps )
+          if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
         else
           let prev_start = layer_start.(layer - 1) in
           [| prev_start + left_child; prev_start + right_child |]
