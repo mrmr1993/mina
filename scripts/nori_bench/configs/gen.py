@@ -1,52 +1,63 @@
 #!/usr/bin/env python3
 """Generate resource-aware scheduler configs for the nori proof conversion.
 
-A config is { "budget": float, "jobs": { <job-key>: alloc } } where an alloc is
-either a bare int N (shorthand for {cores: N, cost: N}, i.e. 1:1, no
-oversubscription) or {"cores": int, "cost": float}. cores is the rayon the
-worker runs the job at; cost is what the job draws from the budget. cores > cost
-models oversubscription.
+A config is the complete, reproducible spec of a run:
+  { "budget": float,
+    "jobs": { <job-key>: alloc } }
+where an alloc is either a bare int N (shorthand for {cores:N, cost:N,
+priority:0}) or an object {"cores": int, "cost": float, "priority": int,
+"worker": str}. cores is the rayon the worker runs the job at; cost is what the
+job draws from budget (cores > cost models oversubscription); priority is the
+scheduling-order dial (higher runs first among ready, affordable tasks); worker
+(base jobs only) pins the job to a worker -- the runner derives the worker set
+and each worker's base-circuit shard from these.
 
-Job keys are per-job identities: base circuit index "0".."23", "layer1:<i>",
-"node:<layer>:<i>", plus a "default" fallback.
+Job keys: base circuit index "0".."23", "layer1:<i>", "node:<layer>:<i>", and a
+"default" fallback (covers witness/compute-state jobs).
 
 Usage: gen.py <name> > configs/<name>.json
 """
 import json
 import sys
 
-# Tree shape for 24 base proofs padded to 32: layer1 has 16 nodes (12 real +
-# 4 padding), node:2 has 8 (6+2), node:3 has 4 (3+1), node:4 has 2, node:5 has 1.
-HEAVY_BASE = {8, 9, 10, 11, 14, 15, 16, 17, 20, 21, 22, 23}
+# Worker shards (het-14 layout): which base circuits each worker compiles/serves.
+SHARDS = [[8, 9], [10, 11], [14, 15], [16, 17], [20, 21], [22, 23],
+          [0, 1], [2, 3], [4, 5], [6], [7], [12, 13], [18], [19]]
+WORKER_OF = {c: f"w{i}" for i, sh in enumerate(SHARDS) for c in sh}
+
+# Priority tiers: witness/compute-state must run first (gate everything), base
+# proofs next, merges last. The budget handles contention; priority only breaks
+# ties among ready, affordable tasks.
+PRI_DEFAULT, PRI_BASE, PRI_MERGE = 3, 2, 0
 
 
 def _tail(jobs, ramp):
-    """Lean disciplined tail (1:1 cost). ramp[L] = cores for real node:L nodes."""
+    """Lean disciplined tail (1:1 cost, merge priority). ramp[L] = real node:L cores."""
     for i in range(16):
-        jobs[f"layer1:{i}"] = 1
-    for i in range(6):
-        jobs[f"node:2:{i}"] = ramp[2]
-    for i in (6, 7):
-        jobs[f"node:2:{i}"] = 1
-    for i in range(3):
-        jobs[f"node:3:{i}"] = ramp[3]
-    jobs["node:3:3"] = 1
+        jobs[f"layer1:{i}"] = {"cores": 1, "cost": 1, "priority": PRI_MERGE}
+    for i in range(8):
+        c = ramp[2] if i < 6 else 1
+        jobs[f"node:2:{i}"] = {"cores": c, "cost": c, "priority": PRI_MERGE}
+    for i in range(4):
+        c = ramp[3] if i < 3 else 1
+        jobs[f"node:3:{i}"] = {"cores": c, "cost": c, "priority": PRI_MERGE}
     for i in range(2):
-        jobs[f"node:4:{i}"] = ramp[4]
-    jobs["node:5:0"] = ramp[5]
-    jobs["default"] = 1
+        jobs[f"node:4:{i}"] = {"cores": ramp[4], "cost": ramp[4], "priority": PRI_MERGE}
+    jobs["node:5:0"] = {"cores": ramp[5], "cost": ramp[5], "priority": PRI_MERGE}
+    jobs["default"] = {"cores": 1, "cost": 1, "priority": PRI_DEFAULT}
 
 
 def oversub_head():
-    """Oversubscribed head (R5-style 5-thread base) + lean disciplined tail.
+    """Oversubscribed head (5-thread base) + lean disciplined tail.
 
-    Base runs on 5 threads each (like uniform R5, head ~82s) but only draws
-    20/14 ~= 1.4 budget so all 14 workers run concurrently. The tail stays 1:1
-    so the 12 layer-1 merges (1 core each) never contend.
+    Base runs on 5 threads each (like uniform R5, head ~70s with merges held
+    off by the budget) but draws only ~1.4 budget so all 14 workers run
+    concurrently. The tail stays 1:1 so the 12 layer-1 merges never contend.
     """
     jobs = {}
     for n in range(24):
-        jobs[str(n)] = {"cores": 5, "cost": 1.4}
+        jobs[str(n)] = {"cores": 5, "cost": 1.4, "priority": PRI_BASE,
+                        "worker": WORKER_OF[n]}
     _tail(jobs, {2: 2, 3: 4, 4: 6, 5: 8})
     return {"budget": 20, "jobs": jobs}
 
