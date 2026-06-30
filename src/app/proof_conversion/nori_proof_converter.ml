@@ -1748,12 +1748,19 @@ let tip_fuse = Option.is_some (Stdlib.Sys.getenv_opt "TIP_FUSE")
    Same per-task hook as [tip_fuse]. *)
 let tip_commit_split = Stdlib.Sys.getenv_opt "TIP_COMMIT_SPLIT"
 
-(* When [COMPRESS_THREADS=N] is set, the daemon sets KIMCHI_PROVE_THREADS=N for
-   tip-layer compress proofs (0 -- the worker's own global rayon -- otherwise),
-   so those low-concurrency proofs run in a scoped N-thread pool while the many
-   parallel base proofs keep the worker's lean global rayon. Same per-task hook
-   as [tip_fuse]; the tail layers are those selected by [tip_layers]. *)
+(* When [COMPRESS_THREADS=N] is set, the daemon ramps KIMCHI_PROVE_THREADS per
+   compression layer: the merges still live at a layer share the cores, so each
+   gets ceil([compress_cores] / merges_at_layer) threads, capped at N (the
+   per-proof ceiling). High-concurrency layers stay lean, low-concurrency layers
+   climb toward N. Base proofs keep the worker's global rayon (0). Same per-task
+   hook as [tip_fuse]. *)
 let compress_threads = Stdlib.Sys.getenv_opt "COMPRESS_THREADS"
+
+(* Core count the compression ramp targets at each layer; defaults to this
+   machine's core count. *)
+let compress_cores =
+  Option.value_map ~default:20 ~f:Int.of_string
+    (Stdlib.Sys.getenv_opt "COMPRESS_CORES")
 
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
@@ -2424,9 +2431,18 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   ~data:(if is_tip then n else "1")
             | None -> () ) ;
             ( match compress_threads with
-            | Some n ->
+            | Some cap_s ->
+                let cap = Int.of_string cap_s in
+                let layer = Int.of_string layer_s in
+                let base_count = Int.of_string base_count_s in
+                let merges =
+                  Int.max 1
+                    ((base_count + (1 lsl layer) - 1) / (1 lsl layer))
+                in
+                let ramp = (compress_cores + merges - 1) / merges in
+                let rayon = Int.min cap (Int.max 1 ramp) in
                 Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
-                  ~data:(if is_tip then n else "0")
+                  ~data:(Int.to_string rayon)
             | None -> () ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
