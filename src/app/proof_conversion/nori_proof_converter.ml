@@ -1939,6 +1939,16 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
     let running = ref 0 in
     let completed = ref 0 in
     let failures = ref [] in
+    (* Resource-aware scheduler core budget: a job dispatches only when
+       [free_cores] covers its [job_rayon]; cores are released on completion.
+       With no [scheduler_config], both are 0 so the gate is a no-op. *)
+    let free_cores =
+      ref (Option.value_map scheduler_config ~default:0 ~f:(fun c -> c.cores))
+    in
+    let job_rayon i =
+      Option.value_map scheduler_config ~default:0 ~f:(fun c ->
+          Int.min c.cores (config_task_rayon c tasks.(i).cmd) )
+    in
     (* [BASE_FIRST]: hold back every compression task until all base proofs have
        started proving, so the prove-capacity gate is never shared between base
        proofs and the compression of already-finished shards. *)
@@ -1998,14 +2008,18 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           Hashtbl.set pid_to_task ~key:pid ~data:i ;
           Option.iter worker_used ~f:(fun w ->
               Hashtbl.set pid_to_worker ~key:pid ~data:w ) ;
-          incr running
+          incr running ;
+          free_cores := !free_cores - job_rayon i
     in
     (* Highest-priority ready task satisfying [serves], or -1 if none. *)
     let best_task_for serves =
       let best = ref (-1) in
       let best_pri = ref Int.min_value in
       for i = 0 to n - 1 do
-        if is_ready i && tasks.(i).priority > !best_pri && serves i then (
+        if
+          is_ready i && tasks.(i).priority > !best_pri && serves i
+          && job_rayon i <= !free_cores
+        then (
           best := i ;
           best_pri := tasks.(i).priority )
       done ;
@@ -2075,6 +2089,7 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
           | None ->
               () ) ;
           decr running ;
+          free_cores := !free_cores + job_rayon task_idx ;
           ( match status with
           | Ok () ->
               tasks.(task_idx).status <- Done ;
