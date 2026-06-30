@@ -14,6 +14,12 @@ cd "$REPO"
 CONFIG="$(realpath "$CONFIG")"
 NAME="$(basename "$CONFIG" .json)"
 LOG="/tmp/nori_run_${NAME}.dag.log"
+LIVE=/tmp/nori_run.log
+
+# Mirror all output to a fixed live file so a single `tail -F /tmp/nori_run.log`
+# in another shell follows every run, regardless of the per-config name.
+exec > >(tee "$LIVE") 2>&1
+echo "=== run $NAME @ $(date +%H:%M:%S) ==="
 
 eval "$(opam env)" 2>/dev/null || true
 ulimit -s 65532 2>/dev/null || true
