@@ -2642,8 +2642,14 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
       let right_child = (index * 2) + 1 in
       let deps =
         if layer = 1 then
-          let dep_l = prove_start + min left_child (base_count - 1) in
-          let dep_r = prove_start + min right_child (base_count - 1) in
+          (* A padding child (index >= base_count) is read as base 0, the dummy
+             proof (see [read_base]'s [else 0]). Depend on base 0 to match, so a
+             padding merge can't be dispatched before base 0 is written and then
+             fail reading it -- the clamped [min _ (base_count-1)] guarded the
+             wrong base. *)
+          let dep_src i = if i < base_count then i else 0 in
+          let dep_l = prove_start + dep_src left_child in
+          let dep_r = prove_start + dep_src right_child in
           if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
         else
           let prev_start = layer_start.(layer - 1) in
@@ -3001,8 +3007,14 @@ let run_parallel_pipeline ~cache_dir ~parallelism ~compress_parallelism ~system
       let right_child = (index * 2) + 1 in
       let deps =
         if layer = 1 then
-          let dep_l = prove_start + min left_child (base_count - 1) in
-          let dep_r = prove_start + min right_child (base_count - 1) in
+          (* A padding child (index >= base_count) is read as base 0, the dummy
+             proof (see [read_base]'s [else 0]). Depend on base 0 to match, so a
+             padding merge can't be dispatched before base 0 is written and then
+             fail reading it -- the clamped [min _ (base_count-1)] guarded the
+             wrong base. *)
+          let dep_src i = if i < base_count then i else 0 in
+          let dep_l = prove_start + dep_src left_child in
+          let dep_r = prove_start + dep_src right_child in
           if dep_l = dep_r then [| dep_l |] else [| dep_l; dep_r |]
         else
           let prev_start = layer_start.(layer - 1) in
