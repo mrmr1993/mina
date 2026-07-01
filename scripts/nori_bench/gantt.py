@@ -109,12 +109,14 @@ def render(jobs, width, config):
           f"(r = rayon)")
     print(" " * 18 + "0" + "-" * (width - 1) + f"{span:.0f}s")
     last_cls = None
-    for j in jobs:
+    for row, j in enumerate(jobs):
         if j["cls"] != last_cls:
             last_cls = j["cls"]
         s, e = col(j["start"]), max(col(j["start"]) + 1, col(j["end"]))
         bar = " " * s + "#" * (e - s)
         bar = bar[:width].ljust(width)
+        if row % 2 == 1:
+            bar = bar.replace(" ", "-")
         r = f"r{j['rayon']}" if j["rayon"] is not None else "  "
         lbl = f"{j['cls'][:4]:>5} {j['label']:<10} {r:>3}"
         print(f"{lbl[:17]:<17}|{bar}|")
