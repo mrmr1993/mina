@@ -115,11 +115,13 @@ def render(jobs, width, config):
         s, e = col(j["start"]), max(col(j["start"]) + 1, col(j["end"]))
         bar = " " * s + "#" * (e - s)
         bar = bar[:width].ljust(width)
-        if row % 2 == 1:
-            bar = bar.replace(" ", "-")
         r = f"r{j['rayon']}" if j["rayon"] is not None else "  "
         lbl = f"{j['cls'][:4]:>5} {j['label']:<10} {r:>3}"
-        print(f"{lbl[:17]:<17}|{bar}|")
+        cell = f"{lbl[:17]:<17}"
+        if row % 2 == 1:
+            bar = bar.replace(" ", "-")
+            cell = cell.rstrip() + "-" * (len(cell) - len(cell.rstrip()))
+        print(f"{cell}|{bar}|")
     # utilisation strips, sampled instantaneously at each column midpoint and
     # normalised to the budget (full bar = budget; rayon over budget = saturated)
     print("-" * (18 + width))
