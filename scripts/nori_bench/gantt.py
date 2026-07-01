@@ -146,24 +146,15 @@ def render(jobs, width, config):
 CLS_CODE = {"witness": "w", "state": "s", "base": "b", "merge": "m", "other": "?"}
 
 
-# merge nodes get a flat global id numbered layer-by-layer (layer1 first):
-# layer1:i -> i (0..15), node:2:i -> 16+i, node:3:i -> 24+i, node:4:i -> 28+i,
-# node:5:0 -> 30. Counts assume the 32-leaf padded tree.
-_LAYER_COUNTS = [16, 8, 4, 2, 1]
-_LAYER_OFFSET = {}
-_acc = 0
-for _L, _c in enumerate(_LAYER_COUNTS, start=1):
-    _LAYER_OFFSET[_L] = _acc
-    _acc += _c
-
-
 def merge_node_id(label):
+    """Merge id: layer digit + hex position within the layer, e.g. layer1:7->17,
+    layer1:15->1f, node:2:3->23, node:5:0->50."""
     if label.startswith("layer1:"):
         layer, idx = 1, int(label.split(":")[1])
     else:  # node:<layer>:<idx>
         _, layer, idx = label.split(":")
         layer, idx = int(layer), int(idx)
-    return _LAYER_OFFSET.get(layer, 0) + idx
+    return f"{layer}{idx:x}"
 
 
 def job_short_id(j):
@@ -171,7 +162,7 @@ def job_short_id(j):
     base -> circuit index, state -> sN, witness -> its short tag."""
     cls, label = j["cls"], j["label"]
     if cls == "merge":
-        return str(merge_node_id(label))
+        return merge_node_id(label)
     if cls == "state":
         return "s" + label
     if cls == "base":
@@ -200,7 +191,7 @@ def render_workers(jobs, width, config):
         by_sock.setdefault(j["socket"], []).append(j)
     print()
     print(f"per-worker  makespan {span:.0f}s   1 col ~= {1/scale:.1f}s   "
-          f"(ids: merge=node base=circuit sN=state; b/s/w/m=class; +=overlap)")
+          f"(ids: merge=layer+hexpos base=circuit sN=state; b/s/w/m=class; +=overlap)")
     print(" " * 18 + "0" + "-" * (width - 1) + f"{span:.0f}s")
 
     def sort_key(sock):
