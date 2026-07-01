@@ -165,7 +165,12 @@ def render_workers(jobs, width, config):
     print(f"per-worker  makespan {span:.0f}s   1 col ~= {1/scale:.1f}s   "
           f"(b=base s=state w=witness m=merge, +=overlap)")
     print(" " * 18 + "0" + "-" * (width - 1) + f"{span:.0f}s")
-    for sock in sorted(by_sock):
+
+    def sort_key(sock):
+        m = re.search(r"\d+", labels.get(sock, ""))
+        return (int(m.group()) if m else sock)
+
+    for sock in sorted(by_sock, key=sort_key):
         ws = by_sock[sock]
         cells, busy = [], 0.0
         for c in range(width):
