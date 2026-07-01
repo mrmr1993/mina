@@ -87,7 +87,14 @@ def cost_lookup(config):
     jobs = config.get("jobs", {})
 
     def cost(cls, label):
-        key = label if cls in ("base", "merge") else "default"
+        if cls in ("base", "merge"):
+            key = label
+        elif cls == "state":
+            key = "state:" + label
+        elif cls == "witness":
+            key = "aux-witness" if label == "aux" else "default"
+        else:
+            key = "default"
         a = jobs.get(key, jobs.get("default", 1))
         if isinstance(a, dict):
             return float(a.get("cost", a.get("cores", 1)))
