@@ -143,13 +143,46 @@ def render(jobs, width, config):
               f"  (full bar = budget {budget:.0f})")
 
 
-CLS_CODE = {"witness": "w", "state": "s", "base": "b", "merge": "m", "other": "?"}
+# merge nodes get a flat global id numbered layer-by-layer (layer1 first):
+# layer1:i -> i (0..15), node:2:i -> 16+i, node:3:i -> 24+i, node:4:i -> 28+i,
+# node:5:0 -> 30. Counts assume the 32-leaf padded tree.
+_LAYER_COUNTS = [16, 8, 4, 2, 1]
+_LAYER_OFFSET = {}
+_acc = 0
+for _L, _c in enumerate(_LAYER_COUNTS, start=1):
+    _LAYER_OFFSET[_L] = _acc
+    _acc += _c
+
+
+def merge_node_id(label):
+    if label.startswith("layer1:"):
+        layer, idx = 1, int(label.split(":")[1])
+    else:  # node:<layer>:<idx>
+        _, layer, idx = label.split(":")
+        layer, idx = int(layer), int(idx)
+    return _LAYER_OFFSET.get(layer, 0) + idx
+
+
+def job_short_id(j):
+    """Compact per-job label to show inside its bar segment: merge -> node id,
+    base -> circuit index, state -> sN, witness -> its short tag."""
+    cls, label = j["cls"], j["label"]
+    if cls == "merge":
+        return str(merge_node_id(label))
+    if cls == "state":
+        return "s" + label
+    if cls == "base":
+        return label
+    if cls == "witness":
+        return label
+    return "?"
 
 
 def render_workers(jobs, width, config):
     """One row per worker (the actual serving worker.<i>.sock), showing its busy
-    timeline so idle gaps to fill are obvious. Each column is the class code of a
-    job active on that worker there; '+' marks 2+ overlapping jobs, ' ' is idle."""
+    timeline so idle gaps to fill are obvious. Each contiguous job segment is
+    filled with '-' and shows the job's id centred (merge=node id, base=circuit
+    index, sN=state); '+' marks 2+ overlapping jobs, ' ' is idle."""
     served = [j for j in jobs if j.get("socket") is not None]
     if not served:
         print("(no worker-socket info in log -- cannot draw per-worker view)")
@@ -163,7 +196,7 @@ def render_workers(jobs, width, config):
         by_sock.setdefault(j["socket"], []).append(j)
     print()
     print(f"per-worker  makespan {span:.0f}s   1 col ~= {1/scale:.1f}s   "
-          f"(b=base s=state w=witness m=merge, +=overlap)")
+          f"(ids: merge=node, base=circuit, sN=state; +=overlap)")
     print(" " * 18 + "0" + "-" * (width - 1) + f"{span:.0f}s")
 
     def sort_key(sock):
@@ -172,18 +205,28 @@ def render_workers(jobs, width, config):
 
     for sock in sorted(by_sock, key=sort_key):
         ws = by_sock[sock]
-        cells, busy = [], 0.0
+        active = []
         for c in range(width):
             t = t0 + (c + 0.5) / scale
-            active = [j for j in ws if j["start"] <= t < j["end"]]
-            if not active:
-                cells.append(" ")
-            elif len(active) > 1:
-                cells.append("+")
-            else:
-                cells.append(CLS_CODE.get(active[0]["cls"], "?"))
-        for j in ws:
-            busy += min(j["end"], t0 + span) - j["start"]
+            hits = [j for j in ws if j["start"] <= t < j["end"]]
+            active.append("+" if len(hits) > 1 else hits[0]["n"] if hits else None)
+        cells = [" " if a is None else "+" if a == "+" else "-" for a in active]
+        ids = {j["n"]: job_short_id(j) for j in ws}
+        c = 0
+        while c < width:
+            a = active[c]
+            if a is None or a == "+":
+                c += 1
+                continue
+            start = c
+            while c < width and active[c] == a:
+                c += 1
+            seg = c - start
+            lbl = ids.get(a, "")[:seg]
+            off = start + (seg - len(lbl)) // 2
+            for i, ch in enumerate(lbl):
+                cells[off + i] = ch
+        busy = sum(min(j["end"], t0 + span) - j["start"] for j in ws)
         util = 100 * busy / span if span > 0 else 0
         name = labels.get(sock, f"sock{sock}")
         print(f"{name:>11} ({len(ws):>2}) |{''.join(cells)}|  {util:.0f}%")
