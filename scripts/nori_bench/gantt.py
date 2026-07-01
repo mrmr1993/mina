@@ -181,7 +181,7 @@ def render_workers(jobs, width, config):
             busy += min(j["end"], t0 + span) - j["start"]
         util = 100 * busy / span if span > 0 else 0
         name = labels.get(sock, f"sock{sock}")
-        print(f"{name:>12} ({len(ws):>2}) |{''.join(cells)}|  {util:.0f}%")
+        print(f"{name:>11} ({len(ws):>2}) |{''.join(cells)}|  {util:.0f}%")
 
 
 def main():
