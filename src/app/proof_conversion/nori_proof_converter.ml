@@ -1811,8 +1811,9 @@ let compress_cores =
 (* Resource-aware scheduler configuration, loaded from the JSON file named by
    [SCHEDULER_CONFIG]. [budget] is the total the scheduler allocates across
    concurrently-running jobs. [jobs] assigns each individual job (keyed by
-   identity: base index, "layer1:<i>", "node:<layer>:<i>", with a "default"
-   fallback) an allocation: [cores] is the rayon the worker runs the job at,
+   identity: base index, "layer1:<i>", "node:<layer>:<i>", "state:<n>",
+   "aux-witness", with a "default" fallback) an allocation:
+   [cores] is the rayon the worker runs the job at,
    [cost] is what the job draws from [budget]. [cores] > [cost] models
    oversubscription -- a job running on more threads than its effective core
    cost. A bare integer [N] is shorthand for [{ cores = N; cost = N }] (1:1).
@@ -1887,8 +1888,9 @@ let scheduler_config : scheduler_config option =
 
 (* The {cores; cost} allocation for a task under the resource-aware scheduler:
    an explicit per-job assignment from the config, keyed by job identity -- base
-   circuit index ("0".."23"), "layer1:<index>", or "node:<layer>:<index>" --
-   falling back to a "default" entry, then to one core at 1:1 cost. *)
+   circuit index ("0".."23"), "layer1:<index>", "node:<layer>:<index>",
+   "state:<n>", or "aux-witness" -- falling back to a "default" entry, then to
+   one core at 1:1 cost. *)
 let config_task_alloc cfg cmd =
   let key =
     match
@@ -1901,6 +1903,8 @@ let config_task_alloc cfg cmd =
         else Some (sprintf "node:%s:%s" layer index)
     | "compute-state" :: _workdir :: n :: _ ->
         Some ("state:" ^ n)
+    | "compute-aux-witness" :: _workdir :: _ ->
+        Some "aux-witness"
     | _ ->
         None
   in
