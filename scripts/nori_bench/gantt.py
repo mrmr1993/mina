@@ -233,8 +233,8 @@ def render_workers(jobs, width, config):
             start = c
             while c < width and active[c] == a:
                 c += 1
-            # boundary marker at the segment start (both rows aligned)
-            id_row[start], cls[start] = "|", "|"
+            # boundary marker at the segment start (id row only)
+            id_row[start] = "|"
             seg = c - start - 1
             lbl = ids.get(a, "")[:max(seg, 0)]
             off = start + 1 + (seg - len(lbl)) // 2
