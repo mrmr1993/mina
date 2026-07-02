@@ -1433,139 +1433,142 @@ let do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
     Printf.eprintf "Layer %d index %d copied from canonical dummy %d.\n%!" layer
       index canonical )
   else
-  let system = W.detect_system ~workdir in
-  let left_idx = index * 2 in
-  let right_idx = (index * 2) + 1 in
-  let prev_layer = layer - 1 in
-  if layer = 1 then (
-    (* Layer 1: merge two base proofs *)
-    let actual_base = W.base_count system in
-    (* last_hash is only needed for dummy/padding slots (index >= base_count).
-       Read lazily so compression of early pairs can start before all states
-       are computed. *)
-    let last_hash = lazy (W.read_hash ~workdir ~n:(actual_base - 1)) in
-    let read_base i =
-      let real_i = if i < actual_base then i else 0 in
-      let proof_b64, _ =
-        W.read_proof_file ~path:(W.proof_path workdir ~layer:0 ~index:real_i)
+    let system = W.detect_system ~workdir in
+    let left_idx = index * 2 in
+    let right_idx = (index * 2) + 1 in
+    let prev_layer = layer - 1 in
+    if layer = 1 then (
+      (* Layer 1: merge two base proofs *)
+      let actual_base = W.base_count system in
+      (* last_hash is only needed for dummy/padding slots (index >= base_count).
+         Read lazily so compression of early pairs can start before all states
+         are computed. *)
+      let last_hash = lazy (W.read_hash ~workdir ~n:(actual_base - 1)) in
+      let read_base i =
+        let real_i = if i < actual_base then i else 0 in
+        let proof_b64, _ =
+          W.read_proof_file ~path:(W.proof_path workdir ~layer:0 ~index:real_i)
+        in
+        let vk_b64, _ =
+          W.read_vk_file ~path:(W.vk_path workdir ~layer:0 ~index:real_i)
+        in
+        let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
+        let proof = P.of_base64 proof_b64 |> Result.ok_or_failwith in
+        let vk =
+          Pickles.Side_loaded.Verification_key.of_base64 vk_b64
+          |> Or_error.ok_exn
+        in
+        if i < actual_base then
+          let cin = W.read_hash ~workdir ~n:(i - 1) in
+          let cout = W.read_hash ~workdir ~n:i in
+          (cin, cout, proof, vk, true)
+        else
+          let lh = Lazy.force last_hash in
+          (lh, lh, proof, vk, false)
       in
-      let vk_b64, _ =
-        W.read_vk_file ~path:(W.vk_path workdir ~layer:0 ~index:real_i)
+      let cin_l, cout_l, proof_l, vk_l, verify_l = read_base left_idx in
+      let cin_r, cout_r, proof_r, vk_r, verify_r = read_base right_idx in
+      let witness : TC.layer1_witness =
+        { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
+        ; vk_left = vk_l
+        ; verify_left = verify_l
+        ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
+        ; vk_right = vk_r
+        ; verify_right = verify_r
+        ; pi_left = (cin_l, cout_l)
+        ; pi_right = (cin_r, cout_r)
+        }
       in
-      let module P = Pickles.Proof.Make (Pickles_types.Nat.N0) in
-      let proof = P.of_base64 proof_b64 |> Result.ok_or_failwith in
-      let vk =
-        Pickles.Side_loaded.Verification_key.of_base64 vk_b64 |> Or_error.ok_exn
+      let carry, proof = TC.prove_layer1 ~prover:layer1_prove ~witness in
+      let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
+      W.write_proof_file
+        ~path:(W.proof_path workdir ~layer ~index)
+        ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
+      let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 layer1_vk in
+      let vk_hash =
+        let input = Pickles.Side_loaded.Verification_key.to_input layer1_vk in
+        let packed = Random_oracle.pack_input input in
+        Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
       in
-      if i < actual_base then
-        let cin = W.read_hash ~workdir ~n:(i - 1) in
-        let cout = W.read_hash ~workdir ~n:i in
-        (cin, cout, proof, vk, true)
-      else
-        let lh = Lazy.force last_hash in
-        (lh, lh, proof, vk, false)
-    in
-    let cin_l, cout_l, proof_l, vk_l, verify_l = read_base left_idx in
-    let cin_r, cout_r, proof_r, vk_r, verify_r = read_base right_idx in
-    let witness : TC.layer1_witness =
-      { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
-      ; vk_left = vk_l
-      ; verify_left = verify_l
-      ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
-      ; vk_right = vk_r
-      ; verify_right = verify_r
-      ; pi_left = (cin_l, cout_l)
-      ; pi_right = (cin_r, cout_r)
-      }
-    in
-    let carry, proof = TC.prove_layer1 ~prover:layer1_prove ~witness in
-    let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
-    W.write_proof_file
-      ~path:(W.proof_path workdir ~layer ~index)
-      ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
-    let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 layer1_vk in
-    let vk_hash =
-      let input = Pickles.Side_loaded.Verification_key.to_input layer1_vk in
-      let packed = Random_oracle.pack_input input in
-      Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
-    in
-    W.write_vk_file
-      ~path:(W.vk_path workdir ~layer ~index)
-      ~vk_base64:vk_b64 ~vk_hash ;
-    W.marshal_to_file
-      ~path:
-        (Filename.concat (W.state_dir workdir)
-           (sprintf "carry_%d_%d.bin" layer index) )
-      (let (li, ro), vkd = carry in
-       ( Step.Field.Constant.to_string li
-       , Step.Field.Constant.to_string ro
-       , Step.Field.Constant.to_string vkd ) ) ;
-    Printf.eprintf "Layer1 %d compressed.\n%!" index )
-  else
-    let read_carry l i =
-      let (li_s, ro_s, vkd_s) =
-        ( W.marshal_from_file
-            ~path:
-              (Filename.concat (W.state_dir workdir)
-                 (sprintf "carry_%d_%d.bin" l i) )
-          : string * string * string )
+      W.write_vk_file
+        ~path:(W.vk_path workdir ~layer ~index)
+        ~vk_base64:vk_b64 ~vk_hash ;
+      W.marshal_to_file
+        ~path:
+          (Filename.concat (W.state_dir workdir)
+             (sprintf "carry_%d_%d.bin" layer index) )
+        (let (li, ro), vkd = carry in
+         ( Step.Field.Constant.to_string li
+         , Step.Field.Constant.to_string ro
+         , Step.Field.Constant.to_string vkd ) ) ;
+      Printf.eprintf "Layer1 %d compressed.\n%!" index )
+    else
+      let read_carry l i =
+        let (li_s, ro_s, vkd_s) =
+          ( W.marshal_from_file
+              ~path:
+                (Filename.concat (W.state_dir workdir)
+                   (sprintf "carry_%d_%d.bin" l i) )
+            : string * string * string )
+        in
+        ( ( Step.Field.Constant.of_string li_s
+          , Step.Field.Constant.of_string ro_s )
+        , Step.Field.Constant.of_string vkd_s )
       in
-      ( (Step.Field.Constant.of_string li_s, Step.Field.Constant.of_string ro_s)
-      , Step.Field.Constant.of_string vkd_s )
-    in
-    let carry_l = read_carry prev_layer left_idx in
-    let carry_r = read_carry prev_layer right_idx in
-    let proof_l_b64, _ =
-      W.read_proof_file
-        ~path:(W.proof_path workdir ~layer:prev_layer ~index:left_idx)
-    in
-    let proof_r_b64, _ =
-      W.read_proof_file
-        ~path:(W.proof_path workdir ~layer:prev_layer ~index:right_idx)
-    in
-    let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
-    let proof_l = P2.of_base64 proof_l_b64 |> Result.ok_or_failwith in
-    let proof_r = P2.of_base64 proof_r_b64 |> Result.ok_or_failwith in
-    let prev_vk_b64, _ =
-      W.read_vk_file ~path:(W.vk_path workdir ~layer:prev_layer ~index:left_idx)
-    in
-    let prev_vk =
-      Pickles.Side_loaded.Verification_key.of_base64 prev_vk_b64
-      |> Or_error.ok_exn
-    in
-    let witness : TC.node_witness =
-      { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
-      ; vk_left = prev_vk
-      ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
-      ; vk_right = prev_vk
-      ; layer
-      ; carry_left = carry_l
-      ; carry_right = carry_r
-      }
-    in
-    let carry, proof = TC.prove_node ~prover:node_prove ~witness in
-    W.write_proof_file
-      ~path:(W.proof_path workdir ~layer ~index)
-      ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
-    let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 node_vk in
-    let vk_hash =
-      let input = Pickles.Side_loaded.Verification_key.to_input node_vk in
-      let packed = Random_oracle.pack_input input in
-      Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
-    in
-    W.write_vk_file
-      ~path:(W.vk_path workdir ~layer ~index)
-      ~vk_base64:vk_b64 ~vk_hash ;
-    W.write_vk_file ~path:(W.node_vk_path workdir) ~vk_base64:vk_b64 ~vk_hash ;
-    W.marshal_to_file
-      ~path:
-        (Filename.concat (W.state_dir workdir)
-           (sprintf "carry_%d_%d.bin" layer index) )
-      (let (li, ro), vkd = carry in
-       ( Step.Field.Constant.to_string li
-       , Step.Field.Constant.to_string ro
-       , Step.Field.Constant.to_string vkd ) ) ;
-    Printf.eprintf "Node layer %d index %d compressed.\n%!" layer index
+      let carry_l = read_carry prev_layer left_idx in
+      let carry_r = read_carry prev_layer right_idx in
+      let proof_l_b64, _ =
+        W.read_proof_file
+          ~path:(W.proof_path workdir ~layer:prev_layer ~index:left_idx)
+      in
+      let proof_r_b64, _ =
+        W.read_proof_file
+          ~path:(W.proof_path workdir ~layer:prev_layer ~index:right_idx)
+      in
+      let module P2 = Pickles.Proof.Make (Pickles_types.Nat.N2) in
+      let proof_l = P2.of_base64 proof_l_b64 |> Result.ok_or_failwith in
+      let proof_r = P2.of_base64 proof_r_b64 |> Result.ok_or_failwith in
+      let prev_vk_b64, _ =
+        W.read_vk_file
+          ~path:(W.vk_path workdir ~layer:prev_layer ~index:left_idx)
+      in
+      let prev_vk =
+        Pickles.Side_loaded.Verification_key.of_base64 prev_vk_b64
+        |> Or_error.ok_exn
+      in
+      let witness : TC.node_witness =
+        { proof_left = Pickles.Side_loaded.Proof.of_proof proof_l
+        ; vk_left = prev_vk
+        ; proof_right = Pickles.Side_loaded.Proof.of_proof proof_r
+        ; vk_right = prev_vk
+        ; layer
+        ; carry_left = carry_l
+        ; carry_right = carry_r
+        }
+      in
+      let carry, proof = TC.prove_node ~prover:node_prove ~witness in
+      W.write_proof_file
+        ~path:(W.proof_path workdir ~layer ~index)
+        ~proof_base64:(P2.to_base64 proof) ~max_proofs_verified:2 ;
+      let vk_b64 = Pickles.Side_loaded.Verification_key.to_base64 node_vk in
+      let vk_hash =
+        let input = Pickles.Side_loaded.Verification_key.to_input node_vk in
+        let packed = Random_oracle.pack_input input in
+        Kimchi_pasta.Pasta.Fp.to_string (Random_oracle.hash packed)
+      in
+      W.write_vk_file
+        ~path:(W.vk_path workdir ~layer ~index)
+        ~vk_base64:vk_b64 ~vk_hash ;
+      W.write_vk_file ~path:(W.node_vk_path workdir) ~vk_base64:vk_b64 ~vk_hash ;
+      W.marshal_to_file
+        ~path:
+          (Filename.concat (W.state_dir workdir)
+             (sprintf "carry_%d_%d.bin" layer index) )
+        (let (li, ro), vkd = carry in
+         ( Step.Field.Constant.to_string li
+         , Step.Field.Constant.to_string ro
+         , Step.Field.Constant.to_string vkd ) ) ;
+      Printf.eprintf "Node layer %d index %d compressed.\n%!" layer index
 
 (** Standalone compress: compile circuits, then compress.
     Used by [internal compress] for backwards compatibility. *)
@@ -1760,54 +1763,6 @@ let max_compression_layer base_count =
   let rec log2 x acc = if x <= 1 then acc else log2 (x / 2) (acc + 1) in
   log2 padded 0
 
-(** How many of the top compression layers are routed to the dedicated tip
-    worker(s) (configurable via [TIP_LAYERS]; default 1 = the root only). These
-    are the low-parallelism layers where fat provers fill otherwise-idle cores. *)
-let tip_layers =
-  match Stdlib.Sys.getenv_opt "TIP_LAYERS" with
-  | Some s -> ( try Int.of_string s with _ -> 1 )
-  | None -> 1
-
-(* When [TIP_FUSE] is set, the prove daemon toggles [KIMCHI_FUSE_GATES] per
-   task: on for tip-layer compress proofs, off otherwise. This keeps the
-   all-workers architecture (each worker climbs the tree in-process, no
-   cross-worker handoff) while applying the gate fusion only where the tail's
-   low concurrency makes it pay. *)
-let tip_fuse = Option.is_some (Stdlib.Sys.getenv_opt "TIP_FUSE")
-
-(* When [TIP_COMMIT_SPLIT=N] is set, the daemon sets KIMCHI_COMMIT_SPLIT=N for
-   tip-layer compress proofs (1 otherwise), so the small sub-SRS MSMs of those
-   proofs split N ways instead of committing as a single un-saturating MSM.
-   Same per-task hook as [tip_fuse]. *)
-let tip_commit_split = Stdlib.Sys.getenv_opt "TIP_COMMIT_SPLIT"
-
-(* When [COMPRESS_THREADS=N] is set, the daemon ramps KIMCHI_PROVE_THREADS per
-   compression layer: the merges still live at a layer share the cores, so each
-   gets ceil([compress_cores] / merges_at_layer) threads, capped at N (the
-   per-proof ceiling). High-concurrency layers stay lean, low-concurrency layers
-   climb toward N. Base proofs keep the worker's global rayon (0). Same per-task
-   hook as [tip_fuse]. *)
-let compress_threads = Stdlib.Sys.getenv_opt "COMPRESS_THREADS"
-
-(* When [BASE_THREADS=N] is set, the daemon inverts the per-task pool usage:
-   base proofs run in a scoped N-thread pool (lean) while compression proofs use
-   the worker's global pool. With RAYON_NUM_THREADS sized for the merges, this
-   gives R5-style global merge threads with no per-merge pool allocation -- only
-   cheap lean base pools. Mutually exclusive with [COMPRESS_THREADS]. *)
-let base_threads = Stdlib.Sys.getenv_opt "BASE_THREADS"
-
-(* When [PAD_THREADS=N] is set, full-dummy padding compression nodes prove in a
-   scoped N-thread pool. Combined with a dedicated [pad] worker, this computes
-   the data-independent dummy subtree narrow during the head, off the tail's
-   critical path, instead of letting it congest the tail. *)
-let pad_threads = Stdlib.Sys.getenv_opt "PAD_THREADS"
-
-(* Core count the compression ramp targets at each layer; defaults to this
-   machine's core count. *)
-let compress_cores =
-  Option.value_map ~default:20 ~f:Int.of_string
-    (Stdlib.Sys.getenv_opt "COMPRESS_CORES")
-
 (* Resource-aware scheduler configuration, loaded from the JSON file named by
    [SCHEDULER_CONFIG]. [budget] is the total the scheduler allocates across
    concurrently-running jobs. [jobs] assigns each individual job (keyed by
@@ -1844,10 +1799,15 @@ let scheduler_config : scheduler_config option =
       in
       let parse_alloc = function
         | `Int n ->
-            Some { cores = n; cost = float_of_int n; priority = 0; worker = None }
+            Some
+              { cores = n; cost = float_of_int n; priority = 0; worker = None }
         | `Assoc _ as o ->
             let cores =
-              match Yojson.Safe.Util.member "cores" o with `Int n -> n | _ -> 1
+              match Yojson.Safe.Util.member "cores" o with
+              | `Int n ->
+                  n
+              | _ ->
+                  1
             in
             let cost =
               Option.value
@@ -1922,9 +1882,7 @@ let config_task_worker cfg cmd = (config_task_alloc cfg cmd).worker
 (** Derive the capability a task's inner command requires. Witness/state
     tasks run on any worker; only proving and compression are circuit-bound. *)
 let task_requirement cmd =
-  match
-    String.split cmd ~on:' ' |> List.filter ~f:(Fn.non String.is_empty)
-  with
+  match String.split cmd ~on:' ' |> List.filter ~f:(Fn.non String.is_empty) with
   | "prove-zkp" :: _workdir :: n :: _ ->
       Base_circuit (Int.of_string n)
   | "compress" :: _workdir :: base_count :: layer :: index :: _ ->
@@ -2047,7 +2005,8 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
         | Some worker ->
             let self = Filename.quote Sys.argv.(0) in
             sprintf "%s internal dispatch-to-worker %s %s" self
-              (Filename.quote worker.socket) (Filename.quote inner_cmd)
+              (Filename.quote worker.socket)
+              (Filename.quote inner_cmd)
       in
       Printf.eprintf "  [%.3f] #%d starting [%d/%d]%s $ %s\n%!"
         (Core_unix.gettimeofday ())
@@ -2072,7 +2031,9 @@ let run_dag ~parallelism ?(worker_dispatch : worker_cap array option)
       let best_pri = ref Int.min_value in
       for i = 0 to n - 1 do
         if
-          is_ready i && tasks.(i).priority > !best_pri && serves i
+          is_ready i
+          && tasks.(i).priority > !best_pri
+          && serves i
           && Float.(job_cost i <= !free_budget)
         then (
           best := i ;
@@ -2398,14 +2359,13 @@ let do_prove_zkp_groth16 ~provers ~workdir ~n ~skip_verify =
   Printf.eprintf "Daemon proved groth16 zkp%d.\n%!" n
 
 (** Parse a --circuits spec like "0-11,layer1,layer2" or "all". Compression
-    labels: [layerN] serves compression layer N; [node]/[tip] remain shorthands
-    for the intermediate / top-[tip_layers] layers; [compress] is every layer;
+    labels: [layerN] serves compression layer N; [compress] is every layer;
     [pad] dedicates the worker to full-dummy padding nodes and serves no real
-    layer. Returns (base_circuit_set option, served_compression_layers, pad).
-    None for base set means compile all base circuits. *)
+    layer; [@label] tags the worker's identity. Returns
+    (base_circuit_set option, served_compression_layers, pad, label). None for
+    base set means compile all base circuits. *)
 let parse_circuits_spec ~base_count spec =
   let ml = max_compression_layer base_count in
-  let tip_lo = ml - tip_layers + 1 in
   let range lo hi = List.init (max 0 (hi - lo + 1)) ~f:(fun i -> lo + i) in
   if String.equal spec "all" then
     (None, Int.Set.of_list (range 1 ml), false, None)
@@ -2418,9 +2378,7 @@ let parse_circuits_spec ~base_count spec =
     let parts = String.split spec ~on:',' in
     List.iter parts ~f:(fun part ->
         let part = String.strip part in
-        if String.equal part "node" then add_layers (range 2 (tip_lo - 1))
-        else if String.equal part "tip" then add_layers (range tip_lo ml)
-        else if String.equal part "compress" then add_layers (range 1 ml)
+        if String.equal part "compress" then add_layers (range 1 ml)
         else if String.equal part "pad" then pad := true
         else if String.is_prefix part ~prefix:"@" then
           label := Some (String.drop_prefix part 1)
@@ -2581,16 +2539,6 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
             running := false
         | [ "prove-zkp"; workdir; n_str ] ->
             let n = Int.of_string n_str in
-            if tip_fuse then
-              Core_unix.putenv ~key:"KIMCHI_FUSE_GATES" ~data:"0" ;
-            if Option.is_some tip_commit_split then
-              Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT" ~data:"1" ;
-            ( match base_threads with
-            | Some t ->
-                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:t
-            | None ->
-                if Option.is_some compress_threads then
-                  Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ;
             ( match base_provers.(n) with
             | Some (prover, side_vk, proof_module) -> (
                 (* Use pre-compiled prover *)
@@ -2651,44 +2599,6 @@ let run_internal_prove_daemon ~socket_path ~system ~vk_path ~circuits_spec
                   in
                   (prove, vk)
             in
-            let is_tip =
-              let ml = max_compression_layer (Int.of_string base_count_s) in
-              Int.of_string layer_s >= ml - tip_layers + 1
-            in
-            if tip_fuse then
-              Core_unix.putenv ~key:"KIMCHI_FUSE_GATES"
-                ~data:(if is_tip then "1" else "0") ;
-            ( match tip_commit_split with
-            | Some n ->
-                Core_unix.putenv ~key:"KIMCHI_COMMIT_SPLIT"
-                  ~data:(if is_tip then n else "1")
-            | None -> () ) ;
-            let is_pad =
-              Int.of_string index_s lsl Int.of_string layer_s
-              >= Int.of_string base_count_s
-            in
-            ( match pad_threads with
-            | Some p when is_pad ->
-                (* Full-dummy padding node: prove narrow so it fills spare head
-                   capacity without trampling base proofs. *)
-                Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:p
-            | _ -> (
-                match compress_threads with
-                | Some cap_s ->
-                    let cap = Int.of_string cap_s in
-                    let layer = Int.of_string layer_s in
-                    let base_count = Int.of_string base_count_s in
-                    let merges =
-                      Int.max 1
-                        ((base_count + (1 lsl layer) - 1) / (1 lsl layer))
-                    in
-                    let ramp = (compress_cores + merges - 1) / merges in
-                    let rayon = Int.min cap (Int.max 1 ramp) in
-                    Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS"
-                      ~data:(Int.to_string rayon)
-                | None ->
-                    if Option.is_some base_threads then
-                      Core_unix.putenv ~key:"KIMCHI_PROVE_THREADS" ~data:"0" ) ) ;
             do_compress ~layer1_prove ~layer1_vk ~node_prove ~node_vk ~workdir
               ~base_count:(Int.of_string base_count_s)
               ~layer:(Int.of_string layer_s) ~index:(Int.of_string index_s) ;
@@ -2769,9 +2679,7 @@ let discover_workers ~base_count ~socket_dir =
           String.strip (In_channel.read_all manifest)
         else "all"
       in
-      let base_set, layers, pad, label =
-        parse_circuits_spec ~base_count spec
-      in
+      let base_set, layers, pad, label = parse_circuits_spec ~base_count spec in
       { socket
       ; serves_base =
           (fun n ->
@@ -2926,9 +2834,8 @@ let run_daemonised_pipeline ~cache_dir:_ ~worker_sockets ~system ~base_count
           [| prev_start + left_child; prev_start + right_child |]
       in
       (* Full-dummy padding nodes get a priority tier between base proofs (2)
-         and real merges (0): they fill head spare-capacity early -- narrow,
-         under PAD_THREADS -- without delaying base proving or the real merge
-         tree on the critical path. *)
+         and real merges (0): they fill head spare-capacity early without
+         delaying base proving or the real merge tree on the critical path. *)
       tasks.(!task_idx) <-
         { cmd = sprintf "compress %s %d %d %d" workdir base_count layer index
         ; deps
@@ -3503,21 +3410,21 @@ let () =
       let rec parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg ~si =
         function
         | "--system" :: s :: rest ->
-            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg ~si
-              rest
+            parse ~system:(Some s) ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
+              ~si rest
         | "--count" :: n :: rest ->
             parse ~system
               ~count:(Some (Int.of_string n))
               ~socket_dir ~vk_p ~circuits ~sv ~bg ~si rest
         | "--socket-dir" :: d :: rest ->
-            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg ~si
-              rest
+            parse ~system ~count ~socket_dir:(Some d) ~vk_p ~circuits ~sv ~bg
+              ~si rest
         | "--vk-path" :: p :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~sv ~bg ~si
-              rest
+            parse ~system ~count ~socket_dir ~vk_p:(Some p) ~circuits ~sv ~bg
+              ~si rest
         | "--circuits" :: c :: rest ->
-            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~sv ~bg ~si
-              rest
+            parse ~system ~count ~socket_dir ~vk_p ~circuits:(Some c) ~sv ~bg
+              ~si rest
         | "--start-index" :: n :: rest ->
             parse ~system ~count ~socket_dir ~vk_p ~circuits ~sv ~bg
               ~si:(Int.of_string n) rest
