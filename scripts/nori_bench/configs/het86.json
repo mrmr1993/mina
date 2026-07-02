@@ -1,0 +1,490 @@
+{
+ "budget": 20,
+ "jobs": {
+  "0": {
+   "cores": 4,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w0"
+  },
+  "state:0": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w0"
+  },
+  "1": {
+   "cores": 4,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w1"
+  },
+  "state:1": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w1"
+  },
+  "2": {
+   "cores": 3,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w2"
+  },
+  "state:2": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w2"
+  },
+  "3": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w3"
+  },
+  "state:3": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w3"
+  },
+  "4": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w4"
+  },
+  "state:4": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w4"
+  },
+  "5": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 2,
+   "worker": "w5"
+  },
+  "state:5": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w5"
+  },
+  "6": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w6"
+  },
+  "state:6": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w6"
+  },
+  "7": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w7"
+  },
+  "state:7": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w7"
+  },
+  "8": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w8"
+  },
+  "state:8": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "9": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w9"
+  },
+  "state:9": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "10": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w10"
+  },
+  "state:10": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "11": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w11"
+  },
+  "state:11": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "12": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w12"
+  },
+  "aux-witness": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w12"
+  },
+  "state:12": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w12"
+  },
+  "13": {
+   "cores": 3,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w13"
+  },
+  "state:13": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "14": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w0"
+  },
+  "state:14": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "15": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w1"
+  },
+  "state:15": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "16": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w2"
+  },
+  "state:16": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "17": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w1"
+  },
+  "state:17": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "18": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w4"
+  },
+  "state:18": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "19": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w5"
+  },
+  "state:19": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "20": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w6"
+  },
+  "state:20": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "21": {
+   "cores": 3,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w7"
+  },
+  "state:21": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "22": {
+   "cores": 3,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w3"
+  },
+  "state:22": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "23": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w2"
+  },
+  "state:23": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 3,
+   "worker": "w13"
+  },
+  "layer1:0": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w0"
+  },
+  "layer1:1": {
+   "cores": 3,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w5"
+  },
+  "layer1:2": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w3"
+  },
+  "layer1:3": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w8"
+  },
+  "layer1:4": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w9"
+  },
+  "layer1:5": {
+   "cores": 3,
+   "cost": 1,
+   "priority": 2,
+   "worker": "w11"
+  },
+  "layer1:6": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w12"
+  },
+  "layer1:7": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w10"
+  },
+  "layer1:8": {
+   "cores": 3,
+   "cost": 3,
+   "priority": 0,
+   "worker": "w10"
+  },
+  "layer1:9": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w6"
+  },
+  "layer1:10": {
+   "cores": 3,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w7"
+  },
+  "layer1:11": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w2"
+  },
+  "layer1:12": {
+   "cores": 2,
+   "cost": 1,
+   "priority": 0,
+   "worker": "w4"
+  },
+  "layer1:13": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 0,
+   "worker": "w4"
+  },
+  "layer1:14": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 0,
+   "worker": "w4"
+  },
+  "layer1:15": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 0,
+   "worker": "w4"
+  },
+  "node:2:0": {
+   "cores": 4,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w0"
+  },
+  "node:2:1": {
+   "cores": 4,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w8"
+  },
+  "node:2:2": {
+   "cores": 4,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w9"
+  },
+  "node:2:3": {
+   "cores": 2,
+   "cost": 2,
+   "priority": 0,
+   "worker": "w12"
+  },
+  "node:2:4": {
+   "cores": 6,
+   "cost": 3,
+   "priority": 0,
+   "worker": "w10"
+  },
+  "node:2:5": {
+   "cores": 6,
+   "cost": 5,
+   "priority": 0,
+   "worker": "w5"
+  },
+  "node:2:6": {
+   "cores": 3,
+   "cost": 3,
+   "priority": 0,
+   "worker": "w4"
+  },
+  "node:2:7": {
+   "cores": 1,
+   "cost": 0,
+   "priority": 0,
+   "worker": "w6"
+  },
+  "node:3:0": {
+   "cores": 6,
+   "cost": 5,
+   "priority": 0,
+   "worker": "w0"
+  },
+  "node:3:1": {
+   "cores": 6,
+   "cost": 5,
+   "priority": 0,
+   "worker": "w1"
+  },
+  "node:3:2": {
+   "cores": 6,
+   "cost": 5,
+   "priority": 0,
+   "worker": "w2"
+  },
+  "node:3:3": {
+   "cores": 6,
+   "cost": 5,
+   "priority": 0,
+   "worker": "w3"
+  },
+  "node:4:0": {
+   "cores": 10,
+   "cost": 10,
+   "priority": 0,
+   "worker": "w0"
+  },
+  "node:4:1": {
+   "cores": 10,
+   "cost": 10,
+   "priority": 0,
+   "worker": "w1"
+  },
+  "node:5:0": {
+   "cores": 10,
+   "cost": 10,
+   "priority": 0,
+   "worker": "w2"
+  },
+  "default": {
+   "cores": 1,
+   "cost": 1,
+   "priority": 3
+  }
+ }
+}
