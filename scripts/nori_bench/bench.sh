@@ -67,7 +67,7 @@ if [ "${#POOLS[@]}" -eq 0 ]; then
 fi
 
 ulimit -s 65532 2>/dev/null || true; ulimit -n 10240 2>/dev/null || true
-export MINA_USE_MMAP_CACHE=1 OCAMLRUNPARAM='O=20' KIMCHI_FUSED_EVAL=1
+export MINA_USE_MMAP_CACHE=1 OCAMLRUNPARAM='O=20' KIMCHI_FUSED_EVAL="${KIMCHI_FUSED_EVAL:-1}"
 export PICKLES_PROVE_SLOTS="$SLOTS"
 # shellcheck disable=SC2086
 [ -n "$EXTRA_ENV" ] && export $EXTRA_ENV
