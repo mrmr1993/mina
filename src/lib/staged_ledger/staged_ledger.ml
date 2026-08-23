@@ -1961,12 +1961,84 @@ module T = struct
       Diff_creation_log.end_log log ~completed_work:res.completed_work_rev
         ~commands:res.commands_rev ~coinbase:res.coinbase
     in
-    let make_diff res1 = function
+    let make_diff_untraced res1 = function
       | Some res2 ->
           ( (pre_diff_with_two (fst res1), Some (pre_diff_with_one (fst res2)))
           , List.map ~f:end_log [ res1; res2 ] )
       | None ->
           ((pre_diff_with_two (fst res1), None), [ end_log res1 ])
+    in
+    (* Review aid, off unless [MINA_DIFF_TRACE] names a file. Every diff this
+       function produces is appended there: both pre-diffs, and the creation
+       log that says which candidates were discarded and why. Diff creation
+       decides block contents, so a change to it is expected to be exactly
+       behaviour-preserving; running a suite with this set before and after
+       such a change, and comparing the two files, is a direct check of that.
+       Not a feature -- it exists to be diffed. *)
+    let make_diff res1 res2 =
+      let (pre_two, pre_one), log = make_diff_untraced res1 res2 in
+      ( match Sys.getenv "MINA_DIFF_TRACE" with
+      | None ->
+          ()
+      | Some path ->
+          (* Spelled out rather than derived: the checked work and command
+             types carry proofs and have no sexp of their own, and the
+             identifying parts are what a comparison wants anyway. *)
+          let work_sexp w =
+            Sexp.List
+              [ Transaction_snark_work.Statement.sexp_of_t
+                  (Transaction_snark_work.Checked.statement w)
+              ; Currency.Fee.sexp_of_t (Transaction_snark_work.Checked.fee w)
+              ; Signature_lib.Public_key.Compressed.sexp_of_t
+                  (Transaction_snark_work.Checked.prover w)
+              ]
+          in
+          let cmd_sexp c =
+            User_command.sexp_of_t (User_command.forget_check c)
+          in
+          let coinbase_sexp cb =
+            Staged_ledger_diff.At_most_two.sexp_of_t
+              Coinbase.Fee_transfer.sexp_of_t cb
+          in
+          let two_sexp (d : (_, _) Staged_ledger_diff.Pre_diff_two.t) =
+            Sexp.List
+              [ Sexp.List (List.map ~f:work_sexp d.completed_works)
+              ; Sexp.List (List.map ~f:cmd_sexp d.commands)
+              ; coinbase_sexp d.coinbase
+              ]
+          in
+          let one_sexp (d : (_, _) Staged_ledger_diff.Pre_diff_one.t) =
+            Sexp.List
+              [ Sexp.List (List.map ~f:work_sexp d.completed_works)
+              ; Sexp.List (List.map ~f:cmd_sexp d.commands)
+              ; Staged_ledger_diff.At_most_one.sexp_of_t
+                  Coinbase.Fee_transfer.sexp_of_t d.coinbase
+              ]
+          in
+          let diff_sexp =
+            Sexp.to_string_mach
+              (Sexp.List
+                 [ two_sexp pre_two
+                 ; ( match pre_one with
+                   | None ->
+                       Sexp.Atom "none"
+                   | Some d ->
+                       one_sexp d )
+                 ] )
+          in
+          let summaries, detailed = List.unzip log in
+          Out_channel.with_file path ~append:true ~f:(fun oc ->
+              Out_channel.output_string oc (diff_sexp ^ "\n") ;
+              Out_channel.output_string oc
+                ( Yojson.Safe.to_string
+                    (Diff_creation_log.summary_list_to_yojson summaries)
+                ^ "\n" ) ;
+              Out_channel.output_string oc
+                ( Yojson.Safe.to_string
+                    (Diff_creation_log.detail_list_to_yojson
+                       (List.map ~f:List.rev detailed) )
+                ^ "\n" ) ) ) ;
+      ((pre_two, pre_one), log)
     in
     let has_no_commands (res : Resources.t) =
       Sequence.length res.commands_rev = 0
